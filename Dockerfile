@@ -13,7 +13,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 - Frontend
 # ---------------------------------------------------------------------------
-FROM node:24-alpine AS web
+FROM node:24-alpine3.24 AS web
 WORKDIR /web
 
 # Dependency layer (cached while package.json / package-lock.json do not change)
@@ -27,7 +27,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2 - Backend (embeds the frontend build through web/embed.go)
 # ---------------------------------------------------------------------------
-FROM golang:1.27-alpine AS build
+FROM golang:1.27.1-alpine3.24 AS build
 RUN apk add --no-cache git ca-certificates
 WORKDIR /src
 
@@ -53,7 +53,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
 # ---------------------------------------------------------------------------
 # Stage 3 - Runtime
 # ---------------------------------------------------------------------------
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata wget \
     && adduser -D -u 1000 -h /app up
@@ -63,7 +63,10 @@ COPY --from=build /out/up /usr/local/bin/up
 USER up
 WORKDIR /app
 
-# The application port inside the container; docker-compose maps 3000:3000.
+# The runtime port comes from the APP_PORT environment variable (see
+# docker/.env.example): ENV and EXPOSE below only document the default, EXPOSE is
+# metadata and does not influence the published port. The health check already
+# reads ${APP_PORT}, so it follows any value the operator sets.
 ENV APP_PORT=3000
 EXPOSE 3000
 

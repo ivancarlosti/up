@@ -150,7 +150,40 @@ The database therefore contains credentials (SMTP passwords, cluster key):
 protect the database accordingly and remember that the MySQL connection is
 plaintext unless `DB_SSL=true`.
 
-## 9. Container posture
+## 10. Dependency posture (audited on 2026-09-22)
+
+Vulnerability audit of the shipped artifact, performed with the official
+databases (OSV/Google, `govulncheck` and Trivy), separating what is compiled
+into the binary from test-only dependencies.
+
+| Check | Tool | Result |
+|---|---|---|
+| Go modules reachable from `cmd/server` | `govulncheck ./...` | **0 vulnerabilities** affecting the code; 0 in imported packages |
+| Go modules required but not called | `govulncheck` / OSV | 1 informational: `GO-2026-5932` (`golang.org/x/crypto/openpgp`, unmaintained **by design**, `Fixed version: N/A`, package not imported - confirmed with `go mod why`) |
+| Frontend packages (`web/package-lock.json`, 136 packages) | OSV + `npm audit` | **0 advisories** |
+| Container image (`alpine` packages + Go binary) | `trivy image` | **0** HIGH/CRITICAL; 0 MEDIUM; 1 UNKNOWN (the same `openpgp` advisory above, no fix exists) |
+
+Remediations applied in that audit:
+
+| Item | From | To | Reason |
+|---|---|---|---|
+| `github.com/quic-go/quic-go` | v0.59.0 | v0.63.0 | CVE-2026-40898 (QPACK trailer expansion, MODERATE) reachable through `gin`'s http3 support |
+| `filippo.io/edwards25519` | v1.1.0 | v1.2.0 | CVE-2026-26958 (LOW), pulled in by the MySQL driver |
+| `github.com/go-sql-driver/mysql` | v1.8.1 | v1.10.1 | driver on the hot path of every query |
+| `github.com/nicholas-fedor/shoutrrr` | v0.21.0 | v0.21.1 | notification engine patch |
+| `github.com/go-jose/go-jose/v4`, `go-playground/validator/v10`, `goccy/go-json`, `leodido/go-urn`, `ugorji/go/codec`, `mongo-driver/v2` … | - | latest patch | routine patch bumps |
+| Base images | `alpine:3.22`, `golang:1.27-alpine`, `node:24-alpine` | `alpine:3.24`, `golang:1.27.1-alpine3.24`, `node:24-alpine3.24` | newer busybox/musl/openssl/wget patch levels |
+
+How to reproduce the audit:
+
+```bash
+go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed \
+  ghcr.io/ivancarlosti/up:latest
+cd web && npm audit
+```
+
 
 The final image runs as the non-root user `up` (uid 1000) on Alpine, contains a
 single statically linked binary and ships its own `HEALTHCHECK`. There is no
