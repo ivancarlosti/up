@@ -42,19 +42,19 @@ function isActive(name: string): boolean {
   <aside
     :class="
       cn(
-        'fixed inset-y-14 left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-2 py-3 transition-transform lg:static lg:translate-x-0',
+        'fixed inset-y-14 left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-3 py-4 transition-transform lg:static lg:translate-x-0',
         props.mobileOpen ? 'translate-x-0' : '-translate-x-full',
       )
     "
   >
-    <nav class="flex flex-col gap-0.5">
+    <nav class="flex flex-col gap-1">
       <RouterLink
         v-for="item in items"
         :key="item.name"
         :to="item.to"
         :class="
           cn(
-            'flex items-center gap-2 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            'flex items-center gap-2.5 rounded-md px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
             isActive(item.name) && 'bg-accent font-medium text-foreground',
           )
         "

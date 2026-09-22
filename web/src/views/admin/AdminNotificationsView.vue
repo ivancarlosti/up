@@ -209,27 +209,27 @@ onMounted(load)
     </div>
 
     <Card :title="t('notifications.logs')">
-      <table class="w-full text-xs">
-        <thead class="text-left text-muted-foreground">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th class="pb-2">{{ t('common.name') }}</th>
-            <th class="pb-2">{{ t('common.status') }}</th>
-            <th class="pb-2">{{ t('common.latency') }}</th>
-            <th class="pb-2">event</th>
-            <th class="pb-2">{{ t('monitorDetail.checkedAt') }}</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('common.status') }}</th>
+            <th>{{ t('common.latency') }}</th>
+            <th>event</th>
+            <th>{{ t('monitorDetail.checkedAt') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in logs" :key="entry.id" class="border-t border-border">
-            <td class="py-1.5">#{{ entry.notification_id }} / #{{ entry.monitor_id }}</td>
-            <td class="py-1.5">
+          <tr v-for="entry in logs" :key="entry.id">
+            <td>#{{ entry.notification_id }} / #{{ entry.monitor_id }}</td>
+            <td>
               <Badge :variant="entry.success ? 'success' : 'danger'">{{ entry.success ? 'ok' : 'error' }}</Badge>
             </td>
-            <td class="py-1.5">{{ entry.duration_ms }} ms</td>
-            <td class="py-1.5">
+            <td>{{ entry.duration_ms }} ms</td>
+            <td>
               <div class="max-w-[18rem] truncate" :title="entry.error">{{ entry.event }} {{ entry.error }}</div>
             </td>
-            <td class="py-1.5 text-muted-foreground">{{ formatDateTime(entry.created_at, locale) }}</td>
+            <td class="text-muted-foreground">{{ formatDateTime(entry.created_at, locale) }}</td>
           </tr>
           <tr v-if="!logs.length">
             <td class="py-2 text-muted-foreground" colspan="5">{{ t('notifications.emptyLogs') }}</td>

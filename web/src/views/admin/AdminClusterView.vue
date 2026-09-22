@@ -211,31 +211,31 @@ onMounted(load)
     </Card>
 
     <Card :title="t('cluster.nodes')">
-      <table class="w-full text-xs">
-        <thead class="text-left text-muted-foreground">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th class="pb-2">{{ t('common.name') }}</th>
-            <th class="pb-2">{{ t('cluster.apiUrl') }}</th>
-            <th class="pb-2">{{ t('common.status') }}</th>
-            <th class="pb-2">{{ t('cluster.lastHeartbeat') }}</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('cluster.apiUrl') }}</th>
+            <th>{{ t('common.status') }}</th>
+            <th>{{ t('cluster.lastHeartbeat') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="node in status?.nodes ?? []" :key="node.node_id" class="border-t border-border">
-            <td class="py-1.5">
+          <tr v-for="node in status?.nodes ?? []" :key="node.node_id">
+            <td>
               <span class="flex items-center gap-2">
                 {{ node.name }}
                 <Badge v-if="node.is_primary" variant="success">{{ t('cluster.primary') }}</Badge>
                 <Badge v-if="node.is_self" variant="outline">{{ t('cluster.self') }}</Badge>
               </span>
             </td>
-            <td class="py-1.5 font-mono">{{ node.api_url }}</td>
-            <td class="py-1.5">
+            <td class="font-mono">{{ node.api_url }}</td>
+            <td>
               <Badge :variant="node.status === 'online' ? 'success' : node.status === 'degraded' ? 'warning' : 'danger'">
                 {{ node.status === 'online' ? t('cluster.online') : t('cluster.offline') }}
               </Badge>
             </td>
-            <td class="py-1.5 text-muted-foreground">{{ formatDateTime(node.last_heartbeat, locale) }}</td>
+            <td class="text-muted-foreground">{{ formatDateTime(node.last_heartbeat, locale) }}</td>
           </tr>
         </tbody>
       </table>

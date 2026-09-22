@@ -150,22 +150,67 @@
   }
 }
 
-/* Heartbeat bars: a compact useful visualisation without a charting library. */
-.heartbeat-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 1.5rem;
+/*
+ * Spacing scale used across the UI (Tailwind spacing units):
+ *   surface padding   p-5        (cards, dialogs)  - text never sits closer than 20px
+ *   surface header    px-5 py-4  (card headers, footers)
+ *   between surfaces  gap-5/gap-6 (page sections, grids)
+ *   inside a surface  gap-3/gap-4 (form rows, stat blocks)
+ *   related items     gap-1/gap-2 (label + value, icon + text)
+ * Cells of the data tables below follow the same idea (px-3 py-3).
+ */
+@layer components {
+  /*
+   * Data tables inside cards. A single definition keeps padding, header style
+   * and row separators identical on every screen; the per-cell utilities it
+   * replaces had drifted apart (pb-2 in some views, py-1.5 in others).
+   */
+  .data-table {
+    @apply w-full text-xs sm:text-[13px];
+  }
+
+  .data-table thead th {
+    @apply border-b border-border px-3 py-2.5 text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase;
+  }
+
+  .data-table tbody td {
+    @apply border-b border-border/60 px-3 py-3 align-middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-accent/40;
+  }
 }
 
-.heartbeat-bar span {
-  flex: 1 1 0;
-  min-width: 2px;
-  border-radius: 2px;
-  background-color: var(--color-status-unknown);
-  transition: opacity 120ms ease-in-out;
-}
+/* Heartbeat bars: a compact useful visualisation without a charting library.
+ * The container is a track so the empty slots of the window are visible too.
+ * These rules live in the components layer on purpose: unlayered CSS would win
+ * over the Tailwind utilities and repaint every bar with the "unknown" colour. */
+@layer components {
+  .heartbeat-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 1.75rem;
+    padding: 2px;
+    border-radius: var(--radius-sm);
+    background-color: var(--color-muted);
+  }
 
-.heartbeat-bar span:hover {
-  opacity: 0.7;
+  .heartbeat-bar span {
+    flex: 1 1 0;
+    min-width: 2px;
+    height: 100%;
+    border-radius: 2px;
+    background-color: var(--color-status-unknown);
+    transition: opacity 120ms ease-in-out;
+  }
+
+  .heartbeat-bar span:hover {
+    opacity: 0.7;
+  }
 }

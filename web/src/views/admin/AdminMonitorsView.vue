@@ -111,29 +111,29 @@ onMounted(load)
     <EmptyState v-if="!filtered.length" :title="t('dashboard.empty')" :description="t('dashboard.emptyHint')" />
 
     <Card v-else :padded="false">
-      <table class="w-full text-xs">
-        <thead class="text-left text-muted-foreground">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th class="px-4 py-3">{{ t('common.name') }}</th>
-            <th class="px-4 py-3">{{ t('common.type') }}</th>
-            <th class="px-4 py-3">{{ t('common.status') }}</th>
-            <th class="px-4 py-3">{{ t('common.interval') }}</th>
-            <th class="px-4 py-3">{{ t('common.uptime') }}</th>
-            <th class="px-4 py-3">{{ t('common.actions') }}</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('common.type') }}</th>
+            <th>{{ t('common.status') }}</th>
+            <th>{{ t('common.interval') }}</th>
+            <th>{{ t('common.uptime') }}</th>
+            <th>{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="monitor in filtered" :key="monitor.id" class="border-t border-border">
-            <td class="px-4 py-2.5">
+          <tr v-for="monitor in filtered" :key="monitor.id">
+            <td>
               <button class="text-left hover:underline" @click="router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })">
                 {{ monitor.name }}
               </button>
             </td>
-            <td class="px-4 py-2.5"><Badge variant="secondary">{{ monitor.type }}</Badge></td>
-            <td class="px-4 py-2.5"><StatusBadge :status="monitor.status" /></td>
-            <td class="px-4 py-2.5">{{ formatInterval(monitor.interval_seconds) }}</td>
-            <td class="px-4 py-2.5">{{ formatUptime(monitor.uptime_24h) }}</td>
-            <td class="px-4 py-2.5">
+            <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
+            <td><StatusBadge :status="monitor.status" /></td>
+            <td>{{ formatInterval(monitor.interval_seconds) }}</td>
+            <td>{{ formatUptime(monitor.uptime_24h) }}</td>
+            <td>
               <div class="flex items-center gap-1">
                 <Button variant="ghost" size="sm" @click="openEdit(monitor)">
                   <Pencil class="h-3.5 w-3.5" aria-hidden="true" />

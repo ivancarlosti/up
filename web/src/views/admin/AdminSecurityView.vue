@@ -163,31 +163,31 @@ onMounted(load)
         </Button>
       </template>
 
-      <table class="w-full text-xs">
-        <thead class="text-left text-muted-foreground">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th class="pb-2">{{ t('security.tokenName') }}</th>
-            <th class="pb-2">{{ t('security.tokenPrefix') }}</th>
-            <th class="pb-2">{{ t('security.tokenScopes') }}</th>
-            <th class="pb-2">{{ t('security.lastUsed') }}</th>
-            <th class="pb-2">{{ t('common.actions') }}</th>
+            <th>{{ t('security.tokenName') }}</th>
+            <th>{{ t('security.tokenPrefix') }}</th>
+            <th>{{ t('security.tokenScopes') }}</th>
+            <th>{{ t('security.lastUsed') }}</th>
+            <th>{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="token in tokens" :key="token.id" class="border-t border-border">
-            <td class="py-1.5">
+          <tr v-for="token in tokens" :key="token.id">
+            <td>
               <span class="flex items-center gap-2">
                 <KeyRound class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 {{ token.name }}
               </span>
             </td>
-            <td class="py-1.5 font-mono">{{ token.prefix }}</td>
-            <td class="py-1.5">{{ token.scopes.join(', ') }}</td>
-            <td class="py-1.5 text-muted-foreground">
+            <td class="font-mono">{{ token.prefix }}</td>
+            <td>{{ token.scopes.join(', ') }}</td>
+            <td class="text-muted-foreground">
               {{ token.last_used_at ? formatDateTime(token.last_used_at, locale) : t('security.neverUsed') }}
               <span v-if="token.last_used_ip"> · {{ token.last_used_ip }}</span>
             </td>
-            <td class="py-1.5">
+            <td>
               <div class="flex items-center gap-1">
                 <Badge v-if="token.revoked_at" variant="danger">{{ t('security.revoked') }}</Badge>
                 <Button v-else variant="ghost" size="sm" @click="revokeToken(token)">{{ t('security.revoke') }}</Button>
@@ -225,27 +225,27 @@ onMounted(load)
         <p class="mt-1">{{ t('security.yourIp') }}: <code>{{ clientIP }}</code></p>
       </Alert>
 
-      <table class="w-full text-xs">
-        <thead class="text-left text-muted-foreground">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th class="pb-2">{{ t('security.ruleCidr') }}</th>
-            <th class="pb-2">{{ t('security.ruleAction') }}</th>
-            <th class="pb-2">{{ t('security.ruleScope') }}</th>
-            <th class="pb-2">{{ t('security.note') }}</th>
-            <th class="pb-2">{{ t('common.actions') }}</th>
+            <th>{{ t('security.ruleCidr') }}</th>
+            <th>{{ t('security.ruleAction') }}</th>
+            <th>{{ t('security.ruleScope') }}</th>
+            <th>{{ t('security.note') }}</th>
+            <th>{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="rule in rules" :key="rule.id" class="border-t border-border">
-            <td class="py-1.5 font-mono">{{ rule.cidr }}</td>
-            <td class="py-1.5">
+          <tr v-for="rule in rules" :key="rule.id">
+            <td class="font-mono">{{ rule.cidr }}</td>
+            <td>
               <Badge :variant="rule.action === 'allow' ? 'success' : 'danger'">
                 {{ rule.action === 'allow' ? t('security.actionAllow') : t('security.actionDeny') }}
               </Badge>
             </td>
-            <td class="py-1.5">{{ rule.scope }}</td>
-            <td class="py-1.5 text-muted-foreground">{{ rule.note }}</td>
-            <td class="py-1.5">
+            <td>{{ rule.scope }}</td>
+            <td class="text-muted-foreground">{{ rule.note }}</td>
+            <td>
               <Button variant="ghost" size="sm" class="text-status-down" @click="removeRule(rule)">
                 <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
