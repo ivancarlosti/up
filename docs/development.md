@@ -121,7 +121,19 @@ go test ./internal/services -run AggregateVotes -v
 gofmt -l .              # formatting check (empty output = clean)
 
 cd web && npm run typecheck && npm run build
+
+# boot smoke test: loads the built bundle in headless Chrome, fails on any
+# JavaScript error raised while starting up and checks that #app rendered
+npm run smoke
+npm run smoke -- --url https://up.example.com   # against a running instance
 ```
+
+> `npm run smoke` needs a Chrome/Chromium binary (set `CHROME_BIN` if it is not on
+> the `PATH`). It exists because `curl /` answers 200 even when the SPA never
+> mounts, so a blank page can ship unnoticed - exactly what happened once with the
+> theme store. The default run serves `dist/` through `vite preview`; without a
+> backend the `/api/*` calls fail and the app falls back to the login screen,
+> which is enough to catch a broken boot.
 
 Security checks (see `docs/security.md` §10 for the last audit results):
 
@@ -142,11 +154,20 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 ## 7. Building and running the image
 
 ```bash
-docker build -t ghcr.io/ivancarlosti/up:latest .
+# VERSION and COMMIT are stamped into the binary (-ldflags) and shown by
+# /api/version, Admin > About and the "starting Up" log line; the CI passes them
+# from the release tag (see .github/workflows/build.yml).
+docker build \
+  --build-arg VERSION="$(git describe --tags --always)" \
+  --build-arg COMMIT="$(git rev-parse --short HEAD)" \
+  -t ghcr.io/ivancarlosti/up:latest .
 docker compose -f docker/docker-compose.yml up -d
 docker compose -f docker/docker-compose.yml logs -f up
 docker compose -f docker/docker-compose.yml down
 ```
+
+Without `--build-arg` the binary reports `dev` / `unknown` (the Dockerfile
+defaults), which is what a plain `docker build .` produces.
 
 Validate the compose file without starting it:
 
@@ -282,6 +303,9 @@ PY
 | Monitor stays `pending` | the worker log line `monitor worker started`; then `GET /api/monitors/:id/heartbeats` |
 | No notification | `GET /api/notifications/logs`, then `POST /api/notifications/:id/test` |
 | Dashboard not updating live | `GET /api/ws` requires the session cookie; check the reverse proxy upgrade headers |
+| Blank page in the browser | the Go binary serves the SPA shell with 200 even when the JavaScript fails: run `npm run smoke -- --url <instance>` (or check the browser console) and look for `[up] unexpected error` / `ReferenceError`. A boot failure is now rendered inside `#app` as well |
+| Boot log flooded with SQL | `LOG_LEVEL=debug` raises the GORM logger to `Info` (every statement). Keep `info` outside debugging |
+| `record not found` in the log | only expected when the missing row matters; the normal "does it exist yet?" lookups are silenced through `IgnoreRecordNotFoundError` (`internal/database/database.go`) |
 | `web/dist` placeholder still shown | run `npm run build` then rebuild the Go binary (the assets are embedded) |
 
 ## 12. Conventions for contributors
