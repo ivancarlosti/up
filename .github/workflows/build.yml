@@ -147,6 +147,12 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          # Stamp the release into the binary: without these arguments the
+          # Dockerfile defaults (ARG VERSION=dev / COMMIT=unknown) end up in
+          # /api/version, in Admin > About and in the startup log.
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:latest
             ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:${{ steps.version.outputs.version }}

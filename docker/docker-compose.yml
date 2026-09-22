@@ -17,6 +17,14 @@ services:
   up:
     image: ghcr.io/ivancarlosti/up:latest
     container_name: up
+    # Build locally instead of pulling the published image (optional):
+    #   VERSION=$(git describe --tags --always) COMMIT=$(git rev-parse --short HEAD) \
+    #     docker compose -f docker/docker-compose.yml up -d --build
+    # build:
+    #   context: ..
+    #   args:
+    #     VERSION: ${VERSION:-dev}
+    #     COMMIT: ${COMMIT:-unknown}
     # Loads docker/.env into the container environment (path is relative to
     # this compose file).
     env_file: .env
