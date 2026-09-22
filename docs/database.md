@@ -323,3 +323,9 @@ ORDER BY h.monitor_id, h.node_id;
 ```sql
 DELETE FROM heartbeats WHERE created_at < ?;
 ```
+
+Choosing the window: a monitor stores one row per check **per node**, so a 60 s
+interval produces ~1 440 rows/day and a cluster of two nodes doubles that. A 90
+day window keeps the charts of the dashboard complete while bounding the table
+(10 monitors on 2 nodes ≈ 2.6 M rows instead of growing forever); `0` keeps every
+heartbeat, which is the default.
