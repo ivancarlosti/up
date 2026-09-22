@@ -52,7 +52,10 @@ const target = computed(() => {
       <StatusBadge :status="monitor.status" pulse />
     </div>
 
-    <HeartbeatBar :heartbeats="monitor.heartbeats" :size="30" />
+    <!-- The dashboard payload does not carry the heartbeat series yet, so the bar
+         is only drawn when there is something to show (an empty track reads as a
+         broken widget). -->
+    <HeartbeatBar v-if="monitor.heartbeats?.length" :heartbeats="monitor.heartbeats" :size="30" />
 
     <dl class="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
       <div>
