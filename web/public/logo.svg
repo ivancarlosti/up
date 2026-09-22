@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Up">
+  <title>Up</title>
+  <defs>
+    <linearGradient id="upBalloon" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%" stop-color="#7dd3fc" />
+      <stop offset="45%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="upBasket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#92400e" />
+    </linearGradient>
+  </defs>
+
+  <!-- envelope (the balloon itself) -->
+  <path
+    d="M32 4c11.6 0 21 9.2 21 20.6 0 9.6-6.3 17.2-13.2 21.4h-15.6C17.3 41.8 11 34.2 11 24.6 11 13.2 20.4 4 32 4z"
+    fill="url(#upBalloon)"
+  />
+  <!-- highlight -->
+  <ellipse cx="23.5" cy="16.5" rx="5" ry="7.5" fill="#ffffff" opacity="0.35" transform="rotate(-18 23.5 16.5)" />
+  <!-- upward arrow: the "up" mark -->
+  <path d="M32 15.5 42 27h-6.4v10h-7.2V27H22z" fill="#ffffff" opacity="0.92" />
+  <!-- ropes -->
+  <path d="M25.6 46 28.4 52M38.4 46 35.6 52" stroke="#1e40af" stroke-width="1.6" stroke-linecap="round" fill="none" />
+  <!-- basket -->
+  <rect x="25.4" y="52" width="13.2" height="8" rx="2.2" fill="url(#upBasket)" />
+  <path d="M25.4 55h13.2" stroke="#7c2d12" stroke-width="1" opacity="0.7" />
+</svg>

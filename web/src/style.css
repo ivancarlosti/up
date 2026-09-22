@@ -1,0 +1,171 @@
+/* ---------------------------------------------------------------------------
+ * Up - global stylesheet (Tailwind CSS v4, CSS-first configuration)
+ *
+ * The design tokens follow the shadcn-vue convention: CSS custom properties for
+ * the light and dark palettes plus an @theme inline block that exposes them as
+ * Tailwind utilities (bg-background, text-muted-foreground, ...).
+ * ------------------------------------------------------------------------- */
+
+@import 'tailwindcss';
+
+/* Dark mode is driven by the `dark` class on <html> (see index.html and
+ * src/composables/useTheme.ts), which allows light / dark / system. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --radius: 0.65rem;
+
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.21 0.02 265);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 265);
+
+  --primary: oklch(0.55 0.19 264);
+  --primary-foreground: oklch(0.98 0.01 260);
+
+  --secondary: oklch(0.96 0.01 265);
+  --secondary-foreground: oklch(0.3 0.02 265);
+
+  --muted: oklch(0.96 0.01 265);
+  --muted-foreground: oklch(0.53 0.02 265);
+
+  --accent: oklch(0.95 0.02 264);
+  --accent-foreground: oklch(0.3 0.03 265);
+
+  --destructive: oklch(0.58 0.21 27);
+  --destructive-foreground: oklch(0.98 0.01 20);
+
+  --border: oklch(0.9 0.01 265);
+  --input: oklch(0.9 0.01 265);
+  --ring: oklch(0.55 0.19 264);
+
+  /* Monitor states */
+  --status-up: oklch(0.63 0.17 148);
+  --status-down: oklch(0.58 0.21 27);
+  --status-degraded: oklch(0.72 0.16 74);
+  --status-pending: oklch(0.6 0.03 265);
+  --status-maintenance: oklch(0.6 0.13 240);
+  --status-unknown: oklch(0.7 0.02 265);
+}
+
+.dark {
+  --background: oklch(0.16 0.02 265);
+  --foreground: oklch(0.97 0.01 260);
+
+  --card: oklch(0.2 0.02 265);
+  --card-foreground: oklch(0.97 0.01 260);
+  --popover: oklch(0.2 0.02 265);
+  --popover-foreground: oklch(0.97 0.01 260);
+
+  --primary: oklch(0.66 0.17 264);
+  --primary-foreground: oklch(0.16 0.02 265);
+
+  --secondary: oklch(0.26 0.02 265);
+  --secondary-foreground: oklch(0.97 0.01 260);
+
+  --muted: oklch(0.26 0.02 265);
+  --muted-foreground: oklch(0.72 0.02 265);
+
+  --accent: oklch(0.29 0.03 265);
+  --accent-foreground: oklch(0.97 0.01 260);
+
+  --destructive: oklch(0.66 0.19 25);
+  --destructive-foreground: oklch(0.16 0.02 265);
+
+  --border: oklch(0.3 0.02 265);
+  --input: oklch(0.3 0.02 265);
+  --ring: oklch(0.66 0.17 264);
+
+  --status-up: oklch(0.72 0.17 148);
+  --status-down: oklch(0.68 0.19 27);
+  --status-degraded: oklch(0.8 0.15 80);
+  --status-pending: oklch(0.68 0.03 265);
+  --status-maintenance: oklch(0.7 0.13 240);
+  --status-unknown: oklch(0.6 0.02 265);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-status-up: var(--status-up);
+  --color-status-down: var(--status-down);
+  --color-status-degraded: var(--status-degraded);
+  --color-status-pending: var(--status-pending);
+  --color-status-maintenance: var(--status-maintenance);
+  --color-status-unknown: var(--status-unknown);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+      'Noto Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Heartbeat bars: a compact useful visualisation without a charting library. */
+.heartbeat-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 1.5rem;
+}
+
+.heartbeat-bar span {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background-color: var(--color-status-unknown);
+  transition: opacity 120ms ease-in-out;
+}
+
+.heartbeat-bar span:hover {
+  opacity: 0.7;
+}

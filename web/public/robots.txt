@@ -1,0 +1,11 @@
+# Up - robots policy
+#
+# Public status pages are meant to be shareable and indexable, while the
+# dashboard and the API must never be crawled.
+User-agent: *
+Allow: /status/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login
+
+Sitemap: /status/latest

@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# Up - Git ignore rules
+# ---------------------------------------------------------------------------
+
+# Environment files (never commit real credentials)
+.env
+.env.local
+docker/.env
+
+# Go build output
+/bin/
+/up
+up
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Frontend
+web/node_modules/
+web/dist/*
+!web/dist/index.html
+web/.vite/
+web/.env.local
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors / OS
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs and local scratch
+*.log
+/tmp/

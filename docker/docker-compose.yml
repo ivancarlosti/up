@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Up - Docker Compose
+#
+# The container connects to an EXTERNAL MariaDB/MySQL server through the
+# special "host.docker.internal" hostname (enabled by extra_hosts below), so
+# this file intentionally declares NO database service: the database always
+# lives outside of the container (host machine, another server or a managed
+# service).
+#
+# Quick start:
+#   cp docker/.env.example docker/.env    # then edit the credentials
+#   docker compose -f docker/docker-compose.yml up -d
+#   docker compose -f docker/docker-compose.yml logs -f up
+# ---------------------------------------------------------------------------
+
+services:
+  up:
+    image: ghcr.io/ivancarlosti/up:latest
+    container_name: up
+    # Loads docker/.env into the container environment (path is relative to
+    # this compose file).
+    env_file: .env
+    # Host port -> container port. The application always listens on
+    # APP_PORT inside the container (default 3000); only the left side needs
+    # to change if 3000 is already taken on the host.
+    ports:
+      - "3000:3000"
+    # Makes the Docker host reachable from inside the container as
+    # host.docker.internal. This is what the default DB_HOST points to.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

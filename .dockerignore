@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# Up - Docker build context exclusions
+# The web/ dist is always produced inside the image (stage 1), so the
+# pre-built directory is excluded to keep the build context small.
+# ---------------------------------------------------------------------------
+
+.git
+.github
+.gitignore
+docker
+docs
+LICENSE
+*.md
+
+# Environment files must never leak into an image layer
+.env
+.env.*
+docker/.env
+
+# Frontend dependencies and build output (rebuilt inside the image)
+web/node_modules
+web/dist
+web/.vite
+
+# Local tooling / scratch
+tools/node_modules
+*.log

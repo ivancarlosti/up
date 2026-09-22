@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Up - uptime monitoring</title>
+    <style>
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: #0b0f19;
+        color: #e5e7eb;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+      }
+      main { max-width: 34rem; padding: 2rem; line-height: 1.6; }
+      code { background: #111827; padding: 0.15rem 0.4rem; border-radius: 0.25rem; }
+      a { color: #60a5fa; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Placeholder committed on purpose (see web/embed.go): it keeps `go build`
+      working before the Vue frontend has ever been built. The Docker image
+      replaces this directory with the real Vite output, and for local
+      development:
+        cd web && npm ci && npm run build     # refreshes web/dist
+        cd web && npm run dev                 # Vite dev server with /api proxy
+    -->
+    <main>
+      <h1>Up is running</h1>
+      <p>The Go backend is up, but this binary does not embed a frontend build yet.</p>
+      <p>
+        Build the UI with <code>cd web &amp;&amp; npm ci &amp;&amp; npm run build</code> (or use the
+        Docker image), then reload this page.
+      </p>
+      <p>
+        The REST API is already available: <code>/api/health</code>,
+        <code>/api/version</code>, <code>/api/settings</code>.
+      </p>
+      <p>Documentation: <a href="https://github.com/ivancarlosti/up/tree/main/docs">/docs</a></p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,190 @@
+// Package services implements the business rules of Up (monitors, heartbeats,
+// statistics, notifications, cluster, status pages, tokens and security).
+//
+// Handlers only validate HTTP input and translate errors into JSON; every
+// decision lives here so it can be reused by the scheduler, the cluster worker
+// and the public API.
+package services
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"sync"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"github.com/ivancarlosti/up/internal/config"
+	"github.com/ivancarlosti/up/internal/models"
+	"github.com/ivancarlosti/up/internal/utils"
+)
+
+// SettingService reads and writes the shared key/value configuration. Since
+// the table lives in the external database, every node of the cluster sees the
+// same values (session secret, cluster private key, defaults...).
+type SettingService struct {
+	db    *gorm.DB
+	cfg   *config.Config
+	log   *slog.Logger
+	mu    sync.RWMutex
+	cache map[string]string
+}
+
+// NewSettingService creates the service and loads the current values.
+func NewSettingService(db *gorm.DB, cfg *config.Config, log *slog.Logger) *SettingService {
+	svc := &SettingService{db: db, cfg: cfg, log: log, cache: map[string]string{}}
+	ctx := context.Background()
+	var rows []models.Setting
+	if err := db.WithContext(ctx).Find(&rows).Error; err == nil {
+		for _, row := range rows {
+			svc.cache[row.Key] = row.Value
+		}
+	}
+	return svc
+}
+
+// Get returns a setting value.
+func (s *SettingService) Get(key string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.cache[key]
+	return value, ok
+}
+
+// GetOr returns the setting value or a fallback.
+func (s *SettingService) GetOr(key, fallback string) string {
+	if value, ok := s.Get(key); ok && value != "" {
+		return value
+	}
+	return fallback
+}
+
+// Set upserts a setting (shared by every node).
+func (s *SettingService) Set(ctx context.Context, key, value string) error {
+	row := models.Setting{Key: key, Value: value}
+	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "setting_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&row).Error
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.cache[key] = value
+	s.mu.Unlock()
+	return nil
+}
+
+// All returns a copy of the settings map.
+func (s *SettingService) All() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.cache))
+	for k, v := range s.cache {
+		out[k] = v
+	}
+	return out
+}
+
+// DefaultLocale is the language offered to first time visitors.
+func (s *SettingService) DefaultLocale() string {
+	return s.GetOr(models.SettingDefaultLocale, s.cfg.DefaultLocale)
+}
+
+// DefaultTheme is the theme offered to first time visitors.
+func (s *SettingService) DefaultTheme() string {
+	return s.GetOr(models.SettingDefaultTheme, s.cfg.DefaultTheme)
+}
+
+// SetDefaults stores the locale/theme defaults edited in Admin > Settings.
+func (s *SettingService) SetDefaults(ctx context.Context, locale, theme string) error {
+	if locale != "" {
+		if !containsString(config.SupportedLocales, locale) {
+			return errors.New("unsupported locale " + locale)
+		}
+		if err := s.Set(ctx, models.SettingDefaultLocale, locale); err != nil {
+			return err
+		}
+	}
+	if theme != "" {
+		if !containsString(config.SupportedThemes, theme) {
+			return errors.New("unsupported theme " + theme)
+		}
+		if err := s.Set(ctx, models.SettingDefaultTheme, theme); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SessionSecret returns (generating it on the first boot) the secret used to
+// sign session cookies and OIDC state values. It is stored in the database so
+// every node of the cluster accepts the same cookie.
+func (s *SettingService) SessionSecret(ctx context.Context) (string, error) {
+	if value, ok := s.Get(models.SettingSessionSecret); ok && value != "" {
+		return value, nil
+	}
+	secret, err := utils.RandomHex(32)
+	if err != nil {
+		return "", err
+	}
+	if err := s.Set(ctx, models.SettingSessionSecret, secret); err != nil {
+		return "", err
+	}
+	s.log.Info("generated a new session secret (stored in the settings table)")
+	return secret, nil
+}
+
+// ClusterPrivateKey returns the shared cluster key: CLUSTER_PRIVATE_KEY from
+// the environment wins (and is persisted), otherwise the value stored in the
+// settings table is used, and a fresh UUID is generated on the very first boot.
+func (s *SettingService) ClusterPrivateKey(ctx context.Context) (string, error) {
+	if s.cfg.ClusterPrivateKey != "" {
+		if stored, ok := s.Get(models.SettingClusterPrivateKey); !ok || stored != s.cfg.ClusterPrivateKey {
+			if err := s.Set(ctx, models.SettingClusterPrivateKey, s.cfg.ClusterPrivateKey); err != nil {
+				return "", err
+			}
+		}
+		return s.cfg.ClusterPrivateKey, nil
+	}
+	if value, ok := s.Get(models.SettingClusterPrivateKey); ok && value != "" {
+		return value, nil
+	}
+	key := utils.NewUUID()
+	if err := s.Set(ctx, models.SettingClusterPrivateKey, key); err != nil {
+		return "", err
+	}
+	s.log.Info("generated a new cluster private key (visible in Admin > Cluster)")
+	return key, nil
+}
+
+// RegenerateClusterPrivateKey replaces the shared key. Every other node must
+// join again with the new value.
+func (s *SettingService) RegenerateClusterPrivateKey(ctx context.Context) (string, error) {
+	key := utils.NewUUID()
+	if err := s.Set(ctx, models.SettingClusterPrivateKey, key); err != nil {
+		return "", err
+	}
+	s.log.Warn("cluster private key regenerated; nodes must join again")
+	return key, nil
+}
+
+func containsString(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeLocale falls back to the configured default locale.
+func normalizeLocale(locale, fallback string) string {
+	locale = strings.TrimSpace(locale)
+	if containsString(config.SupportedLocales, locale) {
+		return locale
+	}
+	return fallback
+}
