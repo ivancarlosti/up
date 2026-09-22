@@ -2,31 +2,42 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/lib/api'
 import { RealtimeClient } from '@/lib/ws'
-import type { RealtimeEvent } from '@/lib/ws'
+import type { RealtimeEvent, RealtimeReason, RealtimeState } from '@/lib/ws'
 import type { AggregateStatus, DashboardResponse, HeartbeatStatus, Monitor } from '@/lib/types'
 
 type Summary = DashboardResponse['summary']
+
+/** How often the fallback refreshes the dashboard without real time updates. */
+const POLL_INTERVAL = 20000
 
 /**
  * useMonitorStore keeps the monitor list, the dashboard counters and the live
  * connection. Heartbeats arriving through the WebSocket are applied in place,
  * which avoids re-fetching the whole dashboard on every check.
+ *
+ * When the real time channel is unavailable (a proxy that does not forward the
+ * upgrade, a disabled hub, an expired session) the store keeps the dashboard
+ * fresh by polling instead, so the UI never looks frozen.
  */
 export const useMonitorStore = defineStore('monitors', () => {
   const monitors = ref<Monitor[]>([])
   const summary = ref<Summary | null>(null)
   const loading = ref(false)
-  const connected = ref(false)
+  const state = ref<RealtimeState>('idle')
+  const reason = ref<RealtimeReason>('')
+  const polling = ref(false)
   const lastError = ref<string | null>(null)
 
   let client: RealtimeClient | null = null
+  let pollTimer: ReturnType<typeof setInterval> | undefined
 
+  const connected = computed(() => state.value === 'open')
   const downCount = computed(() => monitors.value.filter((m) => m.status === 'down').length)
   const sorted = computed(() => [...monitors.value].sort((a, b) => a.name.localeCompare(b.name)))
 
-  /** load fetches the dashboard (list + counters). */
-  async function load(filters: Record<string, string> = {}): Promise<void> {
-    loading.value = true
+  /** load fetches the dashboard (list + counters); silent skips the spinner. */
+  async function load(filters: Record<string, string> = {}, options: { silent?: boolean } = {}): Promise<void> {
+    if (!options.silent) loading.value = true
     lastError.value = null
     try {
       const response = await api.dashboard(filters)
@@ -34,18 +45,26 @@ export const useMonitorStore = defineStore('monitors', () => {
       summary.value = response.summary
     } catch (error) {
       lastError.value = error instanceof Error ? error.message : String(error)
-      throw error
+      if (!options.silent) throw error
     } finally {
-      loading.value = false
+      if (!options.silent) loading.value = false
     }
   }
 
   /** connect opens the live channel (idempotent). */
   function connect(): void {
-    if (client) return
+    if (client) {
+      client.retry()
+      return
+    }
     client = new RealtimeClient(['heartbeat', 'monitor.', 'notification.log', 'cluster.'])
-    client.onStatus((value) => {
-      connected.value = value
+    client.onState((value, why) => {
+      state.value = value
+      reason.value = why
+      // A channel that gave up is what the polling fallback is for; a retry
+      // through the store is what brings real time updates back.
+      if (value === 'unavailable') startPolling()
+      else stopPolling()
     })
     client.on('heartbeat', (event) => applyHeartbeat(event))
     client.on('monitor.status', (event) => applyStatus(event))
@@ -56,7 +75,29 @@ export const useMonitorStore = defineStore('monitors', () => {
   function disconnect(): void {
     client?.close()
     client = null
-    connected.value = false
+    state.value = 'idle'
+    reason.value = ''
+    stopPolling()
+  }
+
+  /** retryRealtime asks the channel to try again after it gave up. */
+  function retryRealtime(): void {
+    client?.retry()
+  }
+
+  function startPolling(): void {
+    if (pollTimer) return
+    polling.value = true
+    pollTimer = setInterval(() => {
+      void load({}, { silent: true })
+    }, POLL_INTERVAL)
+  }
+
+  function stopPolling(): void {
+    if (!pollTimer) return
+    clearInterval(pollTimer)
+    pollTimer = undefined
+    polling.value = false
   }
 
   /** upsert replaces or inserts a monitor in the list. */
@@ -134,6 +175,9 @@ export const useMonitorStore = defineStore('monitors', () => {
     monitors,
     summary,
     loading,
+    state,
+    reason,
+    polling,
     connected,
     lastError,
     downCount,
@@ -141,6 +185,7 @@ export const useMonitorStore = defineStore('monitors', () => {
     load,
     connect,
     disconnect,
+    retryRealtime,
     upsert,
     remove,
     refreshSummary,

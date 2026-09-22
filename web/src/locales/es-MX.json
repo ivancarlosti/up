@@ -68,7 +68,18 @@
     "logout": "Salir",
     "login": "Iniciar sesión",
     "live": "En vivo",
-    "reconnecting": "Reconectando…"
+    "reconnecting": "Reconectando…",
+    "connecting": "Conectando…",
+    "offline": "Sin conexión",
+    "realtimeHint": "Actualizaciones en tiempo real",
+    "realtimeReason": {
+      "auth": "la sesión expiró, inicia sesión de nuevo",
+      "disabled": "el servidor desactivó las actualizaciones en tiempo real",
+      "proxy": "el proxy inverso no reenvía la actualización del WebSocket",
+      "route": "el endpoint de tiempo real no existe en el servidor",
+      "network": "la red no está disponible"
+    },
+    "polling": "el panel se actualiza cada 20 s"
   },
   "status": {
     "up": "Operativo",
@@ -168,6 +179,9 @@
   },
   "monitorDetail": {
     "responseTime": "Tiempo de respuesta",
+    "heartbeats": "Comprobaciones recientes",
+    "latency": "Latencia del periodo",
+    "legend": "más antiguo → más reciente",
     "avg": "Promedio",
     "min": "Mínimo",
     "max": "Máximo",

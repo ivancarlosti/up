@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Search, TriangleAlert } from 'lucide-vue-next'
+import { Plus, Search } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import Alert from '@/components/ui/Alert.vue'
 import Button from '@/components/ui/Button.vue'
@@ -142,10 +142,7 @@ function openDetail(monitor: Monitor): void {
 
 onMounted(async () => {
   await Promise.all([load(), loadNotifications()])
-  monitors.connect()
 })
-
-onUnmounted(() => monitors.disconnect())
 </script>
 
 <template>
@@ -175,38 +172,35 @@ onUnmounted(() => monitors.disconnect())
       </div>
     </header>
 
-    <dl class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      <div class="rounded-lg border border-border bg-card px-3 py-2">
-        <dt class="text-[11px] text-muted-foreground">{{ t('dashboard.statTotal') }}</dt>
-        <dd class="text-lg font-semibold">{{ monitors.summary?.total ?? 0 }}</dd>
+    <dl class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
+        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statTotal') }}</dt>
+        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums">{{ monitors.summary?.total ?? 0 }}</dd>
       </div>
-      <div class="rounded-lg border border-border bg-card px-3 py-2">
-        <dt class="text-[11px] text-muted-foreground">{{ t('dashboard.statUp') }}</dt>
-        <dd class="text-lg font-semibold text-status-up">{{ monitors.summary?.up ?? 0 }}</dd>
+      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
+        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statUp') }}</dt>
+        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums text-status-up">{{ monitors.summary?.up ?? 0 }}</dd>
       </div>
-      <div class="rounded-lg border border-border bg-card px-3 py-2">
-        <dt class="text-[11px] text-muted-foreground">{{ t('dashboard.statDown') }}</dt>
-        <dd class="text-lg font-semibold text-status-down">{{ monitors.summary?.down ?? 0 }}</dd>
+      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
+        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statDown') }}</dt>
+        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums text-status-down">{{ monitors.summary?.down ?? 0 }}</dd>
       </div>
-      <div class="rounded-lg border border-border bg-card px-3 py-2">
-        <dt class="text-[11px] text-muted-foreground">{{ t('dashboard.statDegraded') }}</dt>
-        <dd class="text-lg font-semibold text-status-degraded">{{ monitors.summary?.degraded ?? 0 }}</dd>
+      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
+        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statDegraded') }}</dt>
+        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums text-status-degraded">{{ monitors.summary?.degraded ?? 0 }}</dd>
       </div>
-      <div class="rounded-lg border border-border bg-card px-3 py-2">
-        <dt class="text-[11px] text-muted-foreground">{{ t('dashboard.statHeartbeats') }}</dt>
-        <dd class="text-lg font-semibold">{{ monitors.summary?.heartbeats_1h ?? 0 }}</dd>
+      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
+        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statHeartbeats') }}</dt>
+        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums">{{ monitors.summary?.heartbeats_1h ?? 0 }}</dd>
       </div>
-      <div class="rounded-lg border border-border bg-card px-3 py-2">
-        <dt class="text-[11px] text-muted-foreground">{{ t('dashboard.statClients') }}</dt>
-        <dd class="text-lg font-semibold">{{ monitors.summary?.ws_clients ?? 0 }}</dd>
+      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
+        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statClients') }}</dt>
+        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums">{{ monitors.summary?.ws_clients ?? 0 }}</dd>
       </div>
     </dl>
 
     <Alert v-if="degradedNodes.length" variant="warning">
-      <span class="inline-flex items-center gap-2">
-        <TriangleAlert class="h-4 w-4" aria-hidden="true" />
-        {{ t('dashboard.degradedWarning') }} ({{ degradedNodes.join(', ') }})
-      </span>
+      {{ t('dashboard.degradedWarning') }} ({{ degradedNodes.join(', ') }})
     </Alert>
 
     <div class="flex flex-wrap items-center gap-2">

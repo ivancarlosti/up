@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronDown, LogOut, Menu, UserCircle2, Wifi, WifiOff, X } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+import { ChevronDown, Loader2, LogOut, Menu, UserCircle2, Wifi, WifiOff, X } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import Button from '@/components/ui/Button.vue'
 import LocaleSwitcher from '@/components/layout/LocaleSwitcher.vue'
@@ -13,14 +14,45 @@ import { cn } from '@/lib/utils'
 const props = defineProps<{ mobileOpen: boolean }>()
 const emit = defineEmits<{ 'toggle-mobile': [] }>()
 
+const { t } = useI18n()
 const app = useAppStore()
 const monitors = useMonitorStore()
 const router = useRouter()
 const { identity, authenticated, appName } = storeToRefs(app)
-const { connected } = storeToRefs(monitors)
+const { connected, state, reason, polling } = storeToRefs(monitors)
 const menuOpen = ref(false)
 
 const initial = computed(() => (identity.value?.email ?? '?').charAt(0).toUpperCase())
+
+/**
+ * Real time badge: it only claims "reconnecting" while a retry is pending and it
+ * disappears while the channel was never started (idle), so the header never
+ * reports a connection state that does not exist.
+ */
+const realtimeKey = computed(() => {
+  switch (state.value) {
+    case 'open':
+      return 'nav.live'
+    case 'connecting':
+      return 'nav.connecting'
+    case 'reconnecting':
+      return 'nav.reconnecting'
+    case 'unavailable':
+      return 'nav.offline'
+    default:
+      return ''
+  }
+})
+
+const realtimeBusy = computed(() => state.value === 'connecting' || state.value === 'reconnecting')
+
+/** Tooltip: what the badge means plus, when known, why the channel is down. */
+const realtimeHint = computed(() => {
+  const parts = [t('nav.realtimeHint')]
+  if (reason.value) parts.push(t(`nav.realtimeReason.${reason.value}`))
+  if (polling.value) parts.push(t('nav.polling'))
+  return parts.join(' - ')
+})
 
 async function signOut(): Promise<void> {
   await app.signOut()
@@ -48,13 +80,15 @@ async function signOut(): Promise<void> {
     </RouterLink>
 
     <span
-      v-if="authenticated"
-      class="hidden items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] sm:inline-flex"
-      :class="connected ? 'text-status-up' : 'text-muted-foreground'"
+      v-if="authenticated && realtimeKey"
+      class="hidden items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] sm:inline-flex"
+      :class="connected ? 'border-status-up/30 text-status-up' : 'border-border text-muted-foreground'"
+      :title="realtimeHint"
     >
-      <Wifi v-if="connected" class="h-3 w-3" aria-hidden="true" />
+      <Loader2 v-if="realtimeBusy" class="h-3 w-3 animate-spin" aria-hidden="true" />
+      <Wifi v-else-if="connected" class="h-3 w-3" aria-hidden="true" />
       <WifiOff v-else class="h-3 w-3" aria-hidden="true" />
-      {{ connected ? $t('nav.live') : $t('nav.reconnecting') }}
+      {{ $t(realtimeKey) }}
     </span>
 
     <div class="ml-auto flex items-center gap-2">

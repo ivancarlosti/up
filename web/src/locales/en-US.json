@@ -68,7 +68,18 @@
     "logout": "Sign out",
     "login": "Sign in",
     "live": "Live",
-    "reconnecting": "Reconnecting…"
+    "reconnecting": "Reconnecting…",
+    "connecting": "Connecting…",
+    "offline": "Offline",
+    "realtimeHint": "Real time updates",
+    "realtimeReason": {
+      "auth": "the session expired, sign in again",
+      "disabled": "the server disabled real time updates",
+      "proxy": "the reverse proxy does not forward the WebSocket upgrade",
+      "route": "the real time endpoint is missing on the server",
+      "network": "the network is unreachable"
+    },
+    "polling": "the dashboard is refreshed every 20 s instead"
   },
   "status": {
     "up": "Up",
@@ -168,6 +179,9 @@
   },
   "monitorDetail": {
     "responseTime": "Response time",
+    "heartbeats": "Recent checks",
+    "latency": "Latency over the period",
+    "legend": "oldest to newest",
     "avg": "Average",
     "min": "Minimum",
     "max": "Maximum",

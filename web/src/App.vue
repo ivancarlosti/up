@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import Toaster from '@/components/ui/Toaster.vue'
 import { useAppStore } from '@/stores/app'
+import { useMonitorStore } from '@/stores/monitors'
 
 const app = useAppStore()
+const monitors = useMonitorStore()
 const route = useRoute()
 const mobileOpen = ref(false)
 
@@ -15,6 +17,20 @@ const useShell = computed(() => route.meta.app === true)
 onMounted(() => {
   if (!app.settings) void app.bootstrap()
 })
+
+// The real time channel belongs to the shell, not to a single view: while it was
+// opened by the dashboard, leaving that page closed the socket and the "Live"
+// badge of the header reported a reconnection that was not happening. It now
+// follows the session and stays open on every page (the detail view benefits
+// from the heartbeats pushed through it as well).
+watch(
+  () => app.authenticated,
+  (authenticated) => {
+    if (authenticated) monitors.connect()
+    else monitors.disconnect()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -23,14 +39,18 @@ onMounted(() => {
       <AppHeader :mobile-open="mobileOpen" @toggle-mobile="mobileOpen = !mobileOpen" />
       <div class="flex">
         <AppSidebar :mobile-open="mobileOpen" @navigate="mobileOpen = false" />
-        <main class="min-w-0 flex-1 px-4 py-5 lg:px-6">
-          <RouterView />
+        <main class="min-w-0 flex-1 px-5 py-6 lg:px-8 lg:py-7">
+          <div class="mx-auto w-full max-w-[1600px]">
+            <RouterView />
+          </div>
         </main>
       </div>
     </template>
 
-    <main v-else class="min-h-screen px-4">
-      <RouterView />
+    <main v-else class="min-h-screen px-5 py-6">
+      <div class="mx-auto w-full max-w-[1600px]">
+        <RouterView />
+      </div>
     </main>
 
     <Toaster />
