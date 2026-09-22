@@ -33,6 +33,23 @@ The dashboard uses `/api/ws`. The proxy must:
 2. keep the connection idle for more than 60 s (Up pings every 25 s),
 3. **not** buffer the response.
 
+### 2.1 What the badge in the header means
+
+The header shows the real state of the channel, and the same channel covers every
+page (it is opened by the session, not by the dashboard):
+
+| Badge | Meaning |
+|---|---|
+| `Live` | `/api/ws` is connected; heartbeats and status changes arrive in real time. |
+| `Connecting…` | the first handshake is in flight (visible for a fraction of a second). |
+| `Reconnecting…` | the connection dropped and a retry is already scheduled (transient failures only, with exponential backoff and jitter, up to 30 s). |
+| `Offline` | the channel gave up and the reason is fatal: no upgrade at all through the proxy (HTTP 400/426), an expired session (401), a disabled hub (503) or a missing endpoint (404). Hover the badge to read the reason. |
+
+While the badge shows `Offline` the dashboard is refreshed by polling every 20 s
+(that is a fallback, not a fix), and returning to the tab or recovering the
+network triggers an immediate retry. If you see `Offline`, the tooltip tells you
+what to fix in the proxy.
+
 ## 3. Traefik (labels or file provider)
 
 ```yaml
@@ -61,6 +78,14 @@ proxy network.
 ## 4. Nginx
 
 ```nginx
+# Outside the server block: only WebSocket requests get Connection: upgrade,
+# a plain request keeps the connection header of the client (a fixed
+# `Connection "upgrade"` breaks normal keep-alive traffic).
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  ''      close;
+}
+
 server {
   listen 443 ssl http2;
   server_name up.example.com;
@@ -75,8 +100,8 @@ server {
     proxy_http_version 1.1;
 
     # WebSocket (/api/ws)
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
     proxy_buffering off;
@@ -161,7 +186,9 @@ the session cookie is only marked `Secure` when `APP_URL` starts with `https://`
 3. `APP_TRUST_PROXY` is `true` (or the proxy CIDRs) **only** when the instance is
    not directly reachable.
 4. `/api/health` answers `200` through the proxy.
-5. The dashboard shows `Live` (the WebSocket connected).
+5. The dashboard badge shows `Live` (the WebSocket connected). If it shows
+   `Offline`, hover it: the tooltip names the cause, and `docs/reverse-proxy.md`
+   §9 lists the fixes.
 6. The Admin > Security page shows your **public** address as `client_ip`.
 7. Optional: set security headers in the proxy as well (`HSTS`, `X-Frame-Options`)
    - Up already sends a defensive set.
@@ -170,9 +197,14 @@ the session cookie is only marked `Secure` when `APP_URL` starts with `https://`
 
 | Symptom | Cause |
 |---|---|
-| Dashboard stuck on `Reconnecting…` | the proxy does not forward `Upgrade`/`Connection`, or buffers the response |
+| Badge shows `Offline` (tooltip: *the reverse proxy does not forward the WebSocket upgrade*) | the proxy strips `Upgrade`/`Connection`: for Nginx use the `map $http_upgrade $connection_upgrade` block of §4 (a fixed `Connection "upgrade"` breaks plain requests). `curl -i -H 'Upgrade: websocket' -H 'Connection: Upgrade' https://up.example.com/api/ws` answers `400/426` when this is the case. |
+| Badge stays on `Reconnecting…` forever | the backend is unreachable or restarting (transient): the client retries with backoff and recovers by itself. If it never recovers check the Up logs. |
+| Badge shows `Offline` with *the server disabled real time updates* | `WS_ENABLED=false` (or the hub failed to start); the dashboard still works through the 20 s polling fallback. |
+| Badge shows `Offline` with *the session expired* | the session cookie is gone or the token expired: sign in again. |
+| The dashboard is not live but the page does not look broken | the polling fallback is doing its job - the badge (and its tooltip) says so. |
 | `client_ip` shows the proxy address | `APP_TRUST_PROXY=false` while behind a proxy |
 | IP rule blocks everybody after enabling a proxy | the allow list contains public addresses but the resolved IP is the proxy: fix `APP_TRUST_PROXY` |
 | OIDC `redirect_uri` mismatch | `APP_URL` differs from the address used by the browser, or `KEYCLOAK_REDIRECT_URI` was set manually and diverged |
 | Links in notifications point to `localhost` | `APP_URL` was not updated |
 | 502/503 only on `/api/ws` | the proxy has a short read timeout: raise it (Nginx `proxy_read_timeout`) |
+| Tunnel/proxy drops the channel every minute | Cloudflare (and some load balancers) close idle WebSockets; Up pings every 25 s, so raise the idle timeout above that if your provider allows it |
