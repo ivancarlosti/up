@@ -20,11 +20,25 @@ services:
     # Loads docker/.env into the container environment (path is relative to
     # this compose file).
     env_file: .env
-    # Host port -> container port. The application always listens on
-    # APP_PORT inside the container (default 3000); only the left side needs
-    # to change if 3000 is already taken on the host.
+    # Host port -> container port.
+    #
+    #   APP_PORT  = port the HTTP server listens on INSIDE the container
+    #               (it comes from docker/.env, which Compose also uses to
+    #               interpolate this file: the project directory of
+    #               `docker compose -f docker/docker-compose.yml ...` is this
+    #               docker/ folder, so the same .env feeds both the container
+    #               environment and the interpolation below).
+    #   HOST_PORT = optional published port on the Docker host, defaults to
+    #               APP_PORT. Set it only when the outer port must differ, for
+    #               example APP_PORT=3000 with HOST_PORT=80.
+    #
+    # Defaults: no .env value -> 3000:3000 (identical to a plain APP_PORT=3000),
+    # APP_PORT=8080 -> 8080:8080, APP_PORT=3000 + HOST_PORT=80 -> 80:3000.
+    #
+    # On a Compose version that does not support nested defaults, replace the
+    # line below with: "${APP_PORT:-3000}:${APP_PORT:-3000}"
     ports:
-      - "3000:3000"
+      - "${HOST_PORT:-${APP_PORT:-3000}}:${APP_PORT:-3000}"
     # Makes the Docker host reachable from inside the container as
     # host.docker.internal. This is what the default DB_HOST points to.
     extra_hosts:

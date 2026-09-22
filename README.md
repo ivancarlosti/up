@@ -47,6 +47,12 @@ through `host.docker.internal` (`extra_hosts: host.docker.internal:host-gateway`
 **There is no database service**: Up always connects to an external
 MariaDB/MySQL.
 
+The published port follows `APP_PORT` in `docker/.env`: `APP_PORT=3000` publishes
+`3000:3000` (default) and `APP_PORT=8080` publishes `8080:8080`. To keep the
+container on 3000 but publish another host port, set the optional `HOST_PORT`
+(for example `HOST_PORT=80` -> `80:3000`). See
+[docs/development.md](docs/development.md#changing-the-published-port).
+
 Database prerequisites:
 
 ```sql
@@ -88,7 +94,8 @@ The essentials:
 ```env
 APP_URL=https://up.example.com         # canonical public URL
 APP_TRUST_PROXY=true                   # behind Traefik/Nginx/Caddy/Cloudflare
-APP_PORT=3000
+APP_PORT=3000                          # inside the container AND published on the host
+# HOST_PORT=80                         # optional: publish a different host port
 
 DB_HOST=host.docker.internal           # external database, never in compose
 DB_PORT=3306

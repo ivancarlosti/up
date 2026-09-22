@@ -175,6 +175,7 @@ All variables, their defaults and validation rules live in
 | Group | Variables |
 |---|---|
 | App / proxy | `APP_URL`, `APP_TRUST_PROXY`, `APP_PORT` |
+| Docker publish (compose only) | `HOST_PORT` (optional; published host port, defaults to `APP_PORT`) |
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |

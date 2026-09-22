@@ -63,6 +63,10 @@ docker exec up-dev-mariadb mariadb -u up -psecret up -e 'SELECT VERSION();'
 | `.env` (repository root, git-ignored) | `go run ./cmd/server` | `127.0.0.1` |
 | `docker/.env.example` | the canonical reference (all variables) | `host.docker.internal` |
 
+> `docker/.env` is used twice: `env_file` injects it into the container and Compose
+> also interpolates the compose file with it (that is how `APP_PORT` drives the
+> published port). The root `.env` is only read by the Go binary itself.
+
 ```bash
 cp docker/.env.example .env          # local backend
 sed -i 's/host.docker.internal/127.0.0.1/' .env
@@ -119,6 +123,22 @@ gofmt -l .              # formatting check (empty output = clean)
 cd web && npm run typecheck && npm run build
 ```
 
+Security checks (see `docs/security.md` §10 for the last audit results):
+
+```bash
+# reachability-aware scan of the shipped code
+go install golang.org/x/vuln/cmd/govulncheck@latest
+govulncheck ./...
+
+# dependency advisories for the frontend
+cd web && npm audit
+
+# container image (OS packages + the Go binary)
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed \
+  ghcr.io/ivancarlosti/up:latest
+```
+
 ## 7. Building and running the image
 
 ```bash
@@ -133,6 +153,46 @@ Validate the compose file without starting it:
 ```bash
 docker compose -f docker/docker-compose.yml config
 ```
+
+### Changing the published port
+
+`APP_PORT` (in `docker/.env`) is the port the container listens on **and** the port
+published on the host, because `docker/docker-compose.yml` interpolates it out of
+the same `.env` file (Compose reads the `.env` of the *project directory*, which is
+`docker/` when you use `-f docker/docker-compose.yml`). Nothing else needs to be
+edited:
+
+```bash
+# 1) container + host on 8080
+sed -i 's/^APP_PORT=.*/APP_PORT=8080/' docker/.env
+docker compose -f docker/docker-compose.yml up -d
+curl -s localhost:8080/api/health          # {"status":"ok",...}
+
+# 2) different host port, container stays on 3000
+#    (optional HOST_PORT variable, defaults to APP_PORT)
+printf 'HOST_PORT=80\n' >> docker/.env     # APP_PORT=3000 remains
+docker compose -f docker/docker-compose.yml up -d
+curl -s localhost:80/api/health
+
+# 3) one-off override without touching the file
+APP_PORT=9090 docker compose -f docker/docker-compose.yml up -d
+
+# inspect what Compose resolved
+docker compose -f docker/docker-compose.yml config | grep -A3 ports:
+docker compose -f docker/docker-compose.yml config --environment | grep APP_PORT
+```
+
+Notes:
+
+- The image `HEALTHCHECK` already uses `${APP_PORT}`, so `docker inspect` keeps
+  reporting `healthy` on any port.
+- `EXPOSE 3000` in the Dockerfile is only metadata (it documents the default and
+  does not restrict the published port).
+- `APP_URL` must match the address you actually browse to (scheme + host + port),
+  otherwise redirects, CORS and notification links point to the wrong place.
+- On a Compose version without nested defaults (`${A:-${B:-3000}}`), replace the
+  `ports` line in `docker/docker-compose.yml` with
+  `"${APP_PORT:-3000}:${APP_PORT:-3000}"` and use `APP_PORT` alone.
 
 ## 8. Notification sinks for testing
 
@@ -188,6 +248,11 @@ curl -b c2.txt -X POST localhost:3002/api/cluster/join -H 'Content-Type: applica
 # health of the cluster
 curl -s -b c1.txt localhost:3000/api/cluster/status | python3 -m json.tool | head -30
 ```
+
+> The cluster commands above use plain `docker run`, so the container side of
+> `-p` must stay equal to `APP_PORT` (3000 by default): `-p 3002:3000` publishes the
+> second node on 3002 while it still listens on 3000 internally, and `APP_URL` must
+> stay `http://up-node2:3000` (the port other nodes reach it on).
 
 ## 10. Regenerating the icons
 

@@ -9,6 +9,8 @@
 | Variable | Effect |
 |---|---|
 | `APP_URL` | Canonical public URL. Used for links inside notifications, the OIDC redirect URI (`APP_URL + /api/auth/callback`), the CORS allow list, the WebSocket origin check and the `nodes.api_url` recorded in a cluster. |
+| `APP_PORT` | Port the application listens on **inside the container**. `docker/docker-compose.yml` also publishes this same port on the host (Compose interpolates it from `docker/.env`), so `APP_PORT=8080` means `http://host:8080`. |
+| `HOST_PORT` | Optional, compose only: published host port when it must differ from `APP_PORT` (e.g. `APP_PORT=3000` + `HOST_PORT=80`). **The reverse proxy must point to `HOST_PORT`** (the published port), not to `APP_PORT`. |
 | `APP_TRUST_PROXY=false` | `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Real-IP` are **ignored**; the client address is `RemoteAddr`, which is the proxy. Correct when Up is exposed directly. |
 | `APP_TRUST_PROXY=true` | The headers above are trusted. Correct only when Up cannot be reached without going through your proxy. |
 | `APP_TRUST_PROXY=10.0.0.0/8,172.16.0.0/12` | Trusted proxy CIDR list: only requests coming from those networks may spoof the headers (recommended). |
