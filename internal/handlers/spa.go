@@ -60,6 +60,12 @@ func NewSPAHandler(log *slog.Logger) gin.HandlerFunc {
 		if strings.HasPrefix(requestPath, "assets/") {
 			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		}
+		// Go's builtin MIME table (and Alpine, which ships no /etc/mime.types)
+		// does not know the PWA manifest extension, so it would be sent as
+		// text/plain and browsers would refuse it.
+		if strings.HasSuffix(requestPath, ".webmanifest") {
+			c.Header("Content-Type", "application/manifest+json")
+		}
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	}
 }
