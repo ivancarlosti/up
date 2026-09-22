@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
