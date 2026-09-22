@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Monitor is a probe definition. All the type specific options live inside the
 // Config JSON column; the columns kept here are the ones the scheduler, the
@@ -60,10 +63,25 @@ func (m *Monitor) TagList() []string {
 
 // HeartbeatSummary is a trimmed heartbeat used by the dashboard bars.
 type HeartbeatSummary struct {
-	Status    HeartbeatStatus `json:"status"`
+	Status    HeartbeatStatus `json:"-"` // exposed as a string, see MarshalJSON
 	LatencyMS int64           `json:"latency_ms"`
 	CreatedAt time.Time       `json:"created_at"`
 	NodeID    string          `json:"node_id,omitempty"`
+}
+
+// MarshalJSON mirrors Heartbeat.MarshalJSON: the database stores the numeric
+// status but every consumer of the API (the dashboard bars, the public status
+// pages) expects the readable name. Without this the bars received 0/1 and
+// painted every slot as "unknown".
+func (h HeartbeatSummary) MarshalJSON() ([]byte, error) {
+	type summaryAlias HeartbeatSummary
+	return json.Marshal(struct {
+		summaryAlias
+		Status string `json:"status"`
+	}{
+		summaryAlias: summaryAlias(h),
+		Status:       h.Status.String(),
+	})
 }
 
 // NodeVote is the latest opinion of one cluster node about a monitor.

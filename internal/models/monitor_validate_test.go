@@ -130,3 +130,18 @@ func TestHeartbeatStatusParsing(t *testing.T) {
 		t.Fatalf("heartbeat JSON does not expose the readable status: %s", encoded)
 	}
 }
+
+// TestHeartbeatSummaryMarshalJSON pins the contract the dashboard bars and the
+// public status pages rely on: the numeric column is exposed as a name.
+func TestHeartbeatSummaryMarshalJSON(t *testing.T) {
+	encoded, err := json.Marshal(HeartbeatSummary{Status: StatusDown, LatencyMS: 12, NodeID: "up-node-1"})
+	if err != nil {
+		t.Fatalf("marshal heartbeat summary: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"status":"down"`) {
+		t.Fatalf("summary JSON does not expose the readable status: %s", encoded)
+	}
+	if strings.Contains(string(encoded), `"status":0`) {
+		t.Fatalf("summary JSON still exposes the numeric status: %s", encoded)
+	}
+}

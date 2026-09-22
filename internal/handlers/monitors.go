@@ -62,6 +62,13 @@ func (h *Container) getMonitor(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
+	// The status bars of the detail view need the recent heartbeats; the field is
+	// part of the model (json:"heartbeats") and the public status page already
+	// fills it the same way. A failure here is not fatal: the charts just stay
+	// empty instead of failing the whole request.
+	if series, seriesErr := h.Monitors.SeriesFor(c.Request.Context(), monitor.ID, 40); seriesErr == nil {
+		monitor.Heartbeats = series
+	}
 	api.OK(c, monitor)
 }
 
