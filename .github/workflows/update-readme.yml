@@ -1,0 +1,85 @@
+name: 📖 Update README
+
+# Allow GitHub Actions to commit and push changes
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'  # Every day at 4 AM UTC
+
+jobs:
+  update-readme:
+    name: 📖 Sync README from Template
+    runs-on: ubuntu-latest
+
+    env:
+      SOURCE_REPO: ivancarlosti/.github
+      SOURCE_BRANCH: main
+
+    steps:
+      - name: 📥 Checkout current repository
+        uses: actions/checkout@v4
+
+      - name: 📥 Checkout source README template
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ env.SOURCE_BRANCH }}
+          path: source_readme
+
+      - name: 📄 Ensure README.md exists
+        run: |
+          if [ ! -f README.md ]; then
+            touch README.md
+          fi
+
+      - name: 📝 Update README.md
+        run: |
+          set -e
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+
+          # --- Extract buttons block from source ---
+          BUTTONS=$(awk '/<!-- buttons -->/{flag=1;next}/<!-- endbuttons -->/{flag=0}flag' source_readme/README.md)
+          BUTTONS_UPDATED=$(echo "$BUTTONS" | sed "s/\.github/${REPO_NAME}/g")
+
+          # --- Extract footer block from source (everything from <!-- footer --> onward) ---
+          FOOTER=$(awk '/<!-- footer -->/{flag=1}flag' source_readme/README.md)
+
+          # --- Replace buttons section in README.md ---
+          UPDATED=$(awk -v buttons="$BUTTONS_UPDATED" '
+            BEGIN { skip=0 }
+            /<!-- buttons -->/ {
+              print
+              print buttons
+              skip=1
+              next
+            }
+            /<!-- endbuttons -->/ && skip {
+              print
+              skip=0
+              next
+            }
+            !skip { print }
+          ' README.md)
+
+          # --- Replace everything after <!-- footer --> with FOOTER ---
+          echo "$UPDATED" | awk -v footer="$FOOTER" '
+            /<!-- footer -->/ {
+              print footer
+              found=1
+              exit
+            }
+            { print }
+          ' > README.tmp && mv README.tmp README.md
+
+      - name: 🧹 Remove source_readme from git index
+        run: git rm --cached -r source_readme || true
+
+      - name: 💾 Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          file_pattern: README.md
+          commit_message: "Sync README from template [▶️]"
+          branch: ${{ github.ref_name }}

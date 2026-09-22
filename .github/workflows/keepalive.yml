@@ -1,0 +1,25 @@
+name: 🔄 Keepalive Workflow
+
+on:
+  schedule:
+    # Runs every Sunday at 5:45 AM UTC
+    - cron: '45 5 * * 0'
+  # Allows manual runs from the GitHub UI for testing
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    name: 💓 Keep Alive
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 💓 Keep repository active
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "Chore: Keep repository active [skip ci]"
+          git push

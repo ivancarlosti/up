@@ -1,0 +1,152 @@
+name: 🐳 Build Artifacts
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to build (e.g., v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    name: 📦 Package & Push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.version }}
+          fetch-depth: 0
+
+      - name: 🏷️ Resolve version
+        id: version
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.version }}"
+          VERSION="${TAG#v}"
+          REPO_NAME="$(basename "$GITHUB_REPOSITORY")"
+          ZIP_NAME="${REPO_NAME}-${VERSION}.zip"
+          # Docker registries reject path segments starting with "." or "-"
+          DOCKER_REPO="${REPO_NAME#.}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
+          echo "docker_repo=$DOCKER_REPO" >> "$GITHUB_OUTPUT"
+
+      - name: 📦 Create ZIP package
+        run: |
+          zip -r "${{ steps.version.outputs.zip_name }}" . \
+            -x ".git/*" ".github/*" "docker/*" ".dockerignore" \
+               "CNAME" "Dockerfile" "README.md" "LICENSE"
+
+      - name: 📤 Upload ZIP to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.version.outputs.tag }}" \
+            "${{ steps.version.outputs.zip_name }}" --clobber
+
+      - name: 📝 Update release with changed files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)
+
+          # Build the "Files changed in this release" section
+          SECTION="## Files changed in this release"
+          SECTION+=$'\n\n'
+
+          if [ -n "${PREV_TAG}" ]; then
+            # List changed files
+            SECTION+="### Changed Files"
+            SECTION+=$'\n\n'
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                SECTION+="- $file"
+                SECTION+=$'\n'
+              fi
+            done < <(git diff --name-only "${PREV_TAG}".."${TAG}" 2>/dev/null)
+
+            SECTION+=$'\n'
+            # List commits with messages
+            SECTION+="### Commits"
+            SECTION+=$'\n\n'
+            while IFS= read -r commit_line; do
+              if [ -n "$commit_line" ]; then
+                SECTION+="- $commit_line"
+                SECTION+=$'\n'
+              fi
+            done < <(git log --pretty=format:"%s (%h)" "${PREV_TAG}".."${TAG}" 2>/dev/null)
+          else
+            # First release — list all changed files and commits
+            SECTION+="### Changed Files"
+            SECTION+=$'\n\n'
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                SECTION+="- $file"
+                SECTION+=$'\n'
+              fi
+            done < <(git diff --name-only HEAD~1..HEAD 2>/dev/null)
+
+            SECTION+=$'\n'
+            SECTION+="### Commits"
+            SECTION+=$'\n\n'
+            while IFS= read -r commit_line; do
+              if [ -n "$commit_line" ]; then
+                SECTION+="- $commit_line"
+                SECTION+=$'\n'
+              fi
+            done < <(git log --pretty=format:"%s (%h)" HEAD~1..HEAD 2>/dev/null)
+          fi
+
+          # Append section to release body, preserving the original title
+          CURRENT_TITLE=$(gh release view "$TAG" --json name -q ".name")
+          CURRENT_BODY=$(gh release view "$TAG" --json body -q ".body")
+          UPDATED_BODY="${CURRENT_BODY}"$'\n\n'"${SECTION}"
+          gh release edit "$TAG" --title "${CURRENT_TITLE}" --notes "${UPDATED_BODY}"
+
+      # ---- Docker ----
+      - name: 🔍 Check if Dockerfile exists
+        id: dockerfile_check
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 🐧 Set up QEMU
+        if: steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: 🛠 Set up Docker Buildx
+        if: steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to GitHub Container Registry
+        if: steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐳 Build and Push Docker image
+        if: steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:${{ steps.version.outputs.version }}

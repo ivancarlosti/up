@@ -1,0 +1,247 @@
+name: 🚀 Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.github/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.gitignore'
+      - '.dockerignore'
+      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 61.0.3). Leave empty for automatic semantic-release.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write       # required to dispatch build.yml workflow
+
+jobs:
+  release:
+    name: 🏷️ Determine Version & Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.new_release_version }}
+      released: ${{ steps.version.outputs.new_release_published }}
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.version != '' && '1' || '0' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🎯 Resolve deploy workflow
+        id: deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DEPLOY_WORKFLOW=""
+          for CANDIDATE in wordpress-deploy.yml yourls-deploy.yml; do
+            if gh workflow view "${CANDIDATE}" &>/dev/null; then
+              DEPLOY_WORKFLOW="${CANDIDATE}"
+              break
+            fi
+          done
+          if [ -n "${DEPLOY_WORKFLOW}" ]; then
+            echo "Detected deploy workflow: ${DEPLOY_WORKFLOW}"
+          else
+            echo "No deploy workflow found (looked for wordpress-deploy.yml, yourls-deploy.yml) — deploy dispatch will be skipped."
+          fi
+          echo "deploy_workflow=${DEPLOY_WORKFLOW}" >> "$GITHUB_OUTPUT"
+
+      - name: 🏷️ Manual release — create tag & GitHub Release
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          TAG="v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Collect the files whose version was changed so they can be staged later.
+          FILES_TO_ADD=""
+
+          # 1. manifest.json — generic JSON manifest.
+          if [ -f manifest.json ]; then
+            sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" manifest.json
+            FILES_TO_ADD="${FILES_TO_ADD} manifest.json"
+          fi
+
+          # 2. composer.json — Composer/PHP projects.
+          if [ -f composer.json ]; then
+            sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" composer.json
+            FILES_TO_ADD="${FILES_TO_ADD} composer.json"
+          fi
+
+          # 3. package.json — Node.js projects.
+          if [ -f package.json ]; then
+            sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
+            FILES_TO_ADD="${FILES_TO_ADD} package.json"
+          fi
+
+          # 4. Plugin file — WordPress (" * Version:") or YOURLS ("Version:") header.
+          PLUGIN_FILE=$(grep -l 'Plugin Name:' *.php 2>/dev/null | head -n 1)
+          if [ -n "${PLUGIN_FILE}" ]; then
+            # WordPress plugin header style: " * Version: 1.0.0"
+            sed -i "s/^ \* Version: .*/ * Version:           ${VERSION}/" "${PLUGIN_FILE}"
+            # YOURLS plugin header style: "Version: 1.0.0" (no leading " * ")
+            sed -i "s/^Version: .*/Version:           ${VERSION}/" "${PLUGIN_FILE}"
+            # Version constants, whichever style the project uses.
+            sed -i "s/const VERSION = '[^']*';/const VERSION = '${VERSION}';/" "${PLUGIN_FILE}"
+            sed -i -E "s/(define\('[A-Za-z_]*VERSION', ')[^']*('\);)/\1${VERSION}\2/" "${PLUGIN_FILE}"
+            FILES_TO_ADD="${FILES_TO_ADD} ${PLUGIN_FILE}"
+          fi
+
+          # 5. WordPress.org readme.txt Stable tag (only when present).
+          if [ -f readme.txt ]; then
+            sed -i "s/^Stable tag: .*/Stable tag: ${VERSION}/" readme.txt
+            FILES_TO_ADD="${FILES_TO_ADD} readme.txt"
+          fi
+
+          # Stage and commit only when something actually changed.
+          if [ -n "${FILES_TO_ADD}" ]; then
+            git add ${FILES_TO_ADD}
+          fi
+          if git diff --cached --quiet; then
+            echo "No version changes to commit — version ${VERSION} is already stamped."
+          else
+            git commit -m "chore(release): bump version to ${VERSION} [skip ci]"
+          fi
+
+          # Tag the version-stamped commit, then push the branch and the tag.
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin main
+          git push origin "${TAG}"
+
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --notes "Manual release ${TAG}" \
+            --target main
+          echo "✅ GitHub Release ${TAG} created."
+          echo "Dispatching build.yml for version ${TAG}"
+          gh workflow run build.yml -f version="${TAG}"
+          DEPLOY_WORKFLOW="${{ steps.deploy.outputs.deploy_workflow }}"
+          if [ -n "${DEPLOY_WORKFLOW}" ]; then
+            echo "Dispatching ${DEPLOY_WORKFLOW} for version ${TAG}"
+            gh workflow run "${DEPLOY_WORKFLOW}" -f version="${TAG}"
+          else
+            echo "Skipping deploy dispatch — no deploy workflow found in this repository"
+          fi
+          echo "new_release_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+
+      - name: 🔐 Redirect SSH git URLs to HTTPS
+        if: inputs.version == ''
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          echo "git SSH→HTTPS redirect configured. All GitHub operations will use HTTPS + GITHUB_TOKEN."
+
+      - name: 🟢 Setup Node.js
+        if: inputs.version == ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🔍 Detect default branch
+        if: inputs.version == ''
+        id: branch
+        run: |
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | awk '{print $NF}')
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            echo "::error::Unable to determine default branch from remote"
+            exit 1
+          fi
+          echo "default_branch=${DEFAULT_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "Detected default branch: ${DEFAULT_BRANCH}"
+
+      - name: 📦 Install semantic-release + plugins
+        if: inputs.version == ''
+        run: |
+          npm install -g \
+            semantic-release@^21 \
+            @semantic-release/exec@^6 \
+            @semantic-release/git@^10 \
+            @semantic-release/github@^9 \
+            @semantic-release/changelog@^6
+
+      - name: 🔧 Ensure valid branch config
+        if: inputs.version == ''
+        env:
+          RELEASE_BRANCH: ${{ steps.branch.outputs.default_branch }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            let config;
+            if (fs.existsSync('.releaserc')) {
+              config = JSON.parse(fs.readFileSync('.releaserc', 'utf8'));
+              console.log('Existing .releaserc found — updating branches to:', process.env.RELEASE_BRANCH);
+            } else {
+              config = {
+                plugins: [
+                  ['@semantic-release/commit-analyzer', { preset: 'angular' }],
+                  ['@semantic-release/release-notes-generator', { preset: 'angular' }],
+                  '@semantic-release/github'
+                ]
+              };
+              console.log('No .releaserc found — generating default config.');
+            }
+            config.branches = [process.env.RELEASE_BRANCH];
+            fs.writeFileSync('.releaserc', JSON.stringify(config, null, 2) + '\n');
+            console.log('Release branch configured:', process.env.RELEASE_BRANCH);
+          "
+
+      - name: 🚀 Run semantic-release
+        if: inputs.version == ''
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release --debug --repository-url "https://github.com/${{ github.repository }}.git"
+
+      - name: 🔍 Read released version
+        if: inputs.version == '' && always() && steps.semantic.outcome == 'success'
+        id: version
+        run: |
+          # Fetch tags to ensure the newly created tag is visible locally
+          git fetch --tags
+          # Find the most recent tag reachable from HEAD (the one semantic-release just created)
+          NEW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -n "$NEW_TAG" ]; then
+            VERSION="${NEW_TAG#v}"
+            echo "new_release_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+            echo "Detected release version: ${VERSION} (tag: ${NEW_TAG})"
+          else
+            echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+            echo "No tags reachable from HEAD — no release was published."
+          fi
+
+      - name: 🔔 Trigger package build workflow
+        if: inputs.version == '' && steps.version.outputs.new_release_published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching build.yml for version v${{ steps.version.outputs.new_release_version }}"
+          gh workflow run build.yml \
+            -f version="v${{ steps.version.outputs.new_release_version }}"
+
+      - name: 🎯 Trigger deploy workflow
+        if: inputs.version == '' && steps.version.outputs.new_release_published == 'true' && steps.deploy.outputs.deploy_workflow != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DEPLOY_WORKFLOW="${{ steps.deploy.outputs.deploy_workflow }}"
+          echo "Dispatching ${DEPLOY_WORKFLOW} for version v${{ steps.version.outputs.new_release_version }}"
+          gh workflow run "${DEPLOY_WORKFLOW}" \
+            -f version="v${{ steps.version.outputs.new_release_version }}"
