@@ -9,7 +9,9 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	stdlog "log"
 	"log/slog"
+	"os"
 	"time"
 
 	"gorm.io/driver/mysql"
@@ -28,11 +30,24 @@ func Connect(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 		logLevel = gormlogger.Info
 	}
 
+	// A "record not found" is a normal answer for the lookups that guard the
+	// first boot seed or a deleted row, so it must not be printed as an error
+	// (gormlogger.Default logs it together with its SQL statement).
+	dbLogger := gormlogger.New(
+		stdlog.New(os.Stdout, "", stdlog.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logLevel,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false, // docker logs have no TTY colours
+		},
+	)
+
 	gormCfg := &gorm.Config{
 		// Every timestamp in Up is UTC; the UI converts to the local zone.
 		NowFunc:                func() time.Time { return time.Now().UTC() },
 		SkipDefaultTransaction: true,
-		Logger:                 gormlogger.Default.LogMode(logLevel),
+		Logger:                 dbLogger,
 	}
 
 	var (
