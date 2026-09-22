@@ -134,6 +134,38 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > theme store. The default run serves `dist/` through `vite preview`; without a
 > backend the `/api/*` calls fail and the app falls back to the login screen,
 > which is enough to catch a broken boot.
+>
+> The driver lives in `web/scripts/browser.mjs`: it talks to Chrome through the
+> DevTools Protocol over the `WebSocket` client built into Node 24, so there is no
+> dependency to install. `web/scripts/smoke.mjs` is the small client of it.
+
+### 6.1 Screenshots and layout checks
+
+```bash
+cd web
+npm run shots                                   # http://localhost:3000 -> /tmp/up-shots
+npm run shots -- --url http://localhost:3000 --out /tmp/up-shots
+npm run shots -- --url http://localhost:3000 --only dashboard
+```
+
+`npm run shots` walks the dashboard, the monitor detail and every admin page at
+three profiles (1600x1000 light, 1440x900 dark, 390x844 phone), writes one PNG
+per combination and prints the real time badge it saw on each of them. It fails
+with a non-zero exit code when a page overflows horizontally (`scrollWidth` >
+`innerWidth`), which is the kind of bug a screenshot alone does not reveal: a
+grid child without `min-w-0`, a table that is too wide, a Card without
+`overflow-hidden`. It only reads, so any running instance works:
+
+```bash
+# a throwaway instance with no authentication, next to the dev database
+AUTH_METHOD=none APP_PORT=3000 APP_URL=http://localhost:3000 /tmp/up-ui
+curl -s localhost:3000/api/auth/session   # -> "authenticated": true
+```
+
+The badge column is also a regression test: it must read `Live` on **every**
+page, including the monitor detail. It once said `Reconnecting…` as soon as you
+left the dashboard, because the socket was opened and closed by `DashboardView`
+while the badge is global (`App.vue` owns it now).
 
 Security checks (see `docs/security.md` §10 for the last audit results):
 
