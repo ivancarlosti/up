@@ -13,9 +13,15 @@ import type { ThemeMode } from '@/lib/types'
  */
 export const useThemeStore = defineStore('theme', () => {
   const mode = ref<ThemeMode>(readStoredMode())
+
+  // `media` must be initialised BEFORE `resolve()` is used below: for a visitor
+  // without a stored preference (or one who chose "system") the very first
+  // resolution reads `media.matches` immediately, and touching it while it is
+  // still in the temporal dead zone throws a ReferenceError that aborts the
+  // whole store setup - which used to leave the UI blank.
+  const media = window.matchMedia('(prefers-color-scheme: dark)')
   const resolved = ref<'light' | 'dark'>(resolve(mode.value))
 
-  const media = window.matchMedia('(prefers-color-scheme: dark)')
   media.addEventListener('change', () => {
     if (mode.value === 'system') apply()
   })
