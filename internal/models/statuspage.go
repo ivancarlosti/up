@@ -25,11 +25,13 @@ type StatusPage struct {
 	UpdatedAt time.Time `json:"updated_at"`
 
 	// Runtime fields -------------------------------------------------------
-	Monitors      []*Monitor      `gorm:"-" json:"monitors,omitempty"`
-	ItemCount     int             `gorm:"-" json:"monitors_count"`
-	OverallStatus AggregateStatus `gorm:"-" json:"overall_status"`
-	UpMonitors    int             `gorm:"-" json:"up_monitors"`
-	DownMonitors  int             `gorm:"-" json:"down_monitors"`
+	Monitors      []*Monitor        `gorm:"-" json:"monitors,omitempty"`
+	Groups        []StatusPageGroup `gorm:"-" json:"groups,omitempty"`
+	ItemCount     int               `gorm:"-" json:"monitors_count"`
+	GroupCount    int               `gorm:"-" json:"groups_count"`
+	OverallStatus AggregateStatus   `gorm:"-" json:"overall_status"`
+	UpMonitors    int               `gorm:"-" json:"up_monitors"`
+	DownMonitors  int               `gorm:"-" json:"down_monitors"`
 }
 
 // StatusPageMonitor links a monitor to a status page, optionally renaming it
@@ -48,6 +50,27 @@ type StatusPageMonitor struct {
 
 // TableName keeps the join table name stable.
 func (StatusPageMonitor) TableName() string { return "status_page_monitors" }
+
+// StatusPageGroupLink adds a monitor group to a status page: every monitor of
+// the group is rendered on the page, so adding a monitor to the group publishes
+// it everywhere the group is included.
+//
+// The table is `status_page_groups`; the type is called Link to keep the name
+// StatusPageGroup for the payload above (the rendered section).
+type StatusPageGroupLink struct {
+	ID           uint `gorm:"primaryKey" json:"id"`
+	StatusPageID uint `gorm:"not null;uniqueIndex:idx_status_page_group,priority:1" json:"status_page_id"`
+	GroupID      uint `gorm:"not null;uniqueIndex:idx_status_page_group,priority:2" json:"group_id"`
+	// DisplayName overrides the group name on this page (optional).
+	DisplayName string `gorm:"size:150" json:"display_name"`
+	SortOrder   int    `gorm:"not null;default:0" json:"sort_order"`
+
+	// Runtime fields: the group name, filled by the service.
+	GroupName string `gorm:"-" json:"group_name,omitempty"`
+}
+
+// TableName keeps the join table name stable.
+func (StatusPageGroupLink) TableName() string { return "status_page_groups" }
 
 // StatusPageGroup is the aggregated payload returned by the public endpoint,
 // already grouped and ordered for rendering.

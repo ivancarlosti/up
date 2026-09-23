@@ -36,7 +36,9 @@ func NewStatusPageService(db *gorm.DB, cfg *config.Config, log *slog.Logger) *St
 // decorated with status, uptime and heartbeat bars.
 func (s *StatusPageService) SetMonitorService(m *MonitorService) { s.monitors = m }
 
-// List returns every status page with a monitor count.
+// List returns every status page with a monitor count. The count includes the
+// monitors that arrive through the linked groups, so the admin list shows what
+// the page really renders.
 func (s *StatusPageService) List(ctx context.Context) ([]*models.StatusPage, error) {
 	var pages []*models.StatusPage
 	if err := s.db.WithContext(ctx).Order("title ASC").Find(&pages).Error; err != nil {
@@ -46,12 +48,43 @@ func (s *StatusPageService) List(ctx context.Context) ([]*models.StatusPage, err
 	if err := s.db.WithContext(ctx).Find(&items).Error; err != nil {
 		return nil, ErrInternal(err)
 	}
-	counts := map[uint]int{}
+	var links []models.StatusPageGroupLink
+	if err := s.db.WithContext(ctx).Find(&links).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+
+	explicit := map[uint]map[uint]bool{}
 	for _, item := range items {
-		counts[item.StatusPageID]++
+		if explicit[item.StatusPageID] == nil {
+			explicit[item.StatusPageID] = map[uint]bool{}
+		}
+		explicit[item.StatusPageID][item.MonitorID] = true
+	}
+	groupIDs := make([]uint, 0, len(links))
+	for _, link := range links {
+		groupIDs = append(groupIDs, link.GroupID)
+	}
+	members, err := s.groupMembers(ctx, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[uint]int{}
+	for pageID, ids := range explicit {
+		counts[pageID] = len(ids)
+	}
+	groupCounts := map[uint]int{}
+	for _, link := range links {
+		groupCounts[link.StatusPageID]++
+		for _, monitorID := range members[link.GroupID] {
+			if explicit[link.StatusPageID][monitorID] {
+				continue
+			}
+			counts[link.StatusPageID]++
+		}
 	}
 	for _, page := range pages {
 		page.ItemCount = counts[page.ID]
+		page.GroupCount = groupCounts[page.ID]
 	}
 	return pages, nil
 }
@@ -141,6 +174,9 @@ func (s *StatusPageService) Update(ctx context.Context, page *models.StatusPage)
 func (s *StatusPageService) Delete(ctx context.Context, id uint) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("status_page_id = ?", id).Delete(&models.StatusPageMonitor{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("status_page_id = ?", id).Delete(&models.StatusPageGroupLink{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&models.StatusPage{}, id).Error

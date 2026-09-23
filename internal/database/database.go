@@ -101,6 +101,7 @@ func MigrationModels() []any {
 		&models.ClusterSettings{},
 		&models.StatusPage{},
 		&models.StatusPageMonitor{},
+		&models.StatusPageGroupLink{},
 		&models.APIToken{},
 		&models.IPRule{},
 	}

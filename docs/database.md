@@ -55,6 +55,7 @@ FLUSH PRIVILEGES;
 | `cluster_settings` | failure / node-unavailable / sender strategies (single row) | 1 |
 | `status_pages` | public status pages | few |
 | `status_page_monitors` | monitor selection and ordering per page | tens |
+| `status_page_groups` | monitor groups included in a page (membership driven) | tens |
 | `api_tokens` | public API bearer tokens (hashed) | few |
 | `ip_rules` | allow/deny list by scope | few |
 

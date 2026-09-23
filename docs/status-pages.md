@@ -58,6 +58,7 @@ Admin UI: **Admin > Status pages**.
 | Update | `PUT /api/status-pages/:id` |
 | Delete | `DELETE /api/status-pages/:id` |
 | Selection/order | `PUT /api/status-pages/:id/monitors` with `{"monitor_ids":[6,7,8]}` |
+| Groups included | `PUT /api/status-pages/:id/groups` with `{"groups":[{"group_id":1}]}` |
 
 ```bash
 curl -b cookies.txt -X POST localhost:3000/api/status-pages \
@@ -73,6 +74,28 @@ curl -b cookies.txt -X POST localhost:3000/api/status-pages \
     "monitor_ids": [6, 7, 8]
   }'
 ```
+
+## 3.1 Groups on a page
+
+A page renders two things: the monitors picked one by one and the **groups**
+linked to it (Admin > Status pages > Displayed groups). Because a group is a live
+collection, adding a monitor to the group publishes it on every page that
+includes the group — no page edit needed. The admin card shows both counters
+(`Displayed monitors` counts the union, `Displayed groups` how many groups).
+
+Rendering rules (`planStatusPage` in `internal/services/statuspage_groups.go`):
+
+| Situation | Result |
+|---|---|
+| A monitor is both selected explicitly and inside a group | rendered **once**, in the explicit list |
+| A monitor belongs to two groups linked to the page | rendered in the **first** group that claims it |
+| A group linked to the page is empty | **no** section (an empty heading looks like a bug) |
+| Monitors selected explicitly but in no group | last section, without a heading |
+| `display_name` on the link | replaces the group name **on that page only** |
+
+The public payload keeps `monitors` (the flat union, what the badge and the public
+API have always used) and adds `groups` (the same list split into sections), so
+the order of the sections and of the flat list always agree.
 
 ## 4. Badge
 

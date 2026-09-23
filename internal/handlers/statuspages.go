@@ -33,7 +33,50 @@ func (h *Container) getStatusPage(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	api.OK(c, gin.H{"page": page, "monitors": items})
+	groups, err := h.StatusPages.Groups(c.Request.Context(), id)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, gin.H{"page": page, "monitors": items, "groups": groups})
+}
+
+// statusPageGroups returns the groups included in a status page, in page order.
+func (h *Container) statusPageGroups(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	groups, err := h.StatusPages.Groups(c.Request.Context(), id)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, groups)
+}
+
+// setStatusPageGroups replaces the monitor groups included in a status page.
+func (h *Container) setStatusPageGroups(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		Groups []models.StatusPageGroupLink `json:"groups"`
+	}
+	if !bindJSON(c, &payload) {
+		return
+	}
+	if err := h.StatusPages.SetGroups(c.Request.Context(), id, payload.Groups); err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	groups, err := h.StatusPages.Groups(c.Request.Context(), id)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, groups)
 }
 
 // createStatusPage stores a new status page.

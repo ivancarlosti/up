@@ -213,15 +213,24 @@ https://`); the UI shows that detail next to the translated sentence.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/status-pages` | list with monitor counts |
+| GET | `/api/status-pages` | list with monitor counts (explicit + group members) |
 | POST | `/api/status-pages` | create (`monitor_ids` optional) |
-| GET | `/api/status-pages/:id` | `{"page": {...}, "monitors": [links]}` |
+| GET | `/api/status-pages/:id` | `{"page": {...}, "monitors": [links], "groups": [links]}` |
 | PUT | `/api/status-pages/:id` | update |
 | DELETE | `/api/status-pages/:id` | delete |
 | GET | `/api/status-pages/:id/monitors` | ordered selection |
 | PUT | `/api/status-pages/:id/monitors` | `{"monitor_ids":[6,7,8]}` (order = display order) |
+| GET | `/api/status-pages/:id/groups` | groups included, in page order |
+| PUT | `/api/status-pages/:id/groups` | `{"groups":[{"group_id":1,"display_name":"Edge"}]}` |
 | GET | `/api/public/status/:slug` | **public** payload rendered by the page |
 | GET | `/api/public/status/:slug/badge.svg` | **public** shields.io style badge |
+
+A page renders the union of the explicit `monitor_ids` and the members of the
+groups linked to it: adding a monitor to a group publishes it on every page that
+includes the group, without editing the page. The public payload carries
+`monitors` (the ordered union) and `groups` (the same list split into sections:
+one per group plus the monitors that are in no group), so a monitor is never
+rendered twice. An unknown `group_id` answers `400 ERR_MONITOR_GROUP_INVALID`.
 
 ## 7. Cluster
 

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"gorm.io/gorm"
@@ -52,6 +51,11 @@ func (s *StatusPageService) SetMonitors(ctx context.Context, pageID uint, monito
 
 // PublicPayload builds the payload rendered by the public status page: the page
 // settings plus the decorated monitors (status, uptime and heartbeat bars).
+//
+// The monitors come from two sources: the explicit selection and the groups
+// linked to the page, so adding a monitor to a group publishes it here. The flat
+// `monitors` list is the ordered union (what the badge and the API have always
+// returned) and `groups` carries the same list split into sections.
 func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, includeHidden bool) (*models.StatusPage, error) {
 	page, err := s.GetBySlug(ctx, slug)
 	if err != nil {
@@ -65,35 +69,55 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 	if err != nil {
 		return nil, err
 	}
-	if len(items) == 0 || s.monitors == nil {
-		page.Monitors = []*models.Monitor{}
-		page.OverallStatus = models.AggregateUnknown
-		return page, nil
+	links, err := s.Groups(ctx, page.ID)
+	if err != nil {
+		return nil, err
 	}
 
-	ids := make([]uint, 0, len(items))
-	for _, item := range items {
-		ids = append(ids, item.MonitorID)
+	groupIDs := make([]uint, 0, len(links))
+	names := map[uint]string{}
+	for _, link := range links {
+		groupIDs = append(groupIDs, link.GroupID)
+		names[link.GroupID] = link.GroupName
+	}
+	members, err := s.groupMembers(ctx, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	sections, ids := planStatusPage(items, links, members, names)
+
+	if len(ids) == 0 || s.monitors == nil {
+		page.Monitors = []*models.Monitor{}
+		page.Groups = []models.StatusPageGroup{}
+		page.OverallStatus = models.AggregateUnknown
+		return page, nil
 	}
 
 	var monitors []*models.Monitor
 	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&monitors).Error; err != nil {
 		return nil, ErrInternal(err)
 	}
-
 	byID := map[uint]*models.Monitor{}
 	for _, monitor := range monitors {
 		byID[monitor.ID] = monitor
 	}
-
-	ordered := make([]*models.Monitor, 0, len(monitors))
+	// The per page rename only applies to the explicit selection: a monitor that
+	// arrives through a group keeps its own name.
+	displayNames := map[uint]string{}
 	for _, item := range items {
-		monitor, ok := byID[item.MonitorID]
+		if trimmed := strings.TrimSpace(item.DisplayName); trimmed != "" {
+			displayNames[item.MonitorID] = trimmed
+		}
+	}
+
+	ordered := make([]*models.Monitor, 0, len(ids))
+	for _, id := range ids {
+		monitor, ok := byID[id]
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(item.DisplayName) != "" {
-			monitor.Name = item.DisplayName
+		if name, ok := displayNames[id]; ok {
+			monitor.Name = name
 		}
 		if series, seriesErr := s.monitors.SeriesFor(ctx, monitor.ID, 30); seriesErr == nil {
 			monitor.Heartbeats = series
@@ -104,14 +128,22 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 	if err := s.monitors.Decorate(ctx, ordered); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(ordered, func(i, j int) bool {
-		order := map[uint]int{}
-		for _, item := range items {
-			order[item.MonitorID] = item.SortOrder
-		}
-		return order[ordered[i].ID] < order[ordered[j].ID]
-	})
 
+	byMonitorID := map[uint]*models.Monitor{}
+	for _, monitor := range ordered {
+		byMonitorID[monitor.ID] = monitor
+	}
+	groups := make([]models.StatusPageGroup, 0, len(sections))
+	for _, section := range sections {
+		group := models.StatusPageGroup{Name: section.Name, Monitors: []*models.Monitor{}}
+		for _, id := range section.MonitorIDs {
+			if monitor, ok := byMonitorID[id]; ok {
+				group.Monitors = append(group.Monitors, monitor)
+			}
+		}
+		groups = append(groups, group)
+	}
+	page.Groups = groups
 	page.Monitors = ordered
 	page.ItemCount = len(ordered)
 	for _, monitor := range ordered {
