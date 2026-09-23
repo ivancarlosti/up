@@ -163,6 +163,23 @@ Stop/start the workers of that monitor (the history is preserved).
 | POST | `/api/notifications/:id/test` | immediate test delivery, returns a `NotificationLog` |
 | GET | `/api/notifications/logs?limit=100` | delivery history |
 
+### `POST /api/notifications` and `PUT /api/notifications/:id`
+
+Body: the writable fields of `models.Notification` (`name`, `type`, `active`,
+`is_default`, `resend_interval_seconds`) plus the `config` block of that type
+(see `docs/notifications.md` for every field).
+
+The response-only fields stay out of the request: `created_at`/`updated_at` are
+`time.Time`, so echoing them back as an empty string is rejected with
+`ERR_INVALID_PAYLOAD`, and the monitor links belong to `notification_ids` on the
+monitor (`PUT /api/monitors/:id`), not to this endpoint. Numbers are numbers on
+the wire too (`{"port": 587}`, never `{"port": "587"}`: the numeric inputs of the
+UI emit strings, the API does not accept them).
+
+Validation problems answer `400` with `ERR_NOTIFICATION_CONFIG_INVALID` and the
+offending field in `message` (`config.webhook.url must start with http:// or
+https://`); the UI shows that detail next to the translated sentence.
+
 ## 5. Status pages
 
 | Method | Path | Notes |

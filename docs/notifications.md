@@ -60,10 +60,11 @@ smtp://user:pass@host:port/?fromaddress=up@example.com&toaddresses=a@x,b@y&subje
 | `url` | `http://` or `https://` (plain HTTP sets `disabletls=yes` on the shoutrrr side) |
 | `method` | GET, POST, PUT, PATCH, DELETE (default POST) |
 | `content_type` | default `application/json` |
-| `headers[]` | extra headers (`@Header` query parameters internally) |
-| `body_template` | Go `text/template` rendered by Up before the request |
+| `headers[]` | extra headers (`@Header` query parameters internally); the dialog has a name/value editor for them |
+| `body_template` | Go `text/template` rendered by Up before the request; empty means "use the default below", which is what the dialog sends |
 
-Default body template (pre-filled in the UI):
+Default body template (applied by the API when `body_template` is empty, so it is
+what a channel created from the UI uses):
 
 ```json
 {
@@ -173,6 +174,12 @@ curl -b cookies.txt -X POST http://localhost:3000/api/notifications \
 ```
 
 Link channels to a monitor through the monitor payload (`notification_ids`).
+
+Only the writable fields belong in the body: `name`, `type`, `active`,
+`is_default`, `resend_interval_seconds` and `config`. `id`, `created_at`,
+`updated_at` and `monitor_ids` are read-only - sending an empty `created_at` back
+is rejected with `ERR_INVALID_PAYLOAD` ("cannot parse ...") - and the numbers stay
+numbers (`"port": 587`, never `"587"`). See `docs/api.md` §4.
 
 ## 4. Delivery log
 
