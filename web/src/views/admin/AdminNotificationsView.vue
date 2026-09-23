@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bell, Pencil, Plus, Send, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
@@ -17,7 +17,7 @@ import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { Notification, NotificationLog } from '@/lib/types'
+import type { Notification, NotificationConfig, NotificationLog, SMTPConfig, WebhookConfig } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -34,6 +34,25 @@ const pendingRemoval = ref<Notification | null>(null)
 const editing = ref<Notification | null>(null)
 const form = ref<Notification>(blankChannel())
 
+function blankSMTP(): SMTPConfig {
+  return {
+    host: '',
+    port: 587,
+    username: '',
+    password: '',
+    from: '',
+    to: '',
+    secure: false,
+    use_html: true,
+    skip_tls_verify: false,
+    subject_prefix: '[Up]',
+  }
+}
+
+function blankWebhook(): WebhookConfig {
+  return { url: '', method: 'POST', content_type: 'application/json', headers: [], body_template: '' }
+}
+
 function blankChannel(): Notification {
   return {
     id: 0,
@@ -45,21 +64,34 @@ function blankChannel(): Notification {
     created_at: '',
     updated_at: '',
     monitor_ids: [],
-    config: {
-      smtp: {
-        host: '',
-        port: 587,
-        username: '',
-        password: '',
-        from: '',
-        to: '',
-        secure: false,
-        use_html: true,
-        skip_tls_verify: false,
-        subject_prefix: '[Up]',
-      },
-    },
+    config: { smtp: blankSMTP() },
   }
+}
+
+/**
+ * ensureConfig fills the block of the selected type. The dialog only renders the
+ * fields of that block, so without it switching the type to webhook showed an
+ * empty form (no URL, no method) and the save was rejected server side with
+ * "config.webhook is required".
+ */
+function ensureConfig(): void {
+  if (!form.value.config) form.value.config = {}
+  if (form.value.type === 'smtp' && !form.value.config.smtp) form.value.config.smtp = blankSMTP()
+  if (form.value.type === 'webhook' && !form.value.config.webhook) form.value.config.webhook = blankWebhook()
+}
+
+// The dialog must follow the type selector, not only the moment it is opened.
+watch(() => form.value.type, ensureConfig, { immediate: true })
+
+function addHeader(): void {
+  const webhook = form.value.config.webhook
+  if (!webhook) return
+  if (!webhook.headers) webhook.headers = []
+  webhook.headers.push({ key: '', value: '' })
+}
+
+function removeHeader(index: number): void {
+  form.value.config.webhook?.headers?.splice(index, 1)
 }
 
 const typeOptions = computed(() => [
@@ -91,17 +123,47 @@ function openCreate(): void {
 function openEdit(channel: Notification): void {
   editing.value = channel
   form.value = JSON.parse(JSON.stringify(channel))
-  if (!form.value.config.smtp && form.value.type === 'smtp') form.value.config.smtp = blankChannel().config.smtp
-  if (!form.value.config.webhook && form.value.type === 'webhook') {
-    form.value.config.webhook = { url: '', method: 'POST', content_type: 'application/json', headers: [], body_template: '' }
-  }
+  ensureConfig()
   dialogOpen.value = true
+}
+
+/**
+ * channelPayload builds the body the API accepts. It drops the read-only fields
+ * on purpose (an empty `created_at` cannot be decoded into a time.Time and the
+ * API answers "invalid request body") and coerces the numbers, because a native
+ * number input emits strings.
+ */
+function channelPayload(): Partial<Notification> {
+  const channel = form.value
+  const config: NotificationConfig = {}
+  if (channel.type === 'smtp' && channel.config.smtp) {
+    config.smtp = { ...channel.config.smtp, port: Number(channel.config.smtp.port) || 587 }
+  }
+  if (channel.type === 'webhook' && channel.config.webhook) {
+    const webhook = channel.config.webhook
+    config.webhook = {
+      ...webhook,
+      url: webhook.url.trim(),
+      body_template: webhook.body_template ?? '',
+      // A header without a name is a typo, not a header.
+      headers: (webhook.headers ?? []).filter((header) => header.key.trim() !== ''),
+    }
+  }
+  return {
+    name: channel.name.trim(),
+    type: channel.type,
+    active: channel.active,
+    is_default: channel.is_default,
+    resend_interval_seconds: Number(channel.resend_interval_seconds) || 0,
+    monitor_ids: channel.monitor_ids ?? [],
+    config,
+  }
 }
 
 async function save(): Promise<void> {
   saving.value = true
   try {
-    const payload = { ...form.value }
+    const payload = channelPayload()
     const saved = editing.value
       ? await api.updateNotification(editing.value.id, payload)
       : await api.createNotification(payload)
@@ -250,7 +312,7 @@ onMounted(load)
         </div>
         <div class="flex items-end gap-4 pb-1">
           <Switch v-model="form.active">{{ t('common.enabled') }}</Switch>
-          <Switch v-model="form.is_default">{{ t('notifications.linkedMonitors') }}</Switch>
+          <Switch v-model="form.is_default">{{ t('notifications.defaultChannel') }}</Switch>
         </div>
         <div class="grid gap-1">
           <Label for="channel-resend">{{ t('notifications.resendInterval') }}</Label>
@@ -293,7 +355,7 @@ onMounted(load)
           </div>
         </template>
 
-        <template v-else-if="form.config.webhook">
+        <template v-else-if="form.type === 'webhook' && form.config.webhook">
           <div class="grid gap-1 sm:col-span-2">
             <Label for="webhook-url" required>{{ t('notifications.webhookUrl') }}</Label>
             <Input id="webhook-url" v-model="form.config.webhook.url" placeholder="https://hooks.example.com/up" />
@@ -306,6 +368,37 @@ onMounted(load)
             <Label for="webhook-ct">{{ t('notifications.webhookContentType') }}</Label>
             <Input id="webhook-ct" v-model="form.config.webhook.content_type" placeholder="application/json" />
           </div>
+
+          <div class="grid gap-2 sm:col-span-2">
+            <div class="flex items-center justify-between gap-2">
+              <Label :help="t('notifications.webhookHeadersHelp')">{{ t('notifications.webhookHeaders') }}</Label>
+              <Button variant="outline" size="sm" @click="addHeader">
+                <Plus class="h-3.5 w-3.5" aria-hidden="true" />
+                {{ t('common.add') }}
+              </Button>
+            </div>
+            <div
+              v-for="(header, index) in form.config.webhook.headers ?? []"
+              :key="index"
+              class="flex items-center gap-2"
+            >
+              <Input v-model="header.key" :placeholder="t('notifications.headerName')" />
+              <Input v-model="header.value" :placeholder="t('notifications.headerValue')" />
+              <Button
+                variant="ghost"
+                size="icon"
+                :aria-label="t('common.remove')"
+                :title="t('common.remove')"
+                @click="removeHeader(index)"
+              >
+                <Trash2 class="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </div>
+            <p v-if="!(form.config.webhook.headers ?? []).length" class="text-[11px] text-muted-foreground">
+              {{ t('notifications.webhookNoHeaders') }}
+            </p>
+          </div>
+
           <div class="grid gap-1 sm:col-span-2">
             <Label for="webhook-body" :help="t('notifications.webhookBodyHelp')">
               {{ t('notifications.webhookBody') }}
