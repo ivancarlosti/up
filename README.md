@@ -159,6 +159,25 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 | [i18n.md](docs/i18n.md) | languages, resolution order, adding a language |
 | [development.md](docs/development.md) | toolchain, local setup, tests, image build, sinks for testing |
 
+## Screenshots
+
+| ![dashboard.png](docs/screenshots/dashboard.png) | 
+|:--:| 
+| *Space* |
+
+| ![monitor.png](docs/screenshots/monitor.png) | 
+|:--:| 
+| *Space* |
+
+| ![singlemonitor.png](docs/screenshots/singlemonitor.png) | 
+|:--:| 
+| *Space* |
+
+| ![status.png](docs/screenshots/status.png) | 
+|:--:| 
+| *Space* |
+
+
 ## Tests
 
 ```bash
