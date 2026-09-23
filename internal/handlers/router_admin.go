@@ -70,6 +70,7 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 
 	cluster := admin.Group("/cluster")
 	cluster.GET("/status", h.clusterStatus)
+	cluster.GET("/sync/status", h.syncStatus)
 	cluster.GET("/nodes", h.clusterNodes)
 	cluster.POST("/leave", h.clusterLeave)
 	cluster.GET("/settings", h.clusterGetSettings)

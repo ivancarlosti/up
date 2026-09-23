@@ -86,10 +86,22 @@ type Config struct {
 	// "federated" (one database per node). Only "shared" is implemented; the
 	// variable exists so an operator cannot silently configure a mode that is
 	// not there yet.
-	ClusterMode       string
-	NodeID            string
-	NodeName          string
-	ClusterPrivateKey string
+	ClusterMode string
+	// ClusterPeerAPI turns on the signed peer API (the /api/cluster/sync/...
+	// endpoints) and the peer ping loop.
+	//
+	// It is deliberately independent of CLUSTER_MODE: the peer API can be
+	// enabled in shared mode, where it cross-checks liveness over HTTP instead of
+	// trusting a shared row. Federated mode will require it.
+	ClusterPeerAPI bool
+	// ClusterLeaderSettleSeconds is how long a peer must be continuously
+	// reachable before it may take the leader role (and, later, the notification
+	// duty) from the current holder. It stops a peer blip or a rejoining node
+	// from taking over mid-incident.
+	ClusterLeaderSettleSeconds int
+	NodeID                     string
+	NodeName                   string
+	ClusterPrivateKey          string
 
 	// --- Optional tuning --------------------------------------------------
 	LogLevel string
@@ -146,6 +158,8 @@ func Load() (*Config, error) {
 		DefaultTheme:                  env("DEFAULT_THEME", "system"),
 		ClusterEnabled:                mustBool("CLUSTER_ENABLED", false),
 		ClusterMode:                   strings.ToLower(env("CLUSTER_MODE", ClusterModeShared)),
+		ClusterPeerAPI:                mustBool("CLUSTER_PEER_API", false),
+		ClusterLeaderSettleSeconds:    envInt("CLUSTER_LEADER_SETTLE_SECONDS", 60),
 		NodeID:                        env("NODE_ID", "up-node-1"),
 		NodeName:                      env("NODE_NAME", "Primary Node"),
 		ClusterPrivateKey:             strings.TrimSpace(env("CLUSTER_PRIVATE_KEY", "")),

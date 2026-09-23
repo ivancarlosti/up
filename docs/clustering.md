@@ -41,6 +41,7 @@ flowchart TB
 |---|---|---|---|
 | `CLUSTER_ENABLED` | `true` | `true` | enables the cluster features on that node |
 | `CLUSTER_MODE` | `shared` | `shared` | **no other value is implemented**: `federated` (one database per node) is refused at boot — see [clustering-federated.md](clustering-federated.md) |
+| `CLUSTER_PEER_API` | `false` | `false` | optional: enables the signed node to node API and the peer ping loop. It also works in shared mode, where it cross-checks liveness over HTTP instead of trusting the shared row |
 | `NODE_ID` | `up-node-1` | `up-node-2` | **unique** per node, becomes `heartbeats.node_id` |
 | `NODE_NAME` | `Primary Node` | `Node 2` | display name |
 | `APP_URL` | `http://up-node1:3000` | `http://up-node2:3000` | must be **reachable from the other nodes** (it is stored as `nodes.api_url`) |

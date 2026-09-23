@@ -150,6 +150,31 @@ The database therefore contains credentials (SMTP passwords, cluster key):
 protect the database accordingly and remember that the MySQL connection is
 plaintext unless `DB_SSL=true`.
 
+## 9. Peer API trust model
+
+Since phase 1 ([clustering-federated.md](clustering-federated.md)) a node can call
+another node over HTTP on `/api/cluster/sync/*`. Those routes are **not** covered
+by the IP rules, the session or a bearer token: they are authenticated by an
+HMAC-SHA256 signature over the request, computed with the cluster private key.
+
+What an operator should know:
+
+- **Every node is trusted with the whole configuration.** That is the same trust
+  the shared database already implies today; the peer API does not widen it.
+- **The cluster key is a signing key here, not a session secret.** It never
+  travels on the peer routes (only the join endpoint still sends
+  `X-Cluster-Key`, which is the bootstrap with nothing to sign yet). A leaked key
+  is still a full compromise of the peer API, so it is inventoried below and
+  rotatable in Admin > Cluster.
+- **Requests expire.** A timestamp outside ±5 minutes (past or future) is refused
+  and each nonce is accepted once, so a captured request cannot be replayed. The
+  nonce cache is in memory; a restart forgets it, which is safe because every
+  current peer endpoint is a read or an idempotent pull.
+- **Redirects are never followed** and the peer URL is validated before anything
+  is signed, so the key cannot be aimed at a host the operator did not name.
+- **Run the peers over TLS.** `CLUSTER_INSECURE_SKIP_VERIFY` exists only for
+  internal labs: without TLS the traffic is authentic but still readable.
+
 ## 10. Dependency posture (audited on 2026-09-22)
 
 Vulnerability audit of the shipped artifact, performed with the official

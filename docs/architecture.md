@@ -67,13 +67,13 @@ sequenceDiagram
     M->>C: Load() reads .env + environment
     C-->>M: Config or ValidationError (all problems at once)
     M->>D: Connect() with exponential backoff (up to 90s)
-    D->>D: Migrate() AutoMigrate(19 tables)
+    D->>D: Migrate() AutoMigrate(20 tables)
     D->>D: Backfill() sync identity (uuid, origin_node_id, revision)
     D->>D: Seed() settings, session secret, cluster key, node row
     M->>A: build services (settings, stats, monitors, heartbeats, ...)
     A->>A: EnsureSelf() registers this node
     M->>S: Start() loads active monitors and starts one worker each
-    S->>S: StartMaintenance() node ping 30s, sweep 30s, retention 6h
+    S->>S: StartMaintenance() node ping 30s, peer ping 30s, sweep 30s, retention 6h
     M->>H: Register() routes + embedded SPA
     H-->>M: ListenAndServe on APP_PORT
     M->>M: SIGTERM -> graceful shutdown (20s) -> scheduler.Stop()
@@ -194,7 +194,7 @@ All variables, their defaults and validation rules live in
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |
-| Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared` only), `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
+| Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared` only), `CLUSTER_PEER_API`, `CLUSTER_LEADER_SETTLE_SECONDS`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
 | Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
 
 Validation lives in `internal/config/validate.go`; the aggregated error type is

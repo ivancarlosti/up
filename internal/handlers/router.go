@@ -101,6 +101,14 @@ func (h *Container) Register(engine *gin.Engine) {
 		middleware.IPFilter(h.IPRules, models.IPRuleScopeDashboard),
 		h.clusterJoin)
 
+	// --- Cluster peer API (signed, node to node) -------------------------
+	// Always registered, so a node with the peer API disabled answers a clear
+	// 403 instead of a 404 (or worse, the SPA fallback). No IP filter on
+	// purpose: a peer is not a dashboard visitor and the HMAC signature is the
+	// control (docs/clustering-federated.md, section 11).
+	peers := engine.Group("/api/cluster/sync", middleware.RequirePeerKey(h.Cluster))
+	peers.GET("/ping", h.syncPing)
+
 	h.registerAdmin(engine)
 }
 

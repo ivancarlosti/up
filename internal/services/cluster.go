@@ -28,11 +28,14 @@ type ClusterService struct {
 	monitors      *MonitorService
 	notifications *NotificationService
 	hub           EventPublisher
+	// peerAuth verifies the signature of inbound node to node requests
+	// (docs/clustering-federated.md, section 11).
+	peerAuth *PeerAuth
 }
 
 // NewClusterService builds the cluster service.
 func NewClusterService(db *gorm.DB, cfg *config.Config, log *slog.Logger, settings *SettingService, stats *StatsService) *ClusterService {
-	return &ClusterService{db: db, cfg: cfg, log: log, settings: settings, stats: stats}
+	return &ClusterService{db: db, cfg: cfg, log: log, settings: settings, stats: stats, peerAuth: NewPeerAuth()}
 }
 
 // SetMonitorService injects the monitor service (used by the evaluator).

@@ -55,6 +55,11 @@ func (s *ClusterService) RegisterNode(ctx context.Context, req JoinRequest) (*Jo
 	if err := s.UpsertNode(ctx, node); err != nil {
 		return nil, ErrInternal(err)
 	}
+	// The peer API needs the node in the local peer table too: it is what the
+	// ping loop walks and where the settle timer lives.
+	if err := s.EnsurePeerRow(ctx, nodeID, nodeName, apiURL); err != nil {
+		s.log.Warn("could not register the peer row", "node_id", nodeID, "error", err)
+	}
 	if err := s.db.WithContext(ctx).Model(&models.Node{}).
 		Where("node_id = ?", nodeID).
 		Update("is_primary", false).Error; err != nil {

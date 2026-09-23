@@ -14,6 +14,9 @@ const (
 	CtxIdentity  = "up_identity"
 	CtxToken     = "up_api_token"
 	CtxRequestID = "up_request_id"
+	// CtxPeerNode is the authenticated NODE_ID of an inbound node to node
+	// request (set by RequirePeerKey).
+	CtxPeerNode = "up_peer_node"
 )
 
 // ClientIP returns the resolved client address of the request.
@@ -24,6 +27,17 @@ func ClientIP(c *gin.Context) string {
 		}
 	}
 	return c.ClientIP()
+}
+
+// PeerNode returns the authenticated peer identity of an inbound node to node
+// request, or "" when the route is not protected by RequirePeerKey.
+func PeerNode(c *gin.Context) string {
+	if value, ok := c.Get(CtxPeerNode); ok {
+		if node, ok := value.(string); ok {
+			return node
+		}
+	}
+	return ""
 }
 
 // bearerToken extracts the token from the Authorization header.

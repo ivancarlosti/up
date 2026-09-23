@@ -41,6 +41,9 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		if err := s.cluster.Ping(ctx); err != nil {
 			s.log.Warn("node liveness ping failed", "error", err)
 		}
+		// The peer rows say who answers over HTTP; the local row above only says
+		// that this process is alive.
+		s.cluster.PingPeers(ctx)
 		if err := s.cluster.Sweep(ctx); err != nil {
 			s.log.Warn("node liveness sweep failed", "error", err)
 		}
@@ -60,6 +63,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				if err := s.cluster.Ping(ctx); err != nil {
 					s.log.Warn("node liveness ping failed", "error", err)
 				}
+				s.cluster.PingPeers(ctx)
 			case <-sweep.C:
 				if err := s.cluster.Sweep(ctx); err != nil {
 					s.log.Warn("node liveness sweep failed", "error", err)

@@ -10,7 +10,7 @@
 > | Phase | Deliverable | Status |
 > |---|---|---|
 > | 0 | sync identity, backfill, `CLUSTER_MODE` skeleton | **done** |
-> | 1 | peer registry, signed ping, ownership settle time | design |
+> | 1 | peer registry, signed ping, settle time | **done** |
 > | 2 | outbox, pull/apply, LWW, manifest/snapshot, monitors + groups | design |
 > | 3 | status pages (+ items/groups) and templates | design |
 > | 4 | federated voting, derived leader, leader-owned notifications | design |
@@ -281,14 +281,49 @@ Alternatives, selectable with `CLUSTER_NOTIFY_ELECTION`:
 > bucket in the key reintroduces both the two-senders bug and the clock
 > dependency (see decision **D3**).
 
-## 9. Liveness
+## 9. Liveness (phase 1, implemented)
 
-Each node pings every peer every 30 s (`GET /api/cluster/sync/ping`, signed with
-the cluster key) and updates its local `nodes` row with `last_heartbeat`,
-`status`, `api_url`, `name` and the peer version. The existing thresholds are
-reused unchanged (`< 60 s` online, `60-120 s` degraded, `>= 120 s` offline), and
-`internal/services/cluster_nodes.go::Sweep` keeps the same three `UPDATE`
-statements — only the source of `last_heartbeat` changes.
+Two things are kept apart on purpose:
+
+- the **local** row says "this process is alive": `ClusterService.Ping` refreshes
+  it every 30 s, exactly as before;
+- the **peer** rows say "they answer me over HTTP": `ClusterService.PingPeers`
+  runs on the same 30 s ticker and sends a signed
+  `GET /api/cluster/sync/ping` to every node of the registry (`nodes.api_url`),
+  concurrently, with a 10 s timeout.
+
+The outcome is stored in `sync_peers` (section 12):
+
+| Field | Written by | Meaning |
+|---|---|---|
+| `last_success_at` | a successful outbound ping | the peer answered |
+| `last_seen_at` | that, **plus** a valid inbound request | liveness works in both directions, so a node reachable through a one way firewall still shows up |
+| `online_since` | set on success, **cleared on failure** | how long the peer has been *continuously* reachable — the settle input |
+| `last_error`, `last_error_at` | a failed ping | why it failed |
+| `status` | both | `online`, `error`, `incompatible` (protocol or mode mismatch), `unknown` |
+
+A failed ping deliberately **does not** touch `nodes.last_heartbeat`: this node's
+`Sweep` stays the only writer of `nodes.status`, so the documented thresholds
+(`< 60 s` online, `60-120 s` degraded, `>= 120 s` offline) keep a single owner and
+a single failed probe never flaps the peer status.
+
+Recovery is what the settle time is for: restarting a peer resets its
+`online_since`, so it is not settled for another `CLUSTER_LEADER_SETTLE_SECONDS`,
+while a peer that never went down keeps its original `online_since` untouched.
+
+Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
+
+- both nodes reported the other `online` with `peer_version=dev` and
+  `protocol_version=1`;
+- the peer that had been reachable for more than a minute was `settled=true`
+  while the one just seen was `settled=false`;
+- stopping a node produced `status=error`, a populated `last_error` and
+  `online_since=NULL` within one ping cycle, and its `nodes.status` went
+  `degraded` at 89 s without anyone touching the heartbeat;
+- restarting it produced a *fresh* `online_since` (`settled=false`) while the
+  peer that stayed up kept its `settled=true` and its original timestamp;
+- the unreachable/reachable lines are logged **on a transition only**, so a
+  healthy cluster stays quiet.
 
 ## 10. What syncs, and what stays local
 
@@ -339,26 +374,56 @@ Two consequences worth stating:
 
 ## 11. Peer API
 
-All endpoints are authenticated with the cluster private key: the
-`X-Cluster-Key` header (compatible with the existing join endpoint) **plus** an
-HMAC-SHA256 signature over `method`, `path`, `sha256(body)`, `timestamp` and a
-`nonce`. A timestamp outside ±5 minutes, or a replayed nonce, is rejected.
+All endpoints are authenticated with the cluster private key through an
+HMAC-SHA256 signature. The key itself is **not** sent on these routes: the
+signature already proves that the caller knows it, so transmitting it as well
+would only add exposure. (The join endpoint keeps its original `X-Cluster-Key`
+behaviour, because that is the bootstrap and there is nothing to sign yet.)
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/cluster/sync/ping` | identity, version, protocol version, per entity counts |
-| GET | `/api/cluster/sync/changes?since=&limit=` | outbox batch + `next_since`, `has_more`, `latest_revision` |
-| GET | `/api/cluster/sync/manifest` | per entity `{count, max_revision, checksum}` |
-| GET | `/api/cluster/sync/snapshot?entity=&page=` | paged full state, uuid order |
-| GET | `/api/cluster/sync/votes` | latest verdict per monitor uuid (voting input) |
-| POST | `/api/cluster/sync/now` | ask a peer to pull immediately (phase 6) |
-| GET | `/api/cluster/sync/status` | **local** admin view: peers, cursor lag, last error, conflicts (session-auth, Admin > Cluster) |
+| Header | Content |
+|---|---|
+| `X-Cluster-Node` | sender `NODE_ID` (signed) |
+| `X-Cluster-Timestamp` | unix seconds, UTC (signed) |
+| `X-Cluster-Nonce` | 16 random bytes, hex, unique per request (signed) |
+| `X-Cluster-Signature` | base64url HMAC-SHA256 of the canonical string |
 
-Outbound calls reuse the guards already written for the join flow: the
-`clusterPrimaryURL` validator (extracted into a shared peer-URL helper),
-`CheckRedirect: http.ErrUseLastResponse`, a 20 s timeout and an
-`io.LimitReader` on responses. The sync endpoints are size-capped
-(`CLUSTER_SYNC_BATCH`) and rate-limited like the rest of the API.
+The canonical string is `\n`-joined and covers the method, the request URI (path
+**and** query — signing only the path would let a captured request be replayed
+with a different `?since=`), the SHA-256 of the body, the timestamp, the nonce
+and the node id. The target is the URI as the **receiver** sees it, so a peer
+published behind a path prefix (`http://host/up`) signs
+`/up/api/cluster/sync/ping`.
+
+Rejected, all with `403`: a missing or wrong signature, a timestamp outside
+±5 minutes (past or future), and a nonce already used inside that window.
+`utils.SecureCompare` keeps the signature comparison constant time. The rejection
+reason is logged server side, never returned.
+
+The nonce cache is **in memory**, not the `sync_nonces` table the first draft of
+this document listed: the window is five minutes and every peer endpoint is either
+a read or an idempotent pull, so losing the cache on a restart costs nothing,
+while a write per request would sit on the hot path of every pull.
+
+| Method | Path | Purpose | Status |
+|---|---|---|---|
+| GET | `/api/cluster/sync/ping` | identity, version, protocol version, mode, uptime, server time | **phase 1** |
+| GET | `/api/cluster/sync/status` | **local** admin view: peers, settle state, last success, last error (session auth) | **phase 1** |
+| GET | `/api/cluster/sync/changes?since=&limit=` | outbox batch + `next_since`, `has_more`, `latest_revision` | phase 2 |
+| GET | `/api/cluster/sync/manifest` | per entity `{count, max_revision, checksum}` | phase 2 |
+| GET | `/api/cluster/sync/snapshot?entity=&page=` | paged full state, uuid order | phase 2 |
+| GET | `/api/cluster/sync/votes` | latest verdict per monitor uuid (voting input) | phase 4 |
+| POST | `/api/cluster/sync/now` | ask a peer to pull immediately | phase 6 |
+
+The routes are always registered, so a node with the peer API disabled answers a
+clear `403` instead of a `404` (or worse, the SPA fallback). They carry **no IP
+filter**: a peer is not a dashboard visitor, an operator's dashboard rules must
+not be able to block a node, and the signature is the control.
+
+Outbound calls reuse the guards written for the join flow: the `clusterPrimaryURL`
+validator (as `peerURL`), `CheckRedirect: http.ErrUseLastResponse` and an
+`io.LimitReader` on the response. A ping additionally caps the response at 1 MiB
+and uses a 10 s timeout — much shorter than the join's 20 s, because a liveness
+probe runs every 30 s and a silent peer must not hold the loop.
 
 ## 12. Data model
 
@@ -368,10 +433,12 @@ New tables (added to `database.MigrationModels()`):
 |---|---|
 | `sync_outbox` | `id`, `entity`, `uuid`, `action` (`upsert`/`delete`), `origin_node_id`, `revision`, `payload` (JSON, null on delete), `payload_hash`, `created_at` |
 | `sync_objects` | `uuid` (PK), `entity`, `local_id`, `origin_node_id`, `revision`, `deleted_at`, `updated_at` |
-| `sync_peers` | `peer_node_id` (PK), `last_change_id`, `last_manifest_at`, `last_success_at`, `last_error`, `status` |
+| `sync_peers` | `peer_node_id` (PK), `peer_name`, `peer_api_url`, `peer_version`, `protocol_version`, `status`, `last_seen_at`, `last_success_at`, `online_since`, `last_error`, `last_error_at`, `updated_at` — **phase 1, implemented**; the cursor columns (`last_change_id`, `last_manifest_at`) arrive with phase 2 |
 | `peer_votes` | `monitor_uuid` + `node_id` (composite PK), `status`, `latency_ms`, `message`, `checked_at`, `fetched_at` |
 | `sync_conflicts` | `id`, `entity`, `uuid`, `kept_origin`, `kept_revision`, `lost_origin`, `lost_revision`, `detected_at` |
-| `sync_nonces` | `nonce` (PK), `node_id`, `created_at` (replay protection; may be replaced by an in-memory LRU) |
+
+`sync_nonces` is no longer in the list: replay protection lives in an in-memory
+cache, see section 11.
 
 Column additions (**phase 0, implemented**):
 
@@ -407,6 +474,7 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | Variable | Default | Meaning |
 |---|---|---|
 | `CLUSTER_MODE` | `shared` | `shared` (today) or `federated` (independent databases) |
+| `CLUSTER_PEER_API` | `false` | **phase 1**: enables the signed peer API and the peer ping loop. Independent of `CLUSTER_MODE` on purpose — it works in shared mode too, where it cross-checks liveness over HTTP instead of trusting a shared row. Federated mode will require it |
 | `CLUSTER_SYNC_SECONDS` | `15` | pull interval per peer |
 | `CLUSTER_SYNC_BATCH` | `500` | maximum changes per pull |
 | `CLUSTER_SYNC_MANIFEST_SECONDS` | `600` | healing/reconcile pass |
@@ -419,15 +487,24 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | `CLUSTER_SYNC_SETTINGS` | `false` | sync the non-secret settings whitelist |
 | `CLUSTER_INSECURE_SKIP_VERIFY` | `false` | explicit opt-in for a self-signed peer TLS certificate (logged loudly) |
 
-`CLUSTER_MODE=federated` requires `CLUSTER_ENABLED=true` and a `NODE_ID`
-(already enforced today) and is validated in `internal/config/validate.go` with
-the same "report every problem at once" style.
+`CLUSTER_PEER_API=true` requires `CLUSTER_ENABLED=true` and a `NODE_ID` (the
+signature is built on it). `CLUSTER_MODE=federated` requires `CLUSTER_ENABLED=true`
+and a `NODE_ID`, and is still **refused at boot** until the mode is real. Both are
+validated in `internal/config/validate.go` with the same "report every problem at
+once" style.
 
 ## 14. Code impact map
 
+Shipped in phase 1: `internal/models/sync.go`,
+`internal/services/cluster_sign.go`, `internal/services/cluster_peers.go`,
+`internal/services/cluster_peer_status.go`, `internal/middleware/peer.go` and
+`internal/handlers/sync.go`, plus the two routes, the `PingPeers` call on the
+maintenance ticker, the `sync_peers` migration and the two configuration
+variables.
+
 | Area | Change |
 |---|---|
-| `internal/models/sync.go` (new) | `SyncChange`, `SyncObject`, `SyncPeer`, `PeerVote`, `SyncConflict`; `uuid`/`origin_node_id`/`revision` added to `monitor.go`, `statuspage.go`, `monitor_group.go`, `monitor_template.go` |
+| `internal/models/sync.go` (new) | `SyncPeer` (**phase 1**) and the pure `Settled` / `SettledPeers`; `SyncChange`, `SyncObject`, `PeerVote`, `SyncConflict` and the `uuid`/`origin_node_id`/`revision` columns come with later phases |
 | `internal/services/sync*.go` (new) | `sync.go` (service + loops), `sync_outbox.go`, `sync_pull.go`, `sync_apply.go`, `sync_map.go`, `sync_votes.go`, `sync_manifest.go`, `sync_elect.go` |
 | `internal/services/cluster.go`, `cluster_evaluate.go`, `cluster_nodes.go` | mode-aware `Nodes`/`Sweep`/`IsPrimary`; federated `EvaluateAll` merging local + `peer_votes`; `AggregateVotes` untouched |
 | `internal/services/cluster_notify.go` | `claimEvent` picks the shared lock (shared mode) or the deterministic election (federated mode) |
@@ -454,7 +531,7 @@ dependency in phase 0).
 |---|---|---|
 | 0 | uuids, `origin_node_id`, `revision`, backfill, `CLUSTER_MODE` skeleton — **done** | `go test ./...` unchanged, migration idempotent (verified against MariaDB 11), `CLUSTER_MODE=shared` behaviour identical |
 | 0.5 | **`run_on=some`** (decision **D11**): `run_on_nodes`, membership tests in the three decision points, UI + templates | independent of federated mode and shippable in shared mode |
-| 1 | peer registry, HTTP liveness, signed request middleware, `ping`, **ownership settle time** | a two-node pair reports each other online; unsigned/replayed calls rejected |
+| 1 | peer registry, HTTP liveness, signed request middleware, `ping`, **ownership settle time** | a two-node pair reports each other online; unsigned/replayed calls rejected — **done** |
 | 2 | outbox, pull/apply, LWW merge, tombstones, manifest/snapshot, **monitors + groups** | a monitor created on node A is scheduled by node B after one interval |
 | 3 | **status pages** (+ items/groups) and templates | a status page created on A answers publicly on B with the right monitors |
 | 4 | federated voting (`peer_votes`), derived leader, notification election | `ALL_NODES_FAIL`/`QUORUM` behave as documented; one e-mail per transition in a two-node test |
@@ -490,11 +567,11 @@ dependency in phase 0).
 ## 18. Tests and documentation
 
 - **Unit (pure):** merge order, cursor arithmetic, tombstone expiry, manifest
-  diff, notification ownership (determinism, plus the successor when the owner is
-  offline), conflict detection.
+  diff, the canonical peer request and the settle rule, conflict detection.
 - **httptest:** the peer endpoints against a fake store (the pattern already used
-  in `internal/checkers/checker_test.go` and `cluster_join_test.go`), including
-  signature rejection and a truncated/garbage payload.
+  in `internal/checkers/checker_test.go` and `cluster_join_test.go`), and the
+  peer middleware against a stub authenticator: valid, unsigned, tampered, stale
+  and replayed, plus the body being readable by the handler after it was hashed.
 - **e2e:** `web/scripts/e2e-cluster-federated.mjs` with two nodes and two
   databases: create/edit/delete on each side, status page propagation, voting
   with one node stopped, one notification per transition.
@@ -505,6 +582,21 @@ dependency in phase 0).
 - **Docs:** this document is the reference; `clustering.md`, `database.md`,
   `architecture.md`, `security.md`, `README.md` and `development.md` are updated
   in phases 2–5 as each piece lands.
+
+**How phase 1 proved its exit criteria** (two instances, one database,
+`CLUSTER_PEER_API=true`):
+
+- *"a two-node pair reports each other online"* → both
+  `/api/cluster/sync/status` listed the other node `online` with its version and
+  `protocol_version`; the settle state flipped to `true` only after
+  `CLUSTER_LEADER_SETTLE_SECONDS`, restarting a node reset its `online_since` and
+  stopping one produced `status=error` + `online_since=NULL` within one cycle.
+- *"unsigned/replayed calls rejected"* → 8 signed-request checks against each of
+  the two real servers (16/16): unsigned, tampered signature, signature not
+  covering the query, stale timestamp, future timestamp and replayed nonce are all
+  `403`, while a valid signature is `200`.
+- *the peer API disabled* → the route still answers `403`, not `404` and not the
+  SPA fallback.
 
 **How phase 0 proved its own exit criteria** without a database in the test
 suite:

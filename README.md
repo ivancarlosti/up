@@ -37,7 +37,7 @@ cluster of nodes that vote on the real status.
 | **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Notifications** | SMTP and Webhook through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, delivery history, test button |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
-| **Cluster** | several nodes on the same database (mandatory in this mode), join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting, `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. `CLUSTER_MODE` is `shared`; a federated mode with one database per node is designed in [clustering-federated.md](docs/clustering-federated.md) and its phase 0 (a global `uuid` per row) has landed |
+| **Cluster** | several nodes on the same database (mandatory in this mode), join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting, `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender, and an optional signed node to node API (`CLUSTER_PEER_API`) with a settle-time liveness view. `CLUSTER_MODE` is `shared`; a federated mode with one database per node is designed in [clustering-federated.md](docs/clustering-federated.md) — phases 0-1 (a global `uuid` per row, the signed peer API) have landed, phases 2-6 are design |
 | **Public status pages** | per-slug pages with theme, monitor selection, uptime/charts and a README badge |
 | **Public REST API** | scoped bearer tokens (`read`/`write`), IP allow/deny rules, rate limiting |
 | **i18n & theme** | en-US, pt-BR, es-MX and light/dark/system in the header, configurable default for new visitors |
@@ -143,6 +143,7 @@ DEFAULT_THEME=system                   # system | light | dark
 
 CLUSTER_ENABLED=false
 CLUSTER_MODE=shared                    # shared only (federated is not implemented yet)
+CLUSTER_PEER_API=false                 # optional: signed node to node API + ping loop
 NODE_ID=up-node-1
 NODE_NAME=Primary Node
 CLUSTER_PRIVATE_KEY=                   # generated on the first boot

@@ -151,6 +151,7 @@ func (c *Config) Summary() string {
 		fmt.Sprintf("theme=%s", c.DefaultTheme),
 		fmt.Sprintf("cluster=%t", c.ClusterEnabled),
 		fmt.Sprintf("cluster_mode=%s", c.ClusterMode),
+		fmt.Sprintf("peer_api=%t", c.ClusterPeerAPI),
 		fmt.Sprintf("reconcile_seconds=%d", c.SchedulerReconcileSeconds),
 		fmt.Sprintf("retention_days=%d", c.HeartbeatRetentionDays),
 		fmt.Sprintf("notification_log_retention_days=%d", c.NotificationLogRetentionDays),

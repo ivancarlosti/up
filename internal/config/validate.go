@@ -13,7 +13,7 @@ func (c *Config) validate() []string {
 
 	// Boolean typo detection: true/false/yes/no/1/0/on/off are accepted,
 	// anything else that is neither empty nor a boolean token is a mistake.
-	for _, key := range []string{"APP_TRUST_PROXY", "DB_SSL", "CLUSTER_ENABLED", "SECURITY_BYPASS_IP_RULES"} {
+	for _, key := range []string{"APP_TRUST_PROXY", "DB_SSL", "CLUSTER_ENABLED", "CLUSTER_PEER_API", "SECURITY_BYPASS_IP_RULES"} {
 		if raw := strings.TrimSpace(os.Getenv(key)); raw != "" && !isBoolToken(raw) {
 			problems = append(problems, fmt.Sprintf("%s must be true or false, got %q", key, raw))
 		}
@@ -154,6 +154,21 @@ func (c *Config) validate() []string {
 		if strings.TrimSpace(c.NodeName) == "" {
 			c.NodeName = c.NodeID
 		}
+	}
+	// The peer API is node to node only, so it needs the cluster identity the
+	// signature is built on.
+	if c.ClusterPeerAPI {
+		if !c.ClusterEnabled {
+			problems = append(problems, "CLUSTER_PEER_API=true requires CLUSTER_ENABLED=true")
+		}
+		if strings.TrimSpace(c.NodeID) == "" {
+			problems = append(problems, "CLUSTER_PEER_API=true requires NODE_ID (it signs every peer request)")
+		}
+	}
+	// A negative settle time would mean "trust instantly", which is the documented
+	// default value: read it as 0 rather than refusing to boot.
+	if c.ClusterLeaderSettleSeconds < 0 {
+		c.ClusterLeaderSettleSeconds = 0
 	}
 	if strings.ContainsAny(c.NodeID, " \t/\\") {
 		problems = append(problems, fmt.Sprintf("NODE_ID must not contain spaces or slashes, got %q", c.NodeID))

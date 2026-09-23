@@ -152,6 +152,10 @@ func (s *ClusterService) Join(ctx context.Context, req JoinRequest) (*JoinRespon
 			if err := s.UpsertNode(ctx, upserted); err != nil {
 				s.log.Warn("could not mirror the primary node registry", "node_id", node.NodeID, "error", err)
 			}
+			// Same reason as in RegisterNode: the ping loop walks the peer table.
+			if err := s.EnsurePeerRow(ctx, node.NodeID, node.Name, node.APIURL); err != nil {
+				s.log.Warn("could not register the peer row", "node_id", node.NodeID, "error", err)
+			}
 		}
 	} else {
 		// Fall back to the URL the operator typed.

@@ -59,6 +59,7 @@ FLUSH PRIVILEGES;
 | `notification_locks` | de-duplication lock for ANY_WITH_LOCK; pruned after 24 h | thousands (60 s window) |
 | `nodes` | cluster members, liveness and role | few |
 | `cluster_settings` | failure / node-unavailable / sender strategies (single row) | 1 |
+| `sync_peers` | this node's own view of its peers: liveness, `online_since` (the settle input) and last error | few |
 | `status_pages` | public status pages | few |
 | `status_page_monitors` | monitor selection and ordering per page | tens |
 | `status_page_groups` | monitor groups included in a page (membership driven) | tens |

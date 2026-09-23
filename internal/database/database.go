@@ -101,6 +101,7 @@ func MigrationModels() []any {
 		&models.NotificationLock{},
 		&models.Node{},
 		&models.ClusterSettings{},
+		&models.SyncPeer{},
 		&models.StatusPage{},
 		&models.StatusPageMonitor{},
 		&models.StatusPageGroupLink{},
