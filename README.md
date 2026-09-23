@@ -11,10 +11,16 @@ MariaDB/MySQL, watches HTTP(s), Keyword, TCP and DNS targets, and runs as a
 cluster of nodes that vote on the real status.
 
 <!-- buttons -->
-[![Docker Image](https://img.shields.io/badge/ghcr.io-ivancarlosti%2Fup-blue?logo=docker)](https://github.com/ivancarlosti/up/pkgs/container/up)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go)](https://go.dev)
-[![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js)](https://vuejs.org)
+[![Stars](https://img.shields.io/github/stars/ivancarlosti/up?label=⭐%20Stars&color=gold&style=flat)](https://github.com/ivancarlosti/up/stargazers)
+[![Watchers](https://img.shields.io/github/watchers/ivancarlosti/up?label=Watchers&style=flat&color=red)](https://github.com/sponsors/ivancarlosti)
+[![Forks](https://img.shields.io/github/forks/ivancarlosti/up?label=Forks&style=flat&color=ff69b4)](https://github.com/sponsors/ivancarlosti)
+[![Downloads](https://img.shields.io/github/downloads/ivancarlosti/up/total?label=Downloads&color=success)](https://github.com/ivancarlosti/up/releases)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/ivancarlosti/up?label=Activity)](https://github.com/ivancarlosti/up/pulse)
+[![GitHub Issues](https://img.shields.io/github/issues/ivancarlosti/up?label=Issues&color=orange)](https://github.com/ivancarlosti/up/issues)  
+[![License](https://img.shields.io/github/license/ivancarlosti/up?label=License)](LICENSE)
+[![GitHub last commit](https://img.shields.io/github/last-commit/ivancarlosti/up?label=Last%20Commit)](https://github.com/ivancarlosti/up/commits)
+[![Security](https://img.shields.io/badge/Security-View%20Here-purple)](https://github.com/ivancarlosti/up/security)
+[![Code of Conduct](https://img.shields.io/badge/Code%20of%20Conduct-2.1-4baaaa)](https://github.com/ivancarlosti/up?tab=coc-ov-file)
 <!-- endbuttons -->
 
 </div>
@@ -168,4 +174,15 @@ MIT - see [LICENSE](LICENSE).
 <!-- footer -->
 ---
 
-Authored by [Ivan Carlos](https://github.com/ivancarlosti).
+## 🧑‍💻 Consulting and technical support
+* For personal support and queries, please submit a new issue to have it addressed.
+* For commercial related questions, please [**contact me**][ivancarlos] for consulting costs.
+
+[cc]: https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/adding-a-code-of-conduct-to-your-project
+[contributing]: https://docs.github.com/en/articles/setting-guidelines-for-repository-contributors
+[security]: https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository
+[support]: https://docs.github.com/en/articles/adding-support-resources-to-your-project
+[it]: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository#configuring-the-template-chooser
+[prt]: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository
+[funding]: https://docs.github.com/en/articles/displaying-a-sponsor-button-in-your-repository
+[ivancarlos]: https://ivancarlos.me
