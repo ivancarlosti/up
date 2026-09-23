@@ -3,6 +3,8 @@ package models
 import (
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // ProtocolVersion is the version of the peer API (docs/clustering-federated.md).
@@ -75,7 +77,53 @@ const (
 	EntityStatusPage      = "status_page"
 	EntityMonitorTemplate = "monitor_template"
 	EntityNotification    = "notification"
+	// EntityMonitorGroupMember and EntityMonitorNotification are the two
+	// relations that can be edited from BOTH of their ends (a monitor form sets
+	// its groups, a group editor sets its members; channel links travel the same
+	// way). Describing such a relation inside both payloads would give it two
+	// writers, and because the two descriptions live in different rows a
+	// last-writer-wins merge could not settle them: each side would win on its own
+	// row and the cluster would diverge silently. Every relation is therefore its
+	// own entity with a deterministic identity (LinkEntityUUID).
+	EntityMonitorGroupMember  = "monitor_group_member"
+	EntityMonitorNotification = "monitor_notification"
 )
+
+// linkNamespace is the fixed namespace of the relation identifiers. Every node
+// derives it the same way, which is what lets the two ends of a relation agree on
+// its identity without coordinating.
+var linkNamespace = uuid.NewSHA1(uuid.NameSpaceOID, []byte("github.com/ivancarlosti/up/cluster/link"))
+
+// LinkEntityUUID returns the deterministic identity of the relation of a given
+// kind between two rows: the same triple yields the same uuid on every node, so a
+// membership change is an ordinary record with an ordinary revision rather than
+// something each node has to name independently.
+//
+// The kind takes part in the identity on purpose. Without it a membership and a
+// channel link over the same pair of uuids would share one identifier, and since
+// sync_objects is keyed by that identifier the two entities would fight over a
+// single row. With random uuids the collision is practically unreachable, but
+// "practically" is not the same as "cannot".
+//
+// The two ends are sorted first, so the identity does not depend on the order the
+// caller happens to pass them in — a swapped argument would otherwise silently
+// name a different relation than the one being edited.
+func LinkEntityUUID(kind, left, right string) string {
+	if right < left {
+		left, right = right, left
+	}
+	return uuid.NewSHA1(linkNamespace, []byte(kind+"|"+left+"|"+right)).String()
+}
+
+// MonitorGroupMemberUUID is the identity of one membership.
+func MonitorGroupMemberUUID(monitorUUID, groupUUID string) string {
+	return LinkEntityUUID(EntityMonitorGroupMember, monitorUUID, groupUUID)
+}
+
+// MonitorNotificationUUID is the identity of one monitor-to-channel link.
+func MonitorNotificationUUID(monitorUUID, notificationUUID string) string {
+	return LinkEntityUUID(EntityMonitorNotification, monitorUUID, notificationUUID)
+}
 
 // Actions of a sync_outbox row.
 const (

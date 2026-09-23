@@ -88,6 +88,30 @@ func Decide(incoming SyncCandidate, incomingDeleted bool, current *SyncObject) A
 	return ApplyUpsert
 }
 
+// DiffSets compares the published state of a relation set with the desired one.
+//
+// It returns what has to be published as an upsert (added) and what has to be
+// tombstoned (removed), each sorted so the outbox order is deterministic — two
+// nodes running the same edit must produce the same sequence.
+//
+// A set that did not change returns nothing, which is what keeps a re-save with
+// the same links from writing outbox rows for relations that never moved.
+func DiffSets(before, now map[string]bool) (added, removed []string) {
+	for key := range now {
+		if !before[key] {
+			added = append(added, key)
+		}
+	}
+	for key := range before {
+		if !now[key] {
+			removed = append(removed, key)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
+}
+
 // EntityIdentity is one entry of a manifest checksum: the global identity of a
 // row plus the revision this node holds.
 type EntityIdentity struct {

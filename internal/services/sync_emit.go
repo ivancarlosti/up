@@ -45,7 +45,10 @@ func IsApplying(ctx context.Context) bool {
 // expressed as uuids.
 
 // BuildMonitorPayload renders a monitor for the wire.
-func BuildMonitorPayload(m *models.Monitor, groupUUIDs, notificationUUIDs []string) ([]byte, error) {
+//
+// The group and channel links are NOT part of it: they are published as their own
+// entities so that a change made from either end has a single writer.
+func BuildMonitorPayload(m *models.Monitor) ([]byte, error) {
 	return json.Marshal(models.MonitorPayload{
 		UUID:         m.UUID,
 		OriginNodeID: m.OriginNodeID,
@@ -69,14 +72,12 @@ func BuildMonitorPayload(m *models.Monitor, groupUUIDs, notificationUUIDs []stri
 		CertNotify:             m.CertNotify,
 		CertWarnDays:           m.CertWarnDays,
 		Config:                 m.Config,
-
-		GroupUUIDs:        orEmpty(groupUUIDs),
-		NotificationUUIDs: orEmpty(notificationUUIDs),
 	})
 }
 
-// BuildMonitorGroupPayload renders a group for the wire.
-func BuildMonitorGroupPayload(g *models.MonitorGroup, monitorUUIDs []string) ([]byte, error) {
+// BuildMonitorGroupPayload renders a group for the wire (members are a separate
+// entity).
+func BuildMonitorGroupPayload(g *models.MonitorGroup) ([]byte, error) {
 	return json.Marshal(models.MonitorGroupPayload{
 		UUID:         g.UUID,
 		OriginNodeID: g.OriginNodeID,
@@ -87,8 +88,22 @@ func BuildMonitorGroupPayload(g *models.MonitorGroup, monitorUUIDs []string) ([]
 		Description: g.Description,
 		Color:       g.Color,
 		SortOrder:   g.SortOrder,
+	})
+}
 
-		MonitorUUIDs: orEmpty(monitorUUIDs),
+// BuildMonitorGroupMemberPayload renders one membership.
+func BuildMonitorGroupMemberPayload(monitorUUID, groupUUID string) ([]byte, error) {
+	return json.Marshal(models.MonitorGroupMemberPayload{
+		MonitorUUID: monitorUUID,
+		GroupUUID:   groupUUID,
+	})
+}
+
+// BuildMonitorNotificationPayload renders one monitor-to-channel link.
+func BuildMonitorNotificationPayload(monitorUUID, notificationUUID string) ([]byte, error) {
+	return json.Marshal(models.MonitorNotificationPayload{
+		MonitorUUID:      monitorUUID,
+		NotificationUUID: notificationUUID,
 	})
 }
 
@@ -145,7 +160,7 @@ func BuildStatusPagePayload(p *models.StatusPage, monitorUUIDs, groupUUIDs []str
 }
 
 // BuildNotificationPayload renders a channel for the wire.
-func BuildNotificationPayload(n *models.Notification, monitorUUIDs []string) ([]byte, error) {
+func BuildNotificationPayload(n *models.Notification) ([]byte, error) {
 	return json.Marshal(models.NotificationPayload{
 		UUID:         n.UUID,
 		OriginNodeID: n.OriginNodeID,
@@ -158,8 +173,6 @@ func BuildNotificationPayload(n *models.Notification, monitorUUIDs []string) ([]
 		IsDefault:             n.IsDefault,
 		ResendIntervalSeconds: n.ResendIntervalSeconds,
 		Config:                n.Config,
-
-		MonitorUUIDs: orEmpty(monitorUUIDs),
 	})
 }
 
@@ -240,21 +253,7 @@ func (e *SyncEmitter) EmitMonitor(ctx context.Context, tx *gorm.DB, id uint) err
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the monitor to publish: %w", err)
 	}
-	groupUUIDs, err := uuidList(ctx, tx,
-		`SELECT g.uuid FROM monitor_groups g
-		   JOIN monitor_group_members m ON m.group_id = g.id
-		  WHERE m.monitor_id = ? ORDER BY g.uuid`, row.ID)
-	if err != nil {
-		return err
-	}
-	notificationUUIDs, err := uuidList(ctx, tx,
-		`SELECT n.uuid FROM notifications n
-		   JOIN monitor_notifications l ON l.notification_id = n.id
-		  WHERE l.monitor_id = ? ORDER BY n.uuid`, row.ID)
-	if err != nil {
-		return err
-	}
-	payload, err := BuildMonitorPayload(&row, groupUUIDs, notificationUUIDs)
+	payload, err := BuildMonitorPayload(&row)
 	if err != nil {
 		return err
 	}
@@ -264,7 +263,7 @@ func (e *SyncEmitter) EmitMonitor(ctx context.Context, tx *gorm.DB, id uint) err
 	}, models.ActionUpsert, payload)
 }
 
-// EmitMonitorGroup publishes a group and its membership.
+// EmitMonitorGroup publishes a group.
 func (e *SyncEmitter) EmitMonitorGroup(ctx context.Context, tx *gorm.DB, id uint) error {
 	if e.skip(ctx) {
 		return nil
@@ -273,14 +272,7 @@ func (e *SyncEmitter) EmitMonitorGroup(ctx context.Context, tx *gorm.DB, id uint
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the group to publish: %w", err)
 	}
-	monitorUUIDs, err := uuidList(ctx, tx,
-		`SELECT m.uuid FROM monitors m
-		   JOIN monitor_group_members g ON g.monitor_id = m.id
-		  WHERE g.group_id = ? ORDER BY m.uuid`, row.ID)
-	if err != nil {
-		return err
-	}
-	payload, err := BuildMonitorGroupPayload(&row, monitorUUIDs)
+	payload, err := BuildMonitorGroupPayload(&row)
 	if err != nil {
 		return err
 	}
@@ -352,11 +344,12 @@ func (e *SyncEmitter) EmitStatusPage(ctx context.Context, tx *gorm.DB, id uint) 
 	}, models.ActionUpsert, payload)
 }
 
-// EmitNotification publishes a delivery channel and its links.
+// EmitNotification publishes a delivery channel.
 //
-// The payload carries the channel secrets, which is the point: the node that
-// owns the notification election is the one that sends, so it must hold them.
-// That is why federated mode requires TLS between the peers.
+// The payload carries the channel secrets, which is the point: the node that owns
+// the notification election is the one that sends, so it must hold them. That is
+// why federated mode requires TLS between the peers. Its monitor links are a
+// separate entity.
 func (e *SyncEmitter) EmitNotification(ctx context.Context, tx *gorm.DB, id uint) error {
 	if e.skip(ctx) {
 		return nil
@@ -365,14 +358,7 @@ func (e *SyncEmitter) EmitNotification(ctx context.Context, tx *gorm.DB, id uint
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the channel to publish: %w", err)
 	}
-	monitorUUIDs, err := uuidList(ctx, tx,
-		`SELECT m.uuid FROM monitors m
-		   JOIN monitor_notifications l ON l.monitor_id = m.id
-		  WHERE l.notification_id = ? ORDER BY m.uuid`, row.ID)
-	if err != nil {
-		return err
-	}
-	payload, err := BuildNotificationPayload(&row, monitorUUIDs)
+	payload, err := BuildNotificationPayload(&row)
 	if err != nil {
 		return err
 	}
@@ -382,8 +368,196 @@ func (e *SyncEmitter) EmitNotification(ctx context.Context, tx *gorm.DB, id uint
 	}, models.ActionUpsert, payload)
 }
 
-// EmitDelete publishes a tombstone for a row that has just been removed.
+// EmitMonitorGroupMember publishes or removes one membership.
 //
+// The relation is its own entity, so a membership change is one record with one
+// revision, whether it came from the monitor form or from the group editor; the
+// identity is derived from the pair, so both ends compute the same one.
+func (e *SyncEmitter) EmitMonitorGroupMember(ctx context.Context, tx *gorm.DB, monitorUUID, groupUUID string, linked bool) error {
+	if monitorUUID == "" || groupUUID == "" {
+		return nil
+	}
+	uuid := models.MonitorGroupMemberUUID(monitorUUID, groupUUID)
+	return e.emitLink(ctx, tx, models.EntityMonitorGroupMember, uuid, linked, func() ([]byte, error) {
+		return BuildMonitorGroupMemberPayload(monitorUUID, groupUUID)
+	})
+}
+
+// EmitMonitorNotification publishes or removes one monitor-to-channel link.
+func (e *SyncEmitter) EmitMonitorNotification(ctx context.Context, tx *gorm.DB, monitorUUID, notificationUUID string, linked bool) error {
+	if monitorUUID == "" || notificationUUID == "" {
+		return nil
+	}
+	uuid := models.MonitorNotificationUUID(monitorUUID, notificationUUID)
+	return e.emitLink(ctx, tx, models.EntityMonitorNotification, uuid, linked, func() ([]byte, error) {
+		return BuildMonitorNotificationPayload(monitorUUID, notificationUUID)
+	})
+}
+
+// emitLink publishes (linked) or tombstones (!linked) one relation.
+//
+// A relation has no version column of its own, so its revision comes from
+// sync_objects: the last one applied plus one. LocalID stays zero because a
+// relation is addressed by its two ends, not by a row id.
+func (e *SyncEmitter) emitLink(ctx context.Context, tx *gorm.DB, entity, uuid string, linked bool, build func() ([]byte, error)) error {
+	if e.skip(ctx) || uuid == "" {
+		return nil
+	}
+	if !linked {
+		return e.EmitDelete(ctx, tx, entity, uuid)
+	}
+	revision, err := e.nextRevision(ctx, tx, uuid)
+	if err != nil {
+		return err
+	}
+	payload, err := build()
+	if err != nil {
+		return err
+	}
+	return e.write(ctx, tx, entity, SyncIdentity{UUID: uuid, Revision: revision}, models.ActionUpsert, payload)
+}
+
+// nextRevision returns the revision to use for a record that carries no version
+// column of its own: the last revision applied for that uuid, plus one.
+func (e *SyncEmitter) nextRevision(ctx context.Context, tx *gorm.DB, uuid string) (int64, error) {
+	var current models.SyncObject
+	err := tx.WithContext(ctx).Where("uuid = ?", uuid).First(&current).Error
+	switch {
+	case err == gorm.ErrRecordNotFound:
+		return 1, nil
+	case err != nil:
+		return 0, fmt.Errorf("reading the sync identity of %s: %w", uuid, err)
+	}
+	return current.Revision + 1, nil
+}
+
+// MonitorLinks is the published state of a monitor's relations: the groups it
+// belongs to and the channels it notifies, as uuids.
+type MonitorLinks struct {
+	GroupUUIDs        map[string]bool
+	NotificationUUIDs map[string]bool
+}
+
+// EmptyMonitorLinks is the "no relation" state, used when a monitor is created.
+func EmptyMonitorLinks() MonitorLinks {
+	return MonitorLinks{GroupUUIDs: map[string]bool{}, NotificationUUIDs: map[string]bool{}}
+}
+
+// RowUUID reads the global identity of a local row.
+//
+// The delete paths need it BEFORE deleting: once the row is gone its uuid cannot
+// be read any more, and the tombstone has to name it.
+func (e *SyncEmitter) RowUUID(ctx context.Context, tx *gorm.DB, entity string, localID uint) (string, error) {
+	table, ok := syncEntities[entity]
+	if !ok {
+		return "", fmt.Errorf("unknown sync entity %q", entity)
+	}
+	var row struct{ UUID string }
+	if err := tx.WithContext(ctx).Table(table).Select("uuid").Where("id = ?", localID).Scan(&row).Error; err != nil {
+		return "", fmt.Errorf("reading the uuid of %s %d: %w", entity, localID, err)
+	}
+	return row.UUID, nil
+}
+
+// SnapshotMonitorLinks reads the relations a monitor has right now.
+//
+// The caller takes it BEFORE rewriting them, so that PublishMonitorLinks can tell
+// what actually moved: a re-save with the same groups must not put anything in the
+// outbox.
+func (e *SyncEmitter) SnapshotMonitorLinks(ctx context.Context, tx *gorm.DB, monitorID uint) (MonitorLinks, error) {
+	links := EmptyMonitorLinks()
+	if e.skip(ctx) {
+		return links, nil
+	}
+	groups, err := uuidList(ctx, tx,
+		`SELECT g.uuid FROM monitor_groups g
+		   JOIN monitor_group_members m ON m.group_id = g.id
+		  WHERE m.monitor_id = ? ORDER BY g.uuid`, monitorID)
+	if err != nil {
+		return links, err
+	}
+	for _, uuid := range groups {
+		links.GroupUUIDs[uuid] = true
+	}
+	channels, err := uuidList(ctx, tx,
+		`SELECT n.uuid FROM notifications n
+		   JOIN monitor_notifications l ON l.notification_id = n.id
+		  WHERE l.monitor_id = ? ORDER BY n.uuid`, monitorID)
+	if err != nil {
+		return links, err
+	}
+	for _, uuid := range channels {
+		links.NotificationUUIDs[uuid] = true
+	}
+	return links, nil
+}
+
+// PublishMonitorLinks emits the difference between the relations a monitor had
+// and the ones it has now: an upsert for what appeared, a tombstone for what went
+// away, and nothing at all for a relation that did not move.
+func (e *SyncEmitter) PublishMonitorLinks(ctx context.Context, tx *gorm.DB, monitorID uint, before MonitorLinks) error {
+	if e.skip(ctx) {
+		return nil
+	}
+	monitorUUID, err := e.RowUUID(ctx, tx, models.EntityMonitor, monitorID)
+	if err != nil {
+		return err
+	}
+	if monitorUUID == "" {
+		// The monitor is gone (a delete): the caller tombstones the relations
+		// itself, because a monitor that no longer exists cannot be the subject of
+		// a diff.
+		return nil
+	}
+	now, err := e.SnapshotMonitorLinks(ctx, tx, monitorID)
+	if err != nil {
+		return err
+	}
+
+	addedGroups, removedGroups := models.DiffSets(before.GroupUUIDs, now.GroupUUIDs)
+	for _, groupUUID := range addedGroups {
+		if err := e.EmitMonitorGroupMember(ctx, tx, monitorUUID, groupUUID, true); err != nil {
+			return err
+		}
+	}
+	for _, groupUUID := range removedGroups {
+		if err := e.EmitMonitorGroupMember(ctx, tx, monitorUUID, groupUUID, false); err != nil {
+			return err
+		}
+	}
+
+	addedChannels, removedChannels := models.DiffSets(before.NotificationUUIDs, now.NotificationUUIDs)
+	for _, channelUUID := range addedChannels {
+		if err := e.EmitMonitorNotification(ctx, tx, monitorUUID, channelUUID, true); err != nil {
+			return err
+		}
+	}
+	for _, channelUUID := range removedChannels {
+		if err := e.EmitMonitorNotification(ctx, tx, monitorUUID, channelUUID, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TombstoneMonitorLinks removes the relations of a monitor that is being deleted.
+func (e *SyncEmitter) TombstoneMonitorLinks(ctx context.Context, tx *gorm.DB, monitorUUID string, links MonitorLinks) error {
+	if e.skip(ctx) || monitorUUID == "" {
+		return nil
+	}
+	for groupUUID := range links.GroupUUIDs {
+		if err := e.EmitMonitorGroupMember(ctx, tx, monitorUUID, groupUUID, false); err != nil {
+			return err
+		}
+	}
+	for channelUUID := range links.NotificationUUIDs {
+		if err := e.EmitMonitorNotification(ctx, tx, monitorUUID, channelUUID, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // It is called with the uuid read BEFORE the delete (the row is gone by now). The
 // tombstone's revision is the last applied revision plus one, so it beats every
 // earlier change and a re-delivered old payload cannot resurrect the row.
@@ -415,6 +589,13 @@ func (e *SyncEmitter) write(ctx context.Context, tx *gorm.DB, entity string, ide
 	}
 	if identity.Revision <= 0 {
 		identity.Revision = 1
+	}
+	if identity.OriginNodeID == "" {
+		// A row created before the sync identity existed carries no origin yet
+		// (database.Backfill stamps it on the next boot). Attributing the change to
+		// this node keeps the merge tie-break meaningful in the meantime, instead
+		// of leaving an empty component in the ordering key.
+		identity.OriginNodeID = e.cfg.NodeID
 	}
 	outbox := models.SyncOutbox{
 		Entity:       entity,

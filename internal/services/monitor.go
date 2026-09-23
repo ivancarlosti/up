@@ -44,6 +44,55 @@ type MonitorService struct {
 	stats *StatsService
 	hub   EventPublisher
 	votes VoteProvider
+	// emit publishes the local writes to the peers. It is nil on a node that does
+	// not publish (anything but federated mode), and every helper below is a no-op
+	// in that case.
+	emit *SyncEmitter
+}
+
+// SetSyncEmitter injects the publisher of the synchronisation outbox.
+func (s *MonitorService) SetSyncEmitter(emitter *SyncEmitter) { s.emit = emitter }
+
+// snapshotLinks reads the relations of a monitor before they are rewritten.
+func (s *MonitorService) snapshotLinks(ctx context.Context, tx *gorm.DB, id uint) (MonitorLinks, error) {
+	if s.emit == nil {
+		return EmptyMonitorLinks(), nil
+	}
+	return s.emit.SnapshotMonitorLinks(ctx, tx, id)
+}
+
+// publishMonitor records the monitor and the relations it now has, compared with
+// the state captured before the write. Both writes happen inside the caller's
+// transaction, so the outbox can never drift from the data.
+func (s *MonitorService) publishMonitor(ctx context.Context, tx *gorm.DB, id uint, before MonitorLinks) error {
+	if s.emit == nil {
+		return nil
+	}
+	if err := s.emit.EmitMonitor(ctx, tx, id); err != nil {
+		return err
+	}
+	return s.emit.PublishMonitorLinks(ctx, tx, id, before)
+}
+
+// monitorUUID reads the global identity of a monitor (needed before a delete).
+func (s *MonitorService) monitorUUID(ctx context.Context, tx *gorm.DB, id uint) (string, error) {
+	if s.emit == nil {
+		return "", nil
+	}
+	return s.emit.RowUUID(ctx, tx, models.EntityMonitor, id)
+}
+
+// tombstoneMonitor publishes the removal of a monitor and of its relations. The
+// relations go first: the receiver deletes the monitor with its cascade, so the
+// relation tombstones would otherwise refer to rows that are already gone.
+func (s *MonitorService) tombstoneMonitor(ctx context.Context, tx *gorm.DB, uuid string, links MonitorLinks) error {
+	if s.emit == nil || uuid == "" {
+		return nil
+	}
+	if err := s.emit.TombstoneMonitorLinks(ctx, tx, uuid, links); err != nil {
+		return err
+	}
+	return s.emit.EmitDelete(ctx, tx, models.EntityMonitor, uuid)
 }
 
 // NewMonitorService builds the monitor service.

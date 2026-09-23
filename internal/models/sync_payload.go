@@ -12,7 +12,11 @@ import (
 // dashboard must not silently appear on the wire. Local ids never appear here at
 // all — references travel as uuids.
 
-// MonitorPayload is the configuration of a monitor plus its references.
+// MonitorPayload is the configuration of a monitor.
+//
+// It carries no group or channel list: those relations are separate entities (see
+// EntityMonitorGroupMember), so that a change made from either end has exactly
+// one writer.
 type MonitorPayload struct {
 	UUID         string    `json:"uuid"`
 	OriginNodeID string    `json:"origin_node_id"`
@@ -36,12 +40,10 @@ type MonitorPayload struct {
 	CertNotify             bool          `json:"cert_notify"`
 	CertWarnDays           string        `json:"cert_warn_days"`
 	Config                 MonitorConfig `json:"config"`
-
-	GroupUUIDs        []string `json:"group_uuids"`
-	NotificationUUIDs []string `json:"notification_uuids"`
 }
 
-// MonitorGroupPayload is a group plus its members.
+// MonitorGroupPayload is a group. Its members are a separate entity, for the same
+// reason as the monitor's groups.
 type MonitorGroupPayload struct {
 	UUID         string    `json:"uuid"`
 	OriginNodeID string    `json:"origin_node_id"`
@@ -52,8 +54,19 @@ type MonitorGroupPayload struct {
 	Description string `json:"description"`
 	Color       string `json:"color"`
 	SortOrder   int    `json:"sort_order"`
+}
 
-	MonitorUUIDs []string `json:"monitor_uuids"`
+// MonitorGroupMemberPayload is one membership. Its identity is derived from the
+// pair (models.MonitorGroupMemberUUID), so the payload only names its two ends.
+type MonitorGroupMemberPayload struct {
+	MonitorUUID string `json:"monitor_uuid"`
+	GroupUUID   string `json:"group_uuid"`
+}
+
+// MonitorNotificationPayload is one monitor-to-channel link, for the same reason.
+type MonitorNotificationPayload struct {
+	MonitorUUID      string `json:"monitor_uuid"`
+	NotificationUUID string `json:"notification_uuid"`
 }
 
 // MonitorTemplatePayload is a template plus its default links. The defaults
@@ -97,11 +110,13 @@ type StatusPagePayload struct {
 	GroupUUIDs   []string `json:"group_uuids"`
 }
 
-// NotificationPayload is a delivery channel plus the monitors it is linked to.
+// NotificationPayload is a delivery channel.
 //
 // It carries the channel configuration, credentials included: the node that owns
 // the notification election is the one that sends, so it must hold them. That is
 // why the peers must run over TLS in federated mode.
+//
+// Its links to monitors are a separate entity (EntityMonitorNotification).
 type NotificationPayload struct {
 	UUID         string    `json:"uuid"`
 	OriginNodeID string    `json:"origin_node_id"`
@@ -114,8 +129,6 @@ type NotificationPayload struct {
 	IsDefault             bool               `json:"is_default"`
 	ResendIntervalSeconds int                `json:"resend_interval_seconds"`
 	Config                NotificationConfig `json:"config"`
-
-	MonitorUUIDs []string `json:"monitor_uuids"`
 }
 
 // SyncChangePayload is one entry of a changes or snapshot batch.

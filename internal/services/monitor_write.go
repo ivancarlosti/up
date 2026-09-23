@@ -33,7 +33,12 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 			Status:    models.AggregateUnknown,
 			ChangedAt: time.Now().UTC(),
 		}
-		return tx.Create(&state).Error
+		if err := tx.Create(&state).Error; err != nil {
+			return err
+		}
+		// A created monitor starts with no relation, so everything it links to is
+		// new (and gets published as such).
+		return s.publishMonitor(ctx, tx, monitor.ID, EmptyMonitorLinks())
 	})
 	if err != nil {
 		return ErrInternal(fmt.Errorf("creating monitor: %w", err))
@@ -73,10 +78,20 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		"cert_notify":              monitor.CertNotify,
 		"cert_warn_days":           monitor.CertWarnDays,
 		"config":                   string(configJSON),
-		"updated_at":               time.Now().UTC(),
+		// Every edit advances the revision: it is the primary component of the
+		// merge order, so a wrong clock cannot make an old edit win. It is bumped
+		// by the database so two concurrent edits cannot both write the same
+		// number.
+		"revision":   gorm.Expr("revision + 1"),
+		"updated_at": time.Now().UTC(),
 	}
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Captured before the write, so the relation diff knows what moved.
+		before, err := s.snapshotLinks(ctx, tx, monitor.ID)
+		if err != nil {
+			return err
+		}
 		result := tx.Model(&models.Monitor{}).Where("id = ?", monitor.ID).Updates(updates)
 		if result.Error != nil {
 			return result.Error
@@ -90,9 +105,11 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 			}
 		}
 		if groupIDs != nil {
-			return replaceMonitorGroups(tx, monitor.ID, groupIDs)
+			if err := replaceMonitorGroups(tx, monitor.ID, groupIDs); err != nil {
+				return err
+			}
 		}
-		return nil
+		return s.publishMonitor(ctx, tx, monitor.ID, before)
 	})
 	if err == gorm.ErrRecordNotFound {
 		return ErrNotFound(i18n.CodeMonitorNotFound, fmt.Sprintf("monitor %d does not exist", monitor.ID))
@@ -108,6 +125,16 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 // Delete removes a monitor together with its heartbeats, state and links.
 func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The identity and the relations are read BEFORE the cascade: once the rows
+		// are gone they cannot be read, and the tombstones have to name them.
+		monitorUUID, err := s.monitorUUID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		before, err := s.snapshotLinks(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		if err := tx.Where("monitor_id = ?", id).Delete(&models.Heartbeat{}).Error; err != nil {
 			return err
 		}
@@ -129,7 +156,10 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 		if err := tx.Where("monitor_id = ?", id).Delete(&models.StatusPageMonitor{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&models.Monitor{}, id).Error
+		if err := tx.Delete(&models.Monitor{}, id).Error; err != nil {
+			return err
+		}
+		return s.tombstoneMonitor(ctx, tx, monitorUUID, before)
 	})
 	if err != nil {
 		return ErrInternal(fmt.Errorf("deleting monitor %d: %w", id, err))
@@ -141,14 +171,32 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 
 // SetActive pauses or resumes a monitor.
 func (s *MonitorService) SetActive(ctx context.Context, id uint, active bool) (*models.Monitor, error) {
-	result := s.db.WithContext(ctx).Model(&models.Monitor{}).
-		Where("id = ?", id).
-		Updates(map[string]any{"active": active, "updated_at": time.Now().UTC()})
-	if result.Error != nil {
-		return nil, ErrInternal(result.Error)
-	}
-	if result.RowsAffected == 0 {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The links do not move here, but the same before/after diff is taken so
+		// that the monitor row is published and its relations are left alone.
+		before, err := s.snapshotLinks(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&models.Monitor{}).Where("id = ?", id).
+			Updates(map[string]any{
+				"active":     active,
+				"revision":   gorm.Expr("revision + 1"),
+				"updated_at": time.Now().UTC(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return s.publishMonitor(ctx, tx, id, before)
+	})
+	if err == gorm.ErrRecordNotFound {
 		return nil, ErrNotFound(i18n.CodeMonitorNotFound, fmt.Sprintf("monitor %d does not exist", id))
+	}
+	if err != nil {
+		return nil, ErrInternal(err)
 	}
 	monitor, err := s.Get(ctx, id)
 	if err != nil {

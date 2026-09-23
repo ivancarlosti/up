@@ -69,6 +69,31 @@ func TestSyncCandidateNewer(t *testing.T) {
 	}
 }
 
+// TestLinkEntityUUIDIsDeterministicAndSymmetric pins the property the whole
+// relation design rests on: both ends of a membership compute the same identity
+// for it, without coordinating, and a caller that passes the two uuids the other
+// way round does not silently name a different record.
+func TestLinkEntityUUIDIsDeterministicAndSymmetric(t *testing.T) {
+	const monitorUUID = "11111111-1111-4111-8111-111111111111"
+	const groupUUID = "22222222-2222-4222-8222-222222222222"
+
+	first := MonitorGroupMemberUUID(monitorUUID, groupUUID)
+	if first != MonitorGroupMemberUUID(monitorUUID, groupUUID) {
+		t.Fatal("the identity must be deterministic")
+	}
+	if first != MonitorGroupMemberUUID(groupUUID, monitorUUID) {
+		t.Fatal("the identity must not depend on the argument order")
+	}
+	if first == MonitorGroupMemberUUID(monitorUUID, "another-group") {
+		t.Fatal("two different relations must not share an identity")
+	}
+	// A membership and a channel link over the same monitor are different
+	// relations, and the second uuid differs, so they must not collide.
+	if first == MonitorNotificationUUID(monitorUUID, groupUUID) {
+		t.Fatal("the relation kind must take part in the identity")
+	}
+}
+
 // TestSyncCandidateIsATotalOrder checks the property the merge depends on: for any
 // two changes, exactly one of "a is newer", "b is newer" or "they are identical"
 // holds. Without it two nodes could disagree about the winner.
@@ -173,6 +198,36 @@ func TestDecide(t *testing.T) {
 				t.Fatalf("Decide = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestDiffSets pins the link-diff rule: only what moved is published, and the
+// order is deterministic so two nodes running the same edit emit the same
+// sequence.
+func TestDiffSets(t *testing.T) {
+	before := map[string]bool{"a": true, "b": true, "c": true}
+	now := map[string]bool{"b": true, "c": true, "d": true}
+
+	added, removed := DiffSets(before, now)
+	if len(added) != 1 || added[0] != "d" {
+		t.Fatalf("added = %v, want [d]", added)
+	}
+	if len(removed) != 1 || removed[0] != "a" {
+		t.Fatalf("removed = %v, want [a]", removed)
+	}
+
+	// Nothing moved: a re-save with the same links must publish nothing.
+	same := map[string]bool{"a": true, "b": true, "c": true}
+	if added, removed := DiffSets(before, same); len(added) != 0 || len(removed) != 0 {
+		t.Fatalf("an unchanged set produced %v / %v", added, removed)
+	}
+
+	// Growing and shrinking to nothing are both expressible.
+	if added, _ := DiffSets(nil, map[string]bool{"z": true, "y": true}); len(added) != 2 || added[0] != "y" {
+		t.Fatalf("added = %v, want a sorted [y z]", added)
+	}
+	if _, removed := DiffSets(before, nil); len(removed) != 3 {
+		t.Fatalf("removed = %v, want all three", removed)
 	}
 }
 

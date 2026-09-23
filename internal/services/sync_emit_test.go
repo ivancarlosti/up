@@ -30,7 +30,7 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		LastLatencyMS:   120,
 		Config:          models.MonitorConfig{URL: "https://example.com/health"},
 	}
-	payload, err := BuildMonitorPayload(monitor, []string{"group-a"}, []string{"chan-a"})
+	payload, err := BuildMonitorPayload(monitor)
 	if err != nil {
 		t.Fatalf("building the payload: %v", err)
 	}
@@ -42,8 +42,12 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		`"votes"`,
 		`"uptime_24h"`,
 		`"last_latency_ms"`,
-		`"group_ids":[9]`,
-		`"notification_ids":[7,8]`,
+		`"group_ids"`,
+		`"notification_ids"`,
+		// The relations are separate entities now: a group or channel list here
+		// would give the relation two writers.
+		`"group_uuids"`,
+		`"notification_uuids"`,
 	} {
 		if strings.Contains(wire, forbidden) {
 			t.Errorf("the payload must not carry %s:\n%s", forbidden, wire)
@@ -54,13 +58,24 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		`"uuid":"11111111-1111-4111-8111-111111111111"`,
 		`"revision":3`,
 		`"origin_node_id":"up-node-1"`,
-		`"group_uuids":["group-a"]`,
-		`"notification_uuids":["chan-a"]`,
 		`"url":"https://example.com/health"`,
 	} {
 		if !strings.Contains(wire, required) {
 			t.Errorf("the payload must carry %s:\n%s", required, wire)
 		}
+	}
+}
+
+// TestBuildMonitorGroupMemberPayload pins the shape of a relation record: it names
+// its two ends and nothing else, because its identity is derived from the pair.
+func TestBuildMonitorGroupMemberPayload(t *testing.T) {
+	payload, err := BuildMonitorGroupMemberPayload("monitor-uuid", "group-uuid")
+	if err != nil {
+		t.Fatalf("building the payload: %v", err)
+	}
+	wire := string(payload)
+	if !strings.Contains(wire, `"monitor_uuid":"monitor-uuid"`) || !strings.Contains(wire, `"group_uuid":"group-uuid"`) {
+		t.Fatalf("a membership payload must name both ends:\n%s", wire)
 	}
 }
 
@@ -109,7 +124,7 @@ func TestBuildNotificationPayloadCarriesTheSecrets(t *testing.T) {
 			Webhook: &models.WebhookConfig{URL: "https://hooks.example.com/secret"},
 		},
 	}
-	payload, err := BuildNotificationPayload(channel, []string{"monitor-a"})
+	payload, err := BuildNotificationPayload(channel)
 	if err != nil {
 		t.Fatalf("building the payload: %v", err)
 	}
@@ -118,10 +133,10 @@ func TestBuildNotificationPayloadCarriesTheSecrets(t *testing.T) {
 	if strings.Contains(wire, `"id":3`) {
 		t.Errorf("the channel payload must not carry a local id:\n%s", wire)
 	}
+	if strings.Contains(wire, `"monitor_uuids"`) {
+		t.Errorf("the channel's links are a separate entity:\n%s", wire)
+	}
 	if !strings.Contains(wire, "hooks.example.com/secret") {
 		t.Errorf("the channel payload must carry its configuration:\n%s", wire)
-	}
-	if !strings.Contains(wire, `"monitor_uuids":["monitor-a"]`) {
-		t.Errorf("the channel links must travel as uuids:\n%s", wire)
 	}
 }
