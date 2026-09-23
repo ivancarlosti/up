@@ -32,6 +32,9 @@ export interface MonitorConfig {
   bearer_token?: string
   ignore_tls?: boolean
   max_redirects?: number
+  // cache_buster appends a random uptime_kuma_cachebuster query parameter to
+  // every request, so caches and CDNs are skipped.
+  cache_buster?: boolean
   accepted_status_codes?: string
   keyword?: string
   invert_keyword?: boolean

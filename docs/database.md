@@ -331,7 +331,7 @@ Notes on the generated DDL:
 |---|---|---|
 | `url`, `method`, `encoding`, `body`, `headers[]` | http, keyword | request definition (`headers` is a `[{key,value}]` list) |
 | `auth_type`, `basic_user`, `basic_pass`, `bearer_token` | http, keyword | `none` / `basic` / `bearer` |
-| `ignore_tls`, `max_redirects`, `accepted_status_codes` | http, keyword | TLS bypass, redirect limit, `200-299,301` ranges |
+| `ignore_tls`, `max_redirects`, `cache_buster`, `accepted_status_codes` | http, keyword | TLS bypass, redirect limit, random cache buster parameter, `200-299,301` ranges |
 | `keyword`, `invert_keyword`, `case_sensitive` | keyword | response body match options |
 | `host`, `port`, `send`, `expect` | tcp | connect, optional payload and expected answer |
 | `hostname`, `resolver_server`, `record_type`, `expected_value`, `invert_check` | dns | A/AAAA/CNAME/MX/TXT/NS/SOA query through a chosen resolver |

@@ -49,6 +49,7 @@ to the definitive verdict. `retries=0` means "report the first failure".
 | `auth_type` | none, basic, bearer | basic uses `basic_user`/`basic_pass`, bearer uses `bearer_token` |
 | `ignore_tls` | bool | skips certificate verification |
 | `max_redirects` | 0..20 | 0 = no redirect accepted, default 10 |
+| `cache_buster` | bool | appends a fresh `uptime_kuma_cachebuster=<random>` to every request |
 | `accepted_status_codes` | ranges | `200-299` (default), `200-299,301,404` |
 | `keyword` | string | **keyword type only**, required |
 | `invert_keyword` | bool | the keyword must be **absent** |
@@ -62,6 +63,13 @@ Behaviour:
 - Network errors are normalised into a short message (`connection refused`,
   `timeout exceeded`, `DNS resolution failed`, `TLS certificate error`).
 - `upside_down=true` inverts the final status (a keyword that must NOT appear).
+- `cache_buster=true` adds a randomly generated `uptime_kuma_cachebuster`
+  parameter to every request, so a cache, a CDN or an in-between proxy always
+  asks the origin. The parameter name is deliberately the same one Uptime Kuma
+  uses (a cache rule written for it keeps working) and the value changes on
+  every check. A query string already present in the URL is preserved next to
+  it. HTTP and Keyword monitors share the option, the `ssl`, TCP and DNS types
+  do not have it.
 
 ## 3. TCP
 
@@ -291,6 +299,36 @@ left instead of a bare handshake error.
 A `ssl` monitor dials `config.host`:`config.port` (default 443) and accepts an
 optional `config.server_name` (SNI) for virtual hosts where the IP alone does not
 identify the certificate.
+
+### `ssl` versus `cert_watch` on an HTTP monitor
+
+They are not alternatives: `cert_watch` is the shortcut for a target already
+monitored over HTTP(s), while `ssl` is an independent probe.
+
+|  | `cert_watch` on `http`/`keyword` | dedicated `ssl` type |
+|---|---|---|
+| What is probed | the URL (status codes, redirects, keyword) | a raw TLS handshake on `host:port` (default 443) |
+| The certificate is | a side effect of the handshake the request already performs | the probe itself |
+| An HTTP endpoint is required | yes | no |
+| SNI | derived from the URL host | explicit `server_name` |
+| Requests in the access log | one per interval | none |
+| Up/down means | "the URL answered as configured" | "the TLS handshake verified" (an untrusted chain is `down`) |
+| With `ignore_tls=true` | the checks keep succeeding, so `cert_expired` is the only signal | not applicable |
+
+Use the **dedicated type** when:
+
+1. the target does not speak HTTP — IMAPS 993, POP3S 995, SMTPS 465, LDAPS 636,
+   MySQL/MariaDB with TLS 3306, MQTT 8883, or any custom port;
+2. the certificate names a virtual host that differs from the address you dial
+   (`server_name`);
+3. the certificate must be watched even while the HTTP monitor is paused, or that
+   monitor runs with `ignore_tls=true` and you still want "the chain verifies"
+   as its own signal;
+4. a broken certificate and a broken backend must be two separately routable
+   alerts instead of one `down`.
+
+For a normal `https://` site the HTTP flag is enough, and it avoids a second
+monitor and a second request: that is exactly what the flag is for.
 
 ## 10. Upside down monitors
 

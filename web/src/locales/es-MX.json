@@ -158,6 +158,8 @@
     "token": "Token",
     "ignoreTls": "Ignorar errores de TLS/SSL",
     "maxRedirects": "Máx. de redirecciones",
+    "cacheBuster": "Agregar parámetro cache buster",
+    "cacheBusterHelp": "Añade un parámetro uptime_kuma_cachebuster generado aleatoriamente en cada petición, para que cachés y CDN respondan con datos frescos.",
     "acceptedCodes": "Códigos de estado aceptados",
     "acceptedCodesHelp": "Rangos y códigos separados por comas, por ejemplo 200-299,301.",
     "keyword": "Palabra clave",

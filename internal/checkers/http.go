@@ -8,15 +8,34 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ivancarlosti/up/internal/models"
+	"github.com/ivancarlosti/up/internal/utils"
 )
 
 // maxBodyBytes caps how much of the response body is read (and searched by the
 // keyword checker) to keep memory usage predictable.
 const maxBodyBytes = 512 * 1024
+
+// cacheBusterParam is the query parameter appended to every request of a
+// monitor with cache_buster enabled. The name is the same one Uptime Kuma
+// uses, so the behaviour is recognisable to operators coming from it and a
+// cache/proxy rule already matching the parameter keeps working.
+const cacheBusterParam = "uptime_kuma_cachebuster"
+
+// cacheBusterValue returns a fresh random value for the cache buster
+// parameter. The entropy source is the shared one (crypto/rand); when it is
+// unavailable the clock is used instead, because a cache buster must never be
+// the reason a probe is skipped.
+func cacheBusterValue() string {
+	if value, err := utils.RandomHex(8); err == nil {
+		return value
+	}
+	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
 
 // checkHTTP performs the HTTP(s) probe and returns the raw (not inverted)
 // result together with the response body, which the keyword checker reuses.
@@ -42,6 +61,13 @@ func httpRequest(ctx context.Context, monitor *models.Monitor) (Result, string) 
 	req, err := http.NewRequestWithContext(ctx, cfg.Method, cfg.URL, body)
 	if err != nil {
 		return Result{Status: models.StatusDown, Message: "invalid request: " + err.Error()}, ""
+	}
+	// The cache buster is appended through url.Values so a query string the
+	// operator typed in the URL is preserved next to it.
+	if cfg.CacheBuster {
+		query := req.URL.Query()
+		query.Set(cacheBusterParam, cacheBusterValue())
+		req.URL.RawQuery = query.Encode()
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

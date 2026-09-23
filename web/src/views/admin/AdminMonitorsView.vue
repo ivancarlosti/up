@@ -51,6 +51,24 @@ const groupNames = computed(() => new Map(groups.value.map((group) => [group.id,
 /** hasCertificates reveals the validity column only when it says something. */
 const hasCertificates = computed(() => monitors.value.some((monitor) => monitor.cert_watch || monitor.certificate))
 
+/**
+ * counts feeds the header subtitle. It applies the same rule as the server
+ * (internal/handlers/public.go): a paused monitor is counted as paused, never
+ * as up/down, and the rest follows the aggregated status of the monitor.
+ */
+const counts = computed(() => {
+  const counters = { up: 0, down: 0, paused: 0 }
+  for (const monitor of monitors.value) {
+    if (!monitor.active) {
+      counters.paused += 1
+      continue
+    }
+    if (monitor.status === 'up') counters.up += 1
+    else if (monitor.status === 'down') counters.down += 1
+  }
+  return counters
+})
+
 /** certificateVariant colours the validity badge by urgency. */
 function certificateVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
   if (daysLeft <= 7) return 'danger'
@@ -164,7 +182,9 @@ onMounted(load)
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-lg font-semibold">{{ t('nav.monitors') }}</h1>
-        <p class="text-xs text-muted-foreground">{{ t('dashboard.subtitle', { up: '-', down: '-', paused: '-' }) }}</p>
+        <p class="text-xs text-muted-foreground">
+          {{ t('dashboard.subtitle', { up: counts.up, down: counts.down, paused: counts.paused }) }}
+        </p>
       </div>
       <div class="flex items-center gap-2">
         <Select v-if="groups.length" v-model="groupFilter" class="w-44" :options="groupFilterOptions" />

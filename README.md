@@ -29,7 +29,7 @@ cluster of nodes that vote on the real status.
 
 | Feature | Description |
 |---|---|
-| **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) |
+| **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, cache buster, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) |
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
 | **Dashboard** | live status via WebSocket, 24 h uptime, latency, heartbeat bars, per-node breakdown, monitor detail with statistics and event log |
 | **Groups & clones** | named groups of monitors (filter, shallow/deep clone), monitor clone, groups drive the status pages |
@@ -37,7 +37,7 @@ cluster of nodes that vote on the real status.
 | **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Notifications** | SMTP and Webhook through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, delivery history, test button |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
-| **Cluster** | several nodes on the same database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting, `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender |
+| **Cluster** | several nodes on the same database (mandatory in this mode), join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting, `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. A federated mode with one database per node is designed in [clustering-federated.md](docs/clustering-federated.md) |
 | **Public status pages** | per-slug pages with theme, monitor selection, uptime/charts and a README badge |
 | **Public REST API** | scoped bearer tokens (`read`/`write`), IP allow/deny rules, rate limiting |
 | **i18n & theme** | en-US, pt-BR, es-MX and light/dark/system in the header, configurable default for new visitors |
@@ -176,6 +176,7 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 | [status-pages.md](docs/status-pages.md) | public status pages and badges |
 | [security.md](docs/security.md) | IP rules, rate limiting, tokens, secrets inventory |
 | [clustering.md](docs/clustering.md) | topology, join flow, liveness, voting and sender strategies |
+| [clustering-federated.md](docs/clustering-federated.md) | **design** for one database per node: sync protocol, identity, voting, notification election, phases |
 | [reverse-proxy.md](docs/reverse-proxy.md) | Traefik, Nginx, Caddy, Cloudflare Tunnel, WebSocket notes |
 | [i18n.md](docs/i18n.md) | languages, resolution order, adding a language |
 | [development.md](docs/development.md) | toolchain, local setup, tests, image build, sinks for testing |

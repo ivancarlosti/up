@@ -2,9 +2,17 @@
 
 > Several Up instances ("nodes") monitoring the same targets and showing the
 > same dashboard. There is **no broker, no shared cache and no service
-discovery**: every node points to the **same external MariaDB/MySQL database**,
+> discovery**: every node points to the **same external MariaDB/MySQL database**,
 > which is what keeps monitors, heartbeats, aggregated state and notification
-decisions synchronised.
+> decisions synchronised.
+
+> **One database per cluster.** This document describes the *shared database*
+> mode, the only mode implemented today: every node must point at the same
+> schema. A per-node database is **not** supported — the node registry,
+> liveness, voting, transition detection and the notification lock all read and
+> write shared rows. The design that removes that requirement (one database per
+> node, dashboards syncing monitors and status pages between them) is specified
+> in [clustering-federated.md](clustering-federated.md).
 
 ## 1. Topology
 

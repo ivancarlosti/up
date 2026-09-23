@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,6 +80,78 @@ func TestCheckHTTP(t *testing.T) {
 		result := Check(context.Background(), monitor)
 		if result.Status != models.StatusUp {
 			t.Fatalf("status = %v", result.Status)
+		}
+	})
+}
+
+// TestCheckHTTPCacheBuster covers the cache_buster option: by default the
+// parameter is absent and a query string typed in the URL is untouched; when
+// enabled the parameter is added with a fresh value on every check and the
+// operator's own parameters survive.
+func TestCheckHTTPCacheBuster(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		requests []url.Values
+	)
+	last := func() url.Values {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(requests) == 0 {
+			return url.Values{}
+		}
+		return requests[len(requests)-1]
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.URL.Query())
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	t.Run("disabled leaves the query string alone", func(t *testing.T) {
+		result := Check(context.Background(), httpMonitor(server.URL+"/health?page=2", nil))
+		if result.Status != models.StatusUp {
+			t.Fatalf("status = %v, message = %s", result.Status, result.Message)
+		}
+		if value := last().Get(cacheBusterParam); value != "" {
+			t.Fatalf("cache buster sent while disabled: %q", value)
+		}
+		if page := last().Get("page"); page != "2" {
+			t.Fatalf("existing query parameter lost: page = %q", page)
+		}
+	})
+
+	t.Run("enabled sends a fresh value per check", func(t *testing.T) {
+		monitor := httpMonitor(server.URL+"/health?page=2", func(c *models.MonitorConfig) {
+			c.CacheBuster = true
+		})
+
+		Check(context.Background(), monitor)
+		first := last().Get(cacheBusterParam)
+		Check(context.Background(), monitor)
+		second := last().Get(cacheBusterParam)
+
+		if first == "" || second == "" {
+			t.Fatalf("cache buster missing: first = %q, second = %q", first, second)
+		}
+		if first == second {
+			t.Fatalf("cache buster did not change between checks: %q", first)
+		}
+		if page := last().Get("page"); page != "2" {
+			t.Fatalf("existing query parameter lost: page = %q", page)
+		}
+	})
+
+	t.Run("applies to keyword monitors too", func(t *testing.T) {
+		config := models.MonitorConfig{URL: server.URL + "/health", Keyword: "ok", CacheBuster: true}
+		monitor := &models.Monitor{Name: "kw", Type: models.MonitorTypeKeyword, TimeoutSeconds: 5, Config: config}
+		monitor.Config.Normalize(monitor.Type)
+
+		Check(context.Background(), monitor)
+		if value := last().Get(cacheBusterParam); value == "" {
+			t.Fatal("cache buster missing on a keyword monitor")
 		}
 	})
 }

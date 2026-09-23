@@ -119,11 +119,13 @@ function removeHeader(index: number): void {
 
     <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
       <Switch v-model="config.ignore_tls as boolean">{{ t('monitor.ignoreTls') }}</Switch>
+      <Switch v-model="config.cache_buster as boolean">{{ t('monitor.cacheBuster') }}</Switch>
       <div class="grid gap-1">
         <Label for="monitor-redirects">{{ t('monitor.maxRedirects') }}</Label>
         <Input id="monitor-redirects" v-model="config.max_redirects" type="number" min="0" max="20" class="w-24" />
       </div>
     </div>
+    <p class="text-[11px] text-muted-foreground sm:col-span-2">{{ t('monitor.cacheBusterHelp') }}</p>
   </section>
 
   <!-- TCP -->
