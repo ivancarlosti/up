@@ -53,5 +53,18 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 	if problem := monitor.Config.Validate(monitor.Type); problem != "" {
 		return ErrBadRequest(i18n.CodeMonitorConfig, problem)
 	}
+
+	// Certificate watching: the thresholds are a free form list, the switches
+	// must be coherent (notifying without watching would be a silent no-op).
+	if _, err := models.ParseCertWarnDays(monitor.CertWarnDays); err != nil {
+		return ErrBadRequest(i18n.CodeMonitorCert, "cert_warn_days must be a list of days before expiry: "+err.Error())
+	}
+	if monitor.CertWatch && !monitor.Type.SupportsCertificate() {
+		return ErrBadRequest(i18n.CodeMonitorCert,
+			"cert_watch is only available for http, keyword and ssl monitors")
+	}
+	if monitor.CertNotify && !monitor.CertWatch {
+		return ErrBadRequest(i18n.CodeMonitorCert, "cert_notify requires cert_watch")
+	}
 	return nil
 }

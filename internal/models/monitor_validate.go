@@ -58,6 +58,13 @@ func (c *MonitorConfig) Validate(monitorType MonitorType) string {
 		if c.ResolverServer == "" {
 			return "config.resolver_server is required for DNS monitors"
 		}
+	case MonitorTypeSSL:
+		if c.Host == "" {
+			return "config.host is required for SSL monitors"
+		}
+		if c.Port < 1 || c.Port > 65535 {
+			return "config.port must be between 1 and 65535"
+		}
 	default:
 		return fmt.Sprintf("unknown monitor type %q", monitorType)
 	}

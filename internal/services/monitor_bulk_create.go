@@ -154,6 +154,9 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		RunOn:                  template.Defaults.RunOn,
 		NodeID:                 template.Defaults.NodeID,
 		Tags:                   template.Defaults.Tags,
+		CertWatch:              template.Defaults.CertWatch,
+		CertNotify:             template.Defaults.CertNotify,
+		CertWarnDays:           template.Defaults.CertWarnDays,
 		Config:                 config,
 	}
 	if template.Defaults.Active != nil {

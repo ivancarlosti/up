@@ -47,6 +47,7 @@ FLUSH PRIVILEGES;
 | `monitor_groups` | named collections of monitors (`uuid` + unique name) | tens |
 | `monitor_group_members` | monitor <-> group links (a monitor can be in many) | tens |
 | `monitor_templates` | reusable monitor blueprints (uuid + unique name) | tens |
+| `monitor_certificates` | TLS certificate read by the probe + notification memory | tens |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
 | `notifications` | SMTP / Webhook channels | few |
@@ -138,6 +139,22 @@ CREATE TABLE `monitor_states` (
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`monitor_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_certificates` (
+  `monitor_id` bigint(20) unsigned NOT NULL,
+  `subject` varchar(255) DEFAULT NULL,
+  `issuer` varchar(255) DEFAULT NULL,
+  `serial` varchar(120) DEFAULT NULL,
+  `not_before` datetime(3) DEFAULT NULL,
+  `not_after` datetime(3) DEFAULT NULL,
+  `dns_names` varchar(500) DEFAULT NULL,
+  `days_left` bigint(20) DEFAULT NULL,
+  `captured_at` datetime(3) DEFAULT NULL,
+  `captured_by_node` varchar(64) DEFAULT NULL,
+  `notified_days` varchar(120) DEFAULT NULL,
+  `last_notified_day` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`monitor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `monitor_templates` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,

@@ -114,8 +114,13 @@ A single decorated monitor.
 
 ### `POST /api/monitors`
 
-Body: `models.Monitor` fields plus `notification_ids`. Response `201` with the
-decorated monitor. Validation errors use
+Body: `models.Monitor` fields plus `notification_ids` and `group_ids`. The type is
+one of `http`, `keyword`, `tcp`, `dns`, `ssl`; the certificate switches
+`cert_watch`, `cert_notify` and the free form list `cert_warn_days` ride along.
+When `cert_watch` is on, the decorated monitor carries a `certificate` object
+(`issuer`, `subject`, `not_after`, `days_left`, `captured_at`), and an incoherent
+certificate configuration answers `400 ERR_MONITOR_CERT_INVALID`. Response `201`
+with the decorated monitor. Validation errors use
 `ERR_MONITOR_CONFIG_INVALID` / `ERR_MONITOR_TYPE_INVALID` / `ERR_VALIDATION`
 (see `docs/monitors.md` for every field).
 

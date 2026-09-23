@@ -123,11 +123,15 @@ func normalizeEvent(status models.AggregateStatus) models.NotificationEvent {
 }
 
 // eventEnabled tells whether the link opted in for this event.
+//
+// The certificate events ride on the "notify me when something is wrong" flag
+// (on_down): a certificate that is about to expire is a problem notification, and
+// this way every existing link keeps working without a migration.
 func eventEnabled(link models.MonitorNotification, event models.NotificationEvent) bool {
 	switch event {
 	case models.EventUp:
 		return link.OnUp
-	case models.EventDown:
+	case models.EventDown, models.EventCertExpiring, models.EventCertExpired:
 		return link.OnDown
 	}
 	return true

@@ -56,6 +56,20 @@ func (s *Scheduler) execute(ctx context.Context, monitor *models.Monitor) {
 		return
 	}
 
+	// The certificate is a property of the handshake: it is stored right next to
+	// the heartbeat and evaluated when it is new or has changed, so a monitor
+	// pointed at an expired certificate warns immediately.
+	if result.Certificate != nil && s.certificates != nil {
+		changed, certErr := s.certificates.Record(ctx, monitor.ID, s.cfg.NodeID, result.Certificate)
+		if certErr != nil {
+			s.log.Error("could not store the certificate", "monitor_id", monitor.ID, "error", certErr)
+		} else if changed {
+			if row, rowErr := s.certificates.Get(ctx, monitor.ID); rowErr == nil && row != nil {
+				s.certificates.Evaluate(ctx, row, monitor, time.Now().UTC())
+			}
+		}
+	}
+
 	if err := s.cluster.EvaluateAndNotify(ctx, monitor.ID); err != nil {
 		s.log.Error("could not evaluate the monitor status", "monitor_id", monitor.ID, "error", err)
 	}

@@ -12,11 +12,15 @@ import (
 //   - worker reconciliation (every SCHEDULER_RECONCILE_SECONDS, default 30s); it
 //     compares the running workers with the monitors this node must run, which
 //     is how a monitor created on another node starts being checked here;
+//   - certificate watching (every 6h): it ages the stored certificates and sends
+//     the reminders that are due (the certificates themselves are captured by
+//     the probes, so no socket is opened here);
 //   - heartbeat retention purge (every 6h) when HEARTBEAT_RETENTION_DAYS > 0.
 func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	ping := time.NewTicker(30 * time.Second)
 	sweep := time.NewTicker(30 * time.Second)
 	reconcile := time.NewTicker(s.reconcileInterval())
+	certificates := time.NewTicker(6 * time.Hour)
 	retention := time.NewTicker(6 * time.Hour)
 
 	s.wg.Add(1)
@@ -25,6 +29,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer ping.Stop()
 		defer sweep.Stop()
 		defer reconcile.Stop()
+		defer certificates.Stop()
 		defer retention.Stop()
 
 		// Run both cluster tasks once at boot so the nodes table is accurate
@@ -37,6 +42,13 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		}
 		if s.cfg.HeartbeatRetentionDays > 0 {
 			s.purge(ctx)
+		}
+
+		// A long lived certificate must not wait 6h for its first evaluation.
+		if s.certificates != nil {
+			if err := s.certificates.Refresh(ctx); err != nil {
+				s.log.Warn("certificate watcher failed", "error", err)
+			}
 		}
 
 		for {
@@ -54,6 +66,12 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 			case <-reconcile.C:
 				if err := s.reload(ctx); err != nil {
 					s.log.Error("could not reconcile the monitors", "error", err)
+				}
+			case <-certificates.C:
+				if s.certificates != nil {
+					if err := s.certificates.Refresh(ctx); err != nil {
+						s.log.Error("could not refresh the certificates", "error", err)
+					}
 				}
 			case <-retention.C:
 				if s.cfg.HeartbeatRetentionDays > 0 {

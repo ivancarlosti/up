@@ -45,6 +45,9 @@ const (
 	CodeMonitorTemplateInvalid  = "ERR_MONITOR_TEMPLATE_INVALID"
 	CodeMonitorBulkInvalid      = "ERR_MONITOR_BULK_INVALID"
 
+	// TLS certificates
+	CodeMonitorCert = "ERR_MONITOR_CERT_INVALID"
+
 	// Notifications
 	CodeNotificationNotFound = "ERR_NOTIFICATION_NOT_FOUND"
 	CodeNotificationConfig   = "ERR_NOTIFICATION_CONFIG_INVALID"
@@ -84,6 +87,7 @@ func AllCodes() []string {
 		CodeMonitorNotFound, CodeMonitorTypeInvalid, CodeMonitorConfig,
 		CodeMonitorGroupNotFound, CodeMonitorGroupInvalid,
 		CodeMonitorTemplateNotFound, CodeMonitorTemplateInvalid, CodeMonitorBulkInvalid,
+		CodeMonitorCert,
 		CodeNotificationNotFound, CodeNotificationConfig, CodeNotificationSend,
 		CodeClusterDisabled, CodeClusterKeyInvalid, CodeClusterJoinFailed, CodeClusterPrimarySelf,
 		CodeClusterStrategy,

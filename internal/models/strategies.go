@@ -113,6 +113,14 @@ const (
 	EventDown NotificationEvent = "down"
 	EventUp   NotificationEvent = "up"
 	EventTest NotificationEvent = "test"
+	// EventCertExpiring is a reminder that a TLS certificate is about to expire
+	// (sent on every configured threshold and once a day inside the tightest
+	// window).
+	EventCertExpiring NotificationEvent = "cert_expiring"
+	// EventCertExpired is the certificate being past its NotAfter. It is the only
+	// certificate signal for a monitor that ignores TLS errors (whose checks keep
+	// succeeding).
+	EventCertExpired NotificationEvent = "cert_expired"
 )
 
 // ---------------------------------------------------------------------------

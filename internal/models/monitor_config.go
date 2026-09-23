@@ -44,6 +44,11 @@ type MonitorConfig struct {
 	RecordType     string `json:"record_type,omitempty"`     // A AAAA CNAME MX TXT NS SOA
 	ExpectedValue  string `json:"expected_value,omitempty"`  // expected value / keyword
 	InvertCheck    bool   `json:"invert_check,omitempty"`
+
+	// --- SSL / TLS --------------------------------------------------------
+	// ServerName is the SNI sent on the handshake of a ssl monitor (useful when
+	// the certificate names a virtual host that the IP alone does not identify).
+	ServerName string `json:"server_name,omitempty"`
 }
 
 // HTTPMethods lists the methods accepted by the HTTP and Keyword monitors.
@@ -91,8 +96,17 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 		}
 	case MonitorTypeTCP:
 		c.Host = strings.TrimSpace(c.Host)
+	case MonitorTypeSSL:
+		c.Host = strings.TrimSpace(c.Host)
+		c.ServerName = strings.TrimSpace(c.ServerName)
+		if c.Port == 0 {
+			c.Port = DefaultSSLPort
+		}
 	}
 }
+
+// DefaultSSLPort is the port a ssl monitor dials when none is configured.
+const DefaultSSLPort = 443
 
 // HeaderMap converts the dynamic header list into a map, ignoring empty keys.
 func (c *MonitorConfig) HeaderMap() map[string]string {

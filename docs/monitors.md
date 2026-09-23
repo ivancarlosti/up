@@ -255,14 +255,51 @@ The target mapping per type is in `monitorFromBulkRow`: `url` for HTTP and
 Keyword, `host`/`port` for TCP (the template port is the fallback) and `hostname`
 for DNS.
 
-## 9. Upside down monitors
+## 9. Certificates
+
+Three monitor types can read a TLS certificate: `ssl` (the certificate *is* the
+probe) and `http`/`keyword` when the target is https (the certificate is a side
+effect of the handshake). Two switches decide what happens with it:
+
+| Switch | Effect |
+|---|---|
+| `cert_watch` | the probe captures the certificate and it is shown in the UI (validity badge, issuer, exact expiry) |
+| `cert_notify` | the certificate events reach the notification channels (requires `cert_watch`) |
+
+`cert_warn_days` is a **free form** list of days before expiry, e.g. `7,6,5,30`
+(any numbers, any order; empty means `30,14,7,1`). The cadence is hybrid:
+
+| Situation | What is sent |
+|---|---|
+| `days_left` equals a configured value | one `cert_expiring` when it is crossed |
+| the process was offline and several values were crossed at once | **one** notification ("expires in 4 days") with every crossed value marked |
+| `days_left` ≤ the smallest configured value | the reminder **repeats once a day** |
+| the certificate is already expired | `cert_expired`, then the daily reminder until it is renewed |
+| several nodes watching the same monitor | one notification: the day bucket of the lock table elects the sender (shared database) |
+
+A monitor that is checked every minute does not send 1440 notifications: the
+thresholds are remembered in `monitor_certificates.notified_days` and the daily
+reminder is pinned to the day.
+
+**When it expires**: a monitor that verifies TLS goes `down` on its own (the
+handshake fails, so the normal down notification arrives), *unless*
+`ignore_tls=true` — in that case the checks keep succeeding and `cert_expired` is
+the only signal, which is why it exists. The certificate is captured even when the
+verification fails, so the operator sees the real issuer and the negative days
+left instead of a bare handshake error.
+
+A `ssl` monitor dials `config.host`:`config.port` (default 443) and accepts an
+optional `config.server_name` (SNI) for virtual hosts where the IP alone does not
+identify the certificate.
+
+## 10. Upside down monitors
 
 `upside_down=true` swaps `up` and `down` **after** the probe, with a
 `upside down:` prefix in the message. Typical use: an IP that must stay blocked
 (a TCP monitor to a port that must remain closed) or a DNS name that must not
 exist.
 
-## 10. How the UI is wired
+## 11. How the UI is wired
 
 | Element | File |
 |---|---|

@@ -86,32 +86,45 @@ func httpRequest(ctx context.Context, monitor *models.Monitor) (Result, string) 
 	resp, err := client.Do(req)
 	latency := time.Since(started).Milliseconds()
 	if err != nil {
-		return Result{
+		result := Result{
 			Status:    models.StatusDown,
 			LatencyMS: latency,
 			Message:   describeRequestError(err),
-		}, ""
+		}
+		// A TLS failure still tells us which certificate the target presented
+		// (expired, self signed, wrong name): the certificate watcher must be
+		// able to report it instead of staying blind.
+		if monitor.CertWatch && monitor.Type.SupportsCertificate() {
+			result.Certificate = certificateFromError(err, time.Now().UTC())
+		}
+		return result, ""
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	var certificate *models.CertificateInfo
+	if monitor.CertWatch && monitor.Type.SupportsCertificate() {
+		certificate = captureCertificate(resp.TLS, time.Now().UTC())
+	}
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	bodyText := string(raw)
 
 	if !models.StatusAccepted(ranges, resp.StatusCode) {
 		return Result{
-			Status:     models.StatusDown,
-			LatencyMS:  latency,
-			StatusCode: resp.StatusCode,
-			Message: fmt.Sprintf("%d %s (accepted: %s)", resp.StatusCode,
-				http.StatusText(resp.StatusCode), cfg.AcceptedStatusCodes),
+			Status:      models.StatusDown,
+			LatencyMS:   latency,
+			StatusCode:  resp.StatusCode,
+			Message:     fmt.Sprintf("%d %s (accepted: %s)", resp.StatusCode, http.StatusText(resp.StatusCode), cfg.AcceptedStatusCodes),
+			Certificate: certificate,
 		}, bodyText
 	}
 
 	return Result{
-		Status:     models.StatusUp,
-		LatencyMS:  latency,
-		StatusCode: resp.StatusCode,
-		Message:    fmt.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
+		Status:      models.StatusUp,
+		LatencyMS:   latency,
+		StatusCode:  resp.StatusCode,
+		Message:     fmt.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
+		Certificate: certificate,
 	}, bodyText
 }
 

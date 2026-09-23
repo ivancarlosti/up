@@ -36,6 +36,17 @@ type Monitor struct {
 	// Free form tags, comma separated (used for grouping and filters).
 	Tags string `gorm:"size:255" json:"tags"`
 
+	// CertWatch turns on the TLS certificate capture for this monitor (http and
+	// keyword monitors capture the certificate of their https target, a ssl
+	// monitor is nothing but that).
+	CertWatch bool `gorm:"not null;default:false" json:"cert_watch"`
+	// CertNotify allows the certificate events to reach the notification
+	// channels: a monitor can show its certificate without filling the inbox.
+	CertNotify bool `gorm:"not null;default:false" json:"cert_notify"`
+	// CertWarnDays is the free form list of "days before expiry" that trigger a
+	// reminder ("7,6,5,30"); empty means models.DefaultCertWarnDays.
+	CertWarnDays string `gorm:"size:120" json:"cert_warn_days"`
+
 	Config MonitorConfig `gorm:"serializer:json;type:json" json:"config"`
 
 	CreatedAt time.Time `json:"created_at"`
@@ -55,6 +66,9 @@ type Monitor struct {
 	Votes           []NodeVote         `gorm:"-" json:"votes,omitempty"`
 	NotificationIDs []uint             `gorm:"-" json:"notification_ids"`
 	GroupIDs        []uint             `gorm:"-" json:"group_ids"`
+	// Certificate is the last TLS certificate read by a probe (only when the
+	// monitor watches its certificate).
+	Certificate *CertificateInfo `gorm:"-" json:"certificate,omitempty"`
 }
 
 // TagList returns the comma separated tags as a slice.

@@ -129,6 +129,12 @@ func planApply(monitor *models.Monitor, template *models.MonitorTemplate, fields
 			addChange(&changes, field, idsLabel(monitor.GroupIDs), idsLabel(template.Defaults.GroupIDs))
 		case "config":
 			changes = append(changes, configChanges(monitor, template)...)
+		case "cert_watch":
+			addChange(&changes, field, strconv.FormatBool(monitor.CertWatch), strconv.FormatBool(template.Defaults.CertWatch))
+		case "cert_notify":
+			addChange(&changes, field, strconv.FormatBool(monitor.CertNotify), strconv.FormatBool(template.Defaults.CertNotify))
+		case "cert_warn_days":
+			addChange(&changes, field, monitor.CertWarnDays, template.Defaults.CertWarnDays)
 		}
 	}
 	return changes
@@ -200,6 +206,12 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 			}
 		case "config":
 			updated.Config = withProbeTarget(template.Config, monitor.Config, monitor.Type)
+		case "cert_watch":
+			updated.CertWatch = template.Defaults.CertWatch
+		case "cert_notify":
+			updated.CertNotify = template.Defaults.CertNotify
+		case "cert_warn_days":
+			updated.CertWarnDays = template.Defaults.CertWarnDays
 		}
 	}
 	return &updated, notificationIDs, groupIDs

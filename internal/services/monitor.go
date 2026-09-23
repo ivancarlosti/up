@@ -148,6 +148,11 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 		return err
 	}
 
+	certificates, err := s.certificatesFor(ctx, ids)
+	if err != nil {
+		return err
+	}
+
 	for _, m := range monitors {
 		if stats, ok := windows[m.ID]; ok {
 			m.Uptime24h = stats.Uptime
@@ -178,8 +183,30 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 		} else {
 			m.GroupIDs = []uint{}
 		}
+		if m.CertWatch {
+			if info, ok := certificates[m.ID]; ok {
+				m.Certificate = info
+			}
+		}
 	}
 	return nil
+}
+
+// certificatesFor returns the stored certificate of every monitor that watches
+// one (one query for a whole listing).
+func (s *MonitorService) certificatesFor(ctx context.Context, monitorIDs []uint) (map[uint]*models.CertificateInfo, error) {
+	out := map[uint]*models.CertificateInfo{}
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var rows []models.MonitorCertificate
+	if err := s.db.WithContext(ctx).Where("monitor_id IN ?", monitorIDs).Find(&rows).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	for i := range rows {
+		out[rows[i].MonitorID] = rows[i].Info()
+	}
+	return out, nil
 }
 
 func (s *MonitorService) publish(event string, payload any) {

@@ -159,6 +159,10 @@ service discovery is required.
   fire every monitor at the same instant.
 - **Global concurrency cap** `SCHEDULER_MAX_CONCURRENT` (default 20) enforced by
   a semaphore channel, bounding the number of simultaneous sockets.
+- **Certificate watching** (every 6h, `Scheduler.StartMaintenance`) ages the
+  certificates captured by the probes and sends the reminders that are due. It
+  never opens a socket: the capture happens in the handshake of the probe, so a
+  monitor whose target is unreachable still gets its reminder.
 - **Reconciliation** happens through a command channel (`upsert`, `remove`,
   `reload`, `checkNow`) so HTTP handlers never mutate the worker map directly,
   plus a periodic pass (`SCHEDULER_RECONCILE_SECONDS`, default 30 s) that compares

@@ -31,6 +31,14 @@ flowchart LR
 - `resend_interval_seconds` (monitor level and channel level, the larger value
   wins) repeats an alert while the monitor stays `down`/`degraded`.
 
+### Certificate events
+
+`cert_expiring` and `cert_expired` do not come from a status transition: they come
+from the certificate that the probe read (see `docs/monitors.md` §9). They are
+delivered through the same channels and the same `on_down` link flag, and the
+transport is deduplicated per day and per threshold, so several cluster nodes
+watching the same certificate produce a single message.
+
 ## 2. Channels
 
 ### SMTP (e-mail)
@@ -84,7 +92,7 @@ Available template data (the `notify.Message` struct):
 
 | Placeholder | Meaning |
 |---|---|
-| `{{.Event}}` | `down`, `up` or `test` |
+| `{{.Event}}` | `down`, `up`, `test`, `cert_expiring` or `cert_expired` |
 | `{{.Status}}` | aggregated status (`up`, `down`, `degraded`, `pending`, `maintenance`) |
 | `{{.Title}}` | `[DOWN] Monitor name` |
 | `{{.MonitorName}}`, `{{.MonitorType}}` | monitor identity |
@@ -188,7 +196,7 @@ Every attempt produces one row in `notification_logs`:
 | Column | Meaning |
 |---|---|
 | `notification_id`, `monitor_id` | who/what |
-| `event` | `down`, `up` or `test` |
+| `event` | `down`, `up`, `test`, `cert_expiring` or `cert_expired` |
 | `success` | delivery accepted by the endpoint |
 | `error` | reason when `success=0` (SMTP/shoutrrr message) |
 | `duration_ms` | time of the attempt |

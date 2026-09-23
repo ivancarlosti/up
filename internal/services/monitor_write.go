@@ -69,6 +69,9 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		"run_on":                   monitor.RunOn,
 		"node_id":                  monitor.NodeID,
 		"tags":                     monitor.Tags,
+		"cert_watch":               monitor.CertWatch,
+		"cert_notify":              monitor.CertNotify,
+		"cert_warn_days":           monitor.CertWarnDays,
 		"config":                   string(configJSON),
 		"updated_at":               time.Now().UTC(),
 	}
@@ -115,6 +118,9 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 			return err
 		}
 		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorGroupMember{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorCertificate{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("monitor_id = ?", id).Delete(&models.NotificationLock{}).Error; err != nil {

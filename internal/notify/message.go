@@ -76,6 +76,12 @@ func MonitorTarget(monitor *models.Monitor) string {
 		return fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	case models.MonitorTypeDNS:
 		return fmt.Sprintf("%s %s @%s", cfg.RecordType, cfg.Hostname, cfg.ResolverServer)
+	case models.MonitorTypeSSL:
+		port := cfg.Port
+		if port <= 0 {
+			port = models.DefaultSSLPort
+		}
+		return fmt.Sprintf("%s:%d", cfg.Host, port)
 	}
 	return string(monitor.Type)
 }

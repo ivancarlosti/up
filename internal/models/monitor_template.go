@@ -51,6 +51,11 @@ type TemplateDefaults struct {
 	Description            string `json:"description"`
 	// Active is a pointer so an omitted value keeps the monitor default (true).
 	Active *bool `json:"active,omitempty"`
+	// Certificate watching applied to the monitors created from the template (or
+	// overwritten by a bulk edit that selects these fields).
+	CertWatch    bool   `json:"cert_watch"`
+	CertNotify   bool   `json:"cert_notify"`
+	CertWarnDays string `json:"cert_warn_days"`
 	// NotificationIDs and GroupIDs are the links applied to the new monitors.
 	NotificationIDs []uint `json:"notification_ids"`
 	GroupIDs        []uint `json:"group_ids"`
@@ -64,6 +69,7 @@ func TemplateDefaultFields() []string {
 		"description", "interval_seconds", "retries", "retries_interval_seconds",
 		"timeout_seconds", "resend_interval_seconds", "run_on", "node_id", "tags",
 		"active", "notification_ids", "group_ids", "config",
+		"cert_watch", "cert_notify", "cert_warn_days",
 	}
 }
 
@@ -112,6 +118,12 @@ func (t *MonitorTemplate) Validate() string {
 	}
 	if t.Defaults.Retries < 0 || t.Defaults.Retries > 50 {
 		return "retries must be between 0 and 50"
+	}
+	if t.Defaults.CertNotify && !t.Defaults.CertWatch {
+		return "cert_notify requires cert_watch"
+	}
+	if _, err := ParseCertWarnDays(t.Defaults.CertWarnDays); err != nil {
+		return "cert_warn_days must be a list of days before expiry: " + err.Error()
 	}
 	return ""
 }

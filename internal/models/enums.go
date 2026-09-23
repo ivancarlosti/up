@@ -18,17 +18,28 @@ const (
 	MonitorTypeKeyword MonitorType = "keyword" // HTTP(s) request + keyword match
 	MonitorTypeTCP     MonitorType = "tcp"     // TCP connect, optional send/expect
 	MonitorTypeDNS     MonitorType = "dns"     // DNS query through a specific resolver
+	MonitorTypeSSL     MonitorType = "ssl"     // TLS handshake + certificate expiry
 )
 
 // AllMonitorTypes lists every supported monitor type (validation + UI).
 func AllMonitorTypes() []MonitorType {
-	return []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS}
+	return []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL}
+}
+
+// SupportsCertificate reports whether a monitor type can read a TLS certificate
+// (the ssl probe by definition, the https probes as a side effect).
+func (t MonitorType) SupportsCertificate() bool {
+	switch t {
+	case MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeSSL:
+		return true
+	}
+	return false
 }
 
 // Valid reports whether the type is known.
 func (t MonitorType) Valid() bool {
 	switch t {
-	case MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS:
+	case MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL:
 		return true
 	}
 	return false

@@ -103,6 +103,20 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 //	ANY_WITH_LOCK: any node can send, but a unique insert on
 //	               (monitor_id, event, bucket) elects a single sender.
 func (s *ClusterService) claimNotification(ctx context.Context, monitorID uint, event models.NotificationEvent) (bool, error) {
+	return s.claimEvent(ctx, monitorID, event, time.Now().UTC().Unix()/models.NotificationLockWindowSeconds)
+}
+
+// ClaimCertificateEvent elects the node that sends a certificate notification.
+//
+// The bucket is the day (and not the 60 second window used by the status
+// events): the reminder is daily, and the unique index of the lock table is what
+// keeps a single node sending it when several nodes watch the same certificate.
+func (s *ClusterService) ClaimCertificateEvent(ctx context.Context, monitorID uint, event models.NotificationEvent, day int64) (bool, error) {
+	return s.claimEvent(ctx, monitorID, event, day)
+}
+
+// claimEvent implements the sender election for an explicit bucket.
+func (s *ClusterService) claimEvent(ctx context.Context, monitorID uint, event models.NotificationEvent, bucket int64) (bool, error) {
 	settings, err := s.Settings(ctx)
 	if err != nil {
 		return false, err
@@ -115,7 +129,6 @@ func (s *ClusterService) claimNotification(ctx context.Context, monitorID uint, 
 		return primary, nil
 	}
 
-	bucket := time.Now().UTC().Unix() / models.NotificationLockWindowSeconds
 	lock := models.NotificationLock{
 		MonitorID: monitorID,
 		Event:     event,

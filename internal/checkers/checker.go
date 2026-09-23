@@ -20,6 +20,9 @@ type Result struct {
 	LatencyMS  int64
 	StatusCode int
 	Message    string
+	// Certificate is the TLS certificate read by the probe (nil when the
+	// monitor does not watch it or the target does not speak TLS).
+	Certificate *models.CertificateInfo
 }
 
 // Check runs the probe matching the monitor type.
@@ -44,6 +47,8 @@ func Check(ctx context.Context, monitor *models.Monitor) Result {
 		result = checkTCP(ctx, monitor)
 	case models.MonitorTypeDNS:
 		result = checkDNS(ctx, monitor)
+	case models.MonitorTypeSSL:
+		result = checkSSL(ctx, monitor)
 	default:
 		result = Result{Status: models.StatusDown, Message: "unsupported monitor type " + string(monitor.Type)}
 	}
