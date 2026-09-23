@@ -9,10 +9,14 @@ import (
 //
 //   - node liveness ping (every 30s) so the cluster knows this node is alive;
 //   - node liveness sweep (every 30s) marking late/offline nodes;
+//   - worker reconciliation (every SCHEDULER_RECONCILE_SECONDS, default 30s); it
+//     compares the running workers with the monitors this node must run, which
+//     is how a monitor created on another node starts being checked here;
 //   - heartbeat retention purge (every 6h) when HEARTBEAT_RETENTION_DAYS > 0.
 func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	ping := time.NewTicker(30 * time.Second)
 	sweep := time.NewTicker(30 * time.Second)
+	reconcile := time.NewTicker(s.reconcileInterval())
 	retention := time.NewTicker(6 * time.Hour)
 
 	s.wg.Add(1)
@@ -20,6 +24,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer s.wg.Done()
 		defer ping.Stop()
 		defer sweep.Stop()
+		defer reconcile.Stop()
 		defer retention.Stop()
 
 		// Run both cluster tasks once at boot so the nodes table is accurate
@@ -45,6 +50,10 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 			case <-sweep.C:
 				if err := s.cluster.Sweep(ctx); err != nil {
 					s.log.Warn("node liveness sweep failed", "error", err)
+				}
+			case <-reconcile.C:
+				if err := s.reload(ctx); err != nil {
+					s.log.Error("could not reconcile the monitors", "error", err)
 				}
 			case <-retention.C:
 				if s.cfg.HeartbeatRetentionDays > 0 {

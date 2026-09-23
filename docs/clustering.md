@@ -160,6 +160,15 @@ winning node (which may differ between the DOWN and the UP event).
   first writer wins and the other nodes read the same row.
 - Re-notification (`resend_interval_seconds > 0`) is evaluated against
   `monitor_states.notified_at`, so only one node per window repeats the alert.
+- **Worker reconciliation**: each node compares its running workers with the
+  monitors it is responsible for (active + `run_on`) every
+  `SCHEDULER_RECONCILE_SECONDS` (default 30 s, minimum 5). The CRUD handlers can
+  only touch the process that served the request (`POST /api/monitors` on node-1
+  never reaches node-2's scheduler) and the WebSocket hub is per-process, so this
+  periodic pass is what makes a monitor created, edited, paused or deleted on
+  another node take effect here **without a restart**. A `run_on` change that
+  moves a monitor between nodes is handled the same way, and the log line
+  `scheduler reconciled the workers` lists the ids that started and stopped.
 
 ## 8. Endpoints
 

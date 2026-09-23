@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/ivancarlosti/up/internal/config"
 	"github.com/ivancarlosti/up/internal/models"
@@ -27,6 +28,10 @@ type Scheduler struct {
 	sem      chan struct{}
 	wg       sync.WaitGroup
 	cancel   context.CancelFunc
+	// reloadMu serialises the worker reconciliation: the command loop
+	// (cmdReload) and the periodic maintenance ticker can both run it, and two
+	// concurrent passes would start the same monitor twice.
+	reloadMu sync.Mutex
 }
 
 type commandKind int
@@ -76,8 +81,22 @@ func (s *Scheduler) Start(parent context.Context) error {
 
 	s.log.Info("scheduler started",
 		"workers", s.workerCount(), "max_concurrent", s.cfg.SchedulerMaxConcurrent,
+		"reconcile_seconds", s.reconcileIntervalSeconds(),
 		"node_id", s.cfg.NodeID)
 	return nil
+}
+
+// reconcileInterval is how often the worker set is compared with the database.
+func (s *Scheduler) reconcileInterval() time.Duration {
+	return time.Duration(s.reconcileIntervalSeconds()) * time.Second
+}
+
+// reconcileIntervalSeconds returns the configured interval with a safety floor.
+func (s *Scheduler) reconcileIntervalSeconds() int {
+	if s.cfg.SchedulerReconcileSeconds < 5 {
+		return 30
+	}
+	return s.cfg.SchedulerReconcileSeconds
 }
 
 // Stop cancels every worker and waits for them to finish.
@@ -147,7 +166,15 @@ func (s *Scheduler) CheckNow(monitorID uint) {
 
 // reload loads the monitors this node is responsible for and reconciles the
 // workers with the current database state.
+//
+// It runs at boot, on demand (Scheduler.Reload) and periodically (see
+// StartMaintenance): the periodic pass is what makes a monitor created on
+// another node of the cluster start being checked here, because nothing pushes
+// the monitor to this process.
 func (s *Scheduler) reload(ctx context.Context) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
 	isPrimary := s.cluster.IsPrimary(ctx)
 	monitors, err := s.monitors.ActiveForHost(ctx, s.cfg.NodeID, isPrimary)
 	if err != nil {
@@ -155,35 +182,56 @@ func (s *Scheduler) reload(ctx context.Context) error {
 	}
 
 	expected := make(map[uint]*models.Monitor, len(monitors))
+	expectedIDs := make([]uint, 0, len(monitors))
 	for _, monitor := range monitors {
 		expected[monitor.ID] = monitor
+		expectedIDs = append(expectedIDs, monitor.ID)
 	}
 
 	s.mu.RLock()
 	current := make(map[uint]*worker, len(s.workers))
+	runningIDs := make([]uint, 0, len(s.workers))
 	for id, w := range s.workers {
 		current[id] = w
+		runningIDs = append(runningIDs, id)
 	}
 	s.mu.RUnlock()
 
-	// Stop the workers that are no longer expected.
-	for id, w := range current {
-		if _, ok := expected[id]; !ok {
-			w.stop()
-			s.mu.Lock()
-			delete(s.workers, id)
-			s.mu.Unlock()
-			s.log.Info("monitor worker removed", "monitor_id", id)
+	plan := planReconcile(expectedIDs, runningIDs)
+
+	// Stop the workers that are no longer expected (deleted, paused, or a
+	// run_on that no longer matches this node).
+	for _, id := range plan.Stop {
+		w, ok := current[id]
+		if !ok {
+			continue
+		}
+		w.stop()
+		s.mu.Lock()
+		delete(s.workers, id)
+		s.mu.Unlock()
+		s.log.Info("monitor worker removed", "monitor_id", id, "reason", "reconciliation")
+	}
+
+	// Refresh the configuration of the ones that stay: a reload may have
+	// changed the interval or the monitor options.
+	for _, id := range plan.Keep {
+		if w, ok := current[id]; ok {
+			w.update(expected[id])
 		}
 	}
 
-	// Start (or refresh) the expected workers.
-	for id, monitor := range expected {
-		if existing, ok := current[id]; ok {
-			existing.update(monitor)
-			continue
-		}
-		s.startWorker(ctx, monitor)
+	// Start the new ones.
+	for _, id := range plan.Start {
+		s.startWorker(ctx, expected[id])
+	}
+
+	if plan.changed() {
+		s.log.Info("scheduler reconciled the workers",
+			"started", plan.Start, "stopped", plan.Stop, "unchanged", len(plan.Keep),
+			"workers", s.workerCount())
+	} else {
+		s.log.Debug("scheduler reconciliation: nothing to change", "workers", len(plan.Keep))
 	}
 	return nil
 }

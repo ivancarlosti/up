@@ -150,6 +150,7 @@ func (c *Config) Summary() string {
 		fmt.Sprintf("locale=%s", c.DefaultLocale),
 		fmt.Sprintf("theme=%s", c.DefaultTheme),
 		fmt.Sprintf("cluster=%t", c.ClusterEnabled),
+		fmt.Sprintf("reconcile_seconds=%d", c.SchedulerReconcileSeconds),
 		fmt.Sprintf("retention_days=%d", c.HeartbeatRetentionDays),
 	}
 	if c.ClusterEnabled {

@@ -87,7 +87,16 @@ func (s *Scheduler) startWorker(ctx context.Context, monitor *models.Monitor) {
 		monitor:   monitor,
 		cancel:    cancel,
 	}
+
+	// Registering is check-and-set under the same lock: the command loop
+	// (upsert) and the periodic reconciliation can race on the same monitor id,
+	// and a second goroutine for the same monitor would never be stopped.
 	s.mu.Lock()
+	if _, exists := s.workers[monitor.ID]; exists {
+		s.mu.Unlock()
+		cancel()
+		return
+	}
 	s.workers[monitor.ID] = w
 	s.mu.Unlock()
 

@@ -136,6 +136,11 @@ func (c *Config) validate() []string {
 	if c.SchedulerMaxConcurrent < 1 {
 		c.SchedulerMaxConcurrent = 1
 	}
+	// The reconciliation loop compares the workers with the database: below a
+	// few seconds it would only add database load.
+	if c.SchedulerReconcileSeconds < 5 {
+		c.SchedulerReconcileSeconds = 5
+	}
 	if c.SessionTTLHours < 1 {
 		c.SessionTTLHours = 720
 	}

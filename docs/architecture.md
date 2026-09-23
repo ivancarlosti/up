@@ -160,7 +160,12 @@ service discovery is required.
 - **Global concurrency cap** `SCHEDULER_MAX_CONCURRENT` (default 20) enforced by
   a semaphore channel, bounding the number of simultaneous sockets.
 - **Reconciliation** happens through a command channel (`upsert`, `remove`,
-  `reload`, `checkNow`) so HTTP handlers never mutate the worker map directly.
+  `reload`, `checkNow`) so HTTP handlers never mutate the worker map directly,
+  plus a periodic pass (`SCHEDULER_RECONCILE_SECONDS`, default 30 s) that compares
+  the running workers with the shared database: a monitor created (or deleted,
+  paused, moved with `run_on`) on another node starts (or stops) here without a
+  restart. Both paths share one plan (`internal/scheduler/reconcile.go`) and one
+  lock, so a monitor never ends up with two goroutines.
 - **WebSocket hub** owns the client registry; services publish through the
   `services.EventPublisher` interface, which keeps the service layer free of any
   WebSocket dependency.
@@ -180,7 +185,7 @@ All variables, their defaults and validation rules live in
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |
 | Cluster | `CLUSTER_ENABLED`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
-| Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `HEARTBEAT_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
+| Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
 
 Validation lives in `internal/config/validate.go`; the aggregated error type is
 `config.ValidationError` (printed by `cmd/server/main.go`, exit code 2).
