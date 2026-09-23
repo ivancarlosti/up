@@ -180,6 +180,39 @@ listing filters with `?group_id=`. Names are unique
 name and, with `copy_links`, its channels and groups); without `deep` the copy
 starts empty on purpose, so two groups cannot silently share the same monitors.
 
+### Monitor templates and the bulk importer
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/monitor-templates` | list |
+| POST | `/api/monitor-templates` | create (`{name, type, config, defaults}`) |
+| GET | `/api/monitor-templates/:id` | single template |
+| PUT | `/api/monitor-templates/:id` | update |
+| DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
+| POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
+| POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_ids?, active?, dry_run?}` |
+
+A **template** is a monitor without a target: `type`, `config` and `defaults`
+(interval, timeout, retries, re-notification, `run_on`, tags, channels, groups).
+The `apply` endpoint only writes the fields listed in `fields` (empty = every
+default field) and returns the diff per monitor; it **never touches the target**
+of a monitor, not even when `config` is applied. `monitor_ids` and an unknown
+field answer `400 ERR_MONITOR_TEMPLATE_INVALID`.
+
+The **bulk importer** parses `name,target[,type,keyword,tags,interval]` (comma,
+semicolon or tab; header, `#` comments and blank lines ignored), validates every
+row against the template and answers a per row report:
+
+```json
+{"parsed":3,"created":2,"dry_run":0,"skipped":1,"failed":0,
+ "rows":[{"line":1,"name":"API","status":"created","monitor_id":12},
+         {"line":2,"name":"API","status":"duplicate","error":"a monitor with the same name or target already exists"}]}
+```
+
+`status` is `dry_run`, `created`, `duplicate`, `invalid` or `failed`; with
+`dry_run: true` nothing is written and the report is the preview the UI shows.
+See `docs/monitors.md` §8 for the format details.
+
 ## 5. Notifications
 
 | Method | Path | Notes |

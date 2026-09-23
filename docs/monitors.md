@@ -206,14 +206,63 @@ Rules that matter in practice:
   With `deep: true` every monitor inside is cloned too, each one with its
   `(copy)` name and, with `copy_links`, its channels and groups.
 
-## 8. Upside down monitors
+## 8. Templates
+
+A template is a monitor without a target: the probe type and its options plus the
+defaults (interval, timeout, retries, re-notification, `run_on`, tags, channels
+and groups). It exists for two jobs:
+
+1. **Add monitors in bulk** (Admin > Monitors > *Add in bulk*): paste one monitor
+   per line and pick the template. The server parses the paste, validates every
+   line and reports what it did, line by line.
+2. **Bulk edit** (Admin > Monitors > *Apply template*): overwrite the fields of
+   many monitors at once, with a preview of the diff.
+
+`internal/services/monitor_template*.go` implements both; the bulk edit **never
+touches the target** of a monitor even when the probe options are applied, so
+applying a template to 40 monitors cannot repoint them at the same address.
+
+### The bulk text format
+
+```
+name,target[,type,keyword,tags,interval]
+```
+
+| Column | Notes |
+|---|---|
+| `name` | monitor name (required) |
+| `target` | URL (`http://`/`https://` required), `host` or `host:port` |
+| `type` | overrides the template type (`http`, `keyword`, `tcp`, `dns`) |
+| `keyword` | required when the row is a keyword monitor |
+| `tags` | overrides the template tags |
+| `interval` | overrides the template interval (seconds, minimum 5) |
+
+What the importer does for you:
+
+- the delimiter is detected (comma, semicolon or tab, so a spreadsheet paste
+  works) and quoted cells are supported;
+- a header row (`name,url`) is ignored, `#` starts a comment and blank lines are
+  skipped;
+- a row with a missing name, a missing target, an unknown type or a `tcp` target
+  without a port is reported as **invalid** with the reason and its line number;
+- a row whose name or target already exists — in the database **or earlier in the
+  same paste** — is reported as a **duplicate** and skipped;
+- a dry run (`dry_run: true`) returns the same report without writing anything,
+  which is what the dialog shows while you type;
+- 500 rows maximum per request.
+
+The target mapping per type is in `monitorFromBulkRow`: `url` for HTTP and
+Keyword, `host`/`port` for TCP (the template port is the fallback) and `hostname`
+for DNS.
+
+## 9. Upside down monitors
 
 `upside_down=true` swaps `up` and `down` **after** the probe, with a
 `upside down:` prefix in the message. Typical use: an IP that must stay blocked
 (a TCP monitor to a port that must remain closed) or a DNS name that must not
 exist.
 
-## 9. How the UI is wired
+## 10. How the UI is wired
 
 | Element | File |
 |---|---|

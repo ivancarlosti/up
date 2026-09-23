@@ -24,6 +24,7 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	monitors.PUT("/:id", h.updateMonitor)
 	monitors.DELETE("/:id", h.deleteMonitor)
 	monitors.POST("/:id/clone", h.cloneMonitor)
+	monitors.POST("/bulk", h.bulkCreateMonitors)
 	monitors.POST("/:id/pause", h.pauseMonitor)
 	monitors.POST("/:id/resume", h.resumeMonitor)
 	monitors.POST("/:id/check", h.checkMonitor)
@@ -38,6 +39,14 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	groups.DELETE("/:id", h.deleteMonitorGroup)
 	groups.PUT("/:id/monitors", h.setMonitorGroupMonitors)
 	groups.POST("/:id/clone", h.cloneMonitorGroup)
+
+	templates := admin.Group("/monitor-templates")
+	templates.GET("", h.listMonitorTemplates)
+	templates.POST("", h.createMonitorTemplate)
+	templates.GET("/:id", h.getMonitorTemplate)
+	templates.PUT("/:id", h.updateMonitorTemplate)
+	templates.DELETE("/:id", h.deleteMonitorTemplate)
+	templates.POST("/:id/apply", h.applyMonitorTemplate)
 
 	notifications := admin.Group("/notifications")
 	notifications.GET("", h.listNotifications)

@@ -46,6 +46,7 @@ FLUSH PRIVILEGES;
 | `monitor_notifications` | monitor <-> channel links | tens |
 | `monitor_groups` | named collections of monitors (`uuid` + unique name) | tens |
 | `monitor_group_members` | monitor <-> group links (a monitor can be in many) | tens |
+| `monitor_templates` | reusable monitor blueprints (uuid + unique name) | tens |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
 | `notifications` | SMTP / Webhook channels | few |
@@ -137,6 +138,21 @@ CREATE TABLE `monitor_states` (
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`monitor_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_templates` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) NOT NULL,
+  `name` varchar(150) NOT NULL,
+  `description` varchar(500) DEFAULT NULL,
+  `type` varchar(20) NOT NULL,
+  `config` json DEFAULT NULL,
+  `defaults` json DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_monitor_templates_uuid` (`uuid`),
+  UNIQUE KEY `idx_monitor_templates_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `monitor_groups` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,

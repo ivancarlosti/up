@@ -20,22 +20,23 @@ import (
 
 // Container carries every dependency the handlers need.
 type Container struct {
-	Cfg           *config.Config
-	Log           *slog.Logger
-	DB            *gorm.DB
-	Settings      *services.SettingService
-	Monitors      *services.MonitorService
-	MonitorGroups *services.MonitorGroupService
-	Heartbeats    *services.HeartbeatService
-	Stats         *services.StatsService
-	Notifications *services.NotificationService
-	Cluster       *services.ClusterService
-	StatusPages   *services.StatusPageService
-	Tokens        *services.TokenService
-	IPRules       *services.IPRuleService
-	Sessions      *services.SessionService
-	Scheduler     *scheduler.Scheduler
-	Hub           *ws.Hub
+	Cfg              *config.Config
+	Log              *slog.Logger
+	DB               *gorm.DB
+	Settings         *services.SettingService
+	Monitors         *services.MonitorService
+	MonitorGroups    *services.MonitorGroupService
+	MonitorTemplates *services.MonitorTemplateService
+	Heartbeats       *services.HeartbeatService
+	Stats            *services.StatsService
+	Notifications    *services.NotificationService
+	Cluster          *services.ClusterService
+	StatusPages      *services.StatusPageService
+	Tokens           *services.TokenService
+	IPRules          *services.IPRuleService
+	Sessions         *services.SessionService
+	Scheduler        *scheduler.Scheduler
+	Hub              *ws.Hub
 	// SPA serves the embedded frontend (assets and index.html fallback).
 	SPA gin.HandlerFunc
 	// OIDC is nil unless AUTH_METHOD=keycloak.

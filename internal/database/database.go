@@ -92,6 +92,7 @@ func MigrationModels() []any {
 		&models.MonitorNotification{},
 		&models.MonitorGroup{},
 		&models.MonitorGroupMember{},
+		&models.MonitorTemplate{},
 		&models.MonitorState{},
 		&models.Heartbeat{},
 		&models.Notification{},

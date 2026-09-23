@@ -37,6 +37,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	stats := services.NewStatsService(db)
 	monitors := services.NewMonitorService(db, cfg, log, stats)
 	monitorGroups := services.NewMonitorGroupService(db, cfg, log)
+	monitorTemplates := services.NewMonitorTemplateService(db, cfg, log)
 	heartbeats := services.NewHeartbeatService(db, cfg, log)
 	notificationEngine := notify.NewEngine(log, 15*time.Second)
 	notifications := services.NewNotificationService(db, cfg, log, notificationEngine)
@@ -56,6 +57,8 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	monitors.SetVoteProvider(cluster)
 	monitorGroups.SetPublisher(hub)
 	monitorGroups.SetMonitorService(monitors)
+	monitorTemplates.SetPublisher(hub)
+	monitorTemplates.SetMonitorService(monitors)
 	heartbeats.SetPublisher(hub)
 	notifications.SetPublisher(hub)
 	cluster.SetPublisher(hub)
@@ -79,23 +82,24 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	}
 	engine := gin.New()
 	container := &handlers.Container{
-		Cfg:           cfg,
-		Log:           log,
-		DB:            db,
-		Settings:      settings,
-		Monitors:      monitors,
-		MonitorGroups: monitorGroups,
-		Heartbeats:    heartbeats,
-		Stats:         stats,
-		Notifications: notifications,
-		Cluster:       cluster,
-		StatusPages:   statusPages,
-		Tokens:        tokens,
-		IPRules:       ipRules,
-		Sessions:      sessions,
-		Hub:           hub,
-		OIDC:          oidc,
-		SPA:           handlers.NewSPAHandler(log),
+		Cfg:              cfg,
+		Log:              log,
+		DB:               db,
+		Settings:         settings,
+		Monitors:         monitors,
+		MonitorGroups:    monitorGroups,
+		MonitorTemplates: monitorTemplates,
+		Heartbeats:       heartbeats,
+		Stats:            stats,
+		Notifications:    notifications,
+		Cluster:          cluster,
+		StatusPages:      statusPages,
+		Tokens:           tokens,
+		IPRules:          ipRules,
+		Sessions:         sessions,
+		Hub:              hub,
+		OIDC:             oidc,
+		SPA:              handlers.NewSPAHandler(log),
 	}
 	container.Register(engine)
 
