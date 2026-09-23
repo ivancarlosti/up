@@ -27,7 +27,7 @@ cluster of nodes that vote on the real status.
 
 ## Features
 
-| | |
+| Feature | Description |
 |---|---|
 | **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) |
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
