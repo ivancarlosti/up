@@ -53,8 +53,8 @@ docker compose -f docker/docker-compose.yml logs -f up
 
 The compose file uses `ghcr.io/ivancarlosti/up:latest` and reaches your database
 through `host.docker.internal` (`extra_hosts: host.docker.internal:host-gateway`).
-**There is no database service**: Up always connects to an external
-MariaDB/MySQL.
+**This file declares no database service**: Up connects to an external
+MariaDB/MySQL (the bundle described below is the self-contained alternative).
 
 The published port follows `APP_PORT` in `docker/.env`: `APP_PORT=3000` publishes
 `3000:3000` (default) and `APP_PORT=8080` publishes `8080:8080`. To keep the
@@ -72,6 +72,26 @@ GRANT ALL PRIVILEGES ON up.* TO 'up'@'%';
 
 Open `http://<host>:3000`, sign in with `ACCOUNT_LOGIN` / `ACCOUNT_PASSWORD` and
 create your first monitor.
+
+## Quick start (Docker bundle with MariaDB included)
+
+`docker/docker-compose-bundle.yml` is the same application plus a MariaDB
+container, for a machine that has no database server yet. Inside a compose
+network a container is reached by its **service name**, so `DB_HOST` must be the
+name of the database service declared there (`mariadb`):
+
+```bash
+cp docker/.env.example docker/.env
+sed -i 's/^DB_HOST=.*/DB_HOST=mariadb/' docker/.env     # the bundled DB service
+
+docker compose -f docker/docker-compose-bundle.yml up -d
+docker compose -f docker/docker-compose-bundle.yml logs -f up
+```
+
+The database files live in the `mariadb_data` volume, so they survive restarts;
+`docker compose -f docker/docker-compose-bundle.yml down -v` deletes them along
+with every monitor, heartbeat and setting. Both compose files are alternatives:
+they read the same `docker/.env` and use the same container name (`up`).
 
 ## Quick start (from source)
 
@@ -107,6 +127,7 @@ APP_PORT=3000                          # inside the container AND published on t
 # HOST_PORT=80                         # optional: publish a different host port
 
 DB_HOST=host.docker.internal           # external database, never in compose
+# DB_HOST=mariadb                      # bundled database (docker-compose-bundle.yml)
 DB_PORT=3306
 DB_DATABASE=up
 DB_USERNAME=up

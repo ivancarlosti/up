@@ -1,0 +1,110 @@
+# ---------------------------------------------------------------------------
+# Up - Docker Compose (bundle: MariaDB included)
+#
+# Same application service as docker-compose.yml, plus a MariaDB container
+# declared HERE, for a one command install on a machine that has no database
+# server yet. The two files are ALTERNATIVES: they read the same docker/.env
+# and use the same container name (up), so run one or the other.
+#
+# Inside a compose network a container is reached by its SERVICE NAME, and the
+# database service of this file is called `mariadb`, so DB_HOST in docker/.env
+# must be exactly that name:
+#
+#   # docker/.env (see docker/.env.example for every variable)
+#   DB_HOST=mariadb        # <- the service below, not host.docker.internal
+#   DB_PORT=3306
+#   DB_DATABASE=up
+#   DB_USERNAME=up
+#   DB_PASSWORD=secret
+#
+# Quick start:
+#   cp docker/.env.example docker/.env    # then set DB_HOST=mariadb
+#   docker compose -f docker/docker-compose-bundle.yml up -d
+#   docker compose -f docker/docker-compose-bundle.yml logs -f up
+#
+# The database data lives in the mariadb_data volume, so it survives restarts
+# and image updates; `docker compose -f docker/docker-compose-bundle.yml
+# down -v` removes it together with every monitor, heartbeat and setting.
+#
+# Prefer your own server (host machine, another machine or a managed service)?
+# Use docker-compose.yml with DB_HOST=host.docker.internal instead.
+# ---------------------------------------------------------------------------
+
+services:
+  up:
+    image: ghcr.io/ivancarlosti/up:latest
+    container_name: up
+    # Build locally instead of pulling the published image (optional):
+    #   VERSION=$(git describe --tags --always) COMMIT=$(git rev-parse --short HEAD) \
+    #     docker compose -f docker/docker-compose-bundle.yml up -d --build
+    # build:
+    #   context: ..
+    #   args:
+    #     VERSION: ${VERSION:-dev}
+    #     COMMIT: ${COMMIT:-unknown}
+    # Loads docker/.env into the container environment (path is relative to
+    # this compose file), including the DB_HOST=mariadb that reaches the
+    # bundled database.
+    env_file: .env
+    # Host port -> container port.
+    #
+    #   APP_PORT  = port the HTTP server listens on INSIDE the container
+    #               (it comes from docker/.env, which Compose also uses to
+    #               interpolate this file: the project directory of
+    #               `docker compose -f docker/docker-compose-bundle.yml ...`
+    #               is this docker/ folder, so the same .env feeds both the
+    #               container environment and the interpolation below).
+    #   HOST_PORT = optional published port on the Docker host, defaults to
+    #               APP_PORT. Set it only when the outer port must differ, for
+    #               example APP_PORT=3000 with HOST_PORT=80.
+    #
+    # On a Compose version that does not support nested defaults, replace the
+    # line below with: "${APP_PORT:-3000}:${APP_PORT:-3000}"
+    ports:
+      - "${HOST_PORT:-${APP_PORT:-3000}}:${APP_PORT:-3000}"
+    # Keeps host.docker.internal resolvable, so this same bundle can also run
+    # against a database on the Docker host (DB_HOST=host.docker.internal).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Wait for a database that already accepted connections. Up also retries the
+    # connection for up to 90 s on its own, so a slow first boot is harmless.
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    # The image already ships its own HEALTHCHECK (reads APP_PORT), so nothing
+    # has to be declared here.
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:11
+    container_name: up-mariadb
+    # The schema, the user and the password are the ones docker/.env already
+    # gives to the application (interpolated from the .env of this docker/
+    # folder), so the two containers can never drift apart.
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MARIADB_DATABASE: ${DB_DATABASE:-up}
+      MARIADB_USER: ${DB_USERNAME:-up}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-secret}
+    # Same charset/collation as the provisioning snippet of docs/database.md.
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    # Up reaches the database through the compose network by the service name,
+    # so the port stays private by default. Uncomment to connect a client on
+    # the host (DB_HOST_PORT defaults to 3306, which must then be free):
+    # ports:
+    #   - "${DB_HOST_PORT:-3306}:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  # Database files of the bundled MariaDB (removed by `down -v`).
+  mariadb_data:

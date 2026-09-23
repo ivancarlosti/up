@@ -44,7 +44,8 @@ internal/
 web/                 Vue 3 + Vite + TypeScript + Tailwind frontend
   embed.go           //go:embed all:dist -> Dist()/Available()
   src/locales/       en-US.json, pt-BR.json, es-MX.json
-docker/              docker-compose.yml, .env, .env.example (nothing else)
+docker/              docker-compose.yml (external DB), docker-compose-bundle.yml
+                     (MariaDB included), .env, .env.example (nothing else)
 docs/                this documentation set
 Dockerfile           three stages: web build -> go build -> alpine runtime
 ```
@@ -185,6 +186,7 @@ All variables, their defaults and validation rules live in
 |---|---|
 | App / proxy | `APP_URL`, `APP_TRUST_PROXY`, `APP_PORT` |
 | Docker publish (compose only) | `HOST_PORT` (optional; published host port, defaults to `APP_PORT`) |
+| Docker bundle (compose only) | `DB_ROOT_PASSWORD` (root password of the bundled MariaDB), `DB_HOST_PORT` (optional; publishes the bundled database on the host) |
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |

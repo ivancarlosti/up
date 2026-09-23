@@ -1,15 +1,19 @@
 # Up - Database
 
-> MariaDB/MySQL only, always **external** to the container. Up never creates a
-database service in `docker/docker-compose.yml`; it connects to `DB_HOST`
-(`host.docker.internal` by default) and manages its own schema with GORM
-`AutoMigrate` on every boot.
+> MariaDB/MySQL only. `docker/docker-compose.yml` never creates a database
+> service: it connects to `DB_HOST` (`host.docker.internal` by default) and
+> manages its own schema with GORM `AutoMigrate` on every boot.
+>
+> `docker/docker-compose-bundle.yml` is the optional self-contained variant: it
+> adds a `mariadb:11` service (volume `mariadb_data`, credentials taken from the
+> same `docker/.env`) and is addressed by its compose **service name**, i.e.
+> `DB_HOST=mariadb`. Everything below applies to both.
 
 ## 1. Connection
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DB_HOST` | `host.docker.internal` | `127.0.0.1` when the backend runs directly on the host |
+| `DB_HOST` | `host.docker.internal` | `127.0.0.1` when the backend runs directly on the host; `mariadb` (the compose service name) with `docker/docker-compose-bundle.yml` |
 | `DB_PORT` | `3306` | |
 | `DB_DATABASE` | `up` | must exist; Up creates the tables, not the schema |
 | `DB_USERNAME` | `up` | needs DDL rights (CREATE/ALTER/INDEX/DROP on the schema) |

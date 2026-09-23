@@ -34,10 +34,14 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen bg-background text-foreground">
+  <div class="flex min-h-screen flex-col bg-background text-foreground">
     <template v-if="useShell">
       <AppHeader :mobile-open="mobileOpen" @toggle-mobile="mobileOpen = !mobileOpen" />
-      <div class="flex">
+      <!-- The shell is a full height column: the row below the header grows to fill
+           the rest of the window (never less than its content), which is what keeps
+           the sidebar background and its right border reaching the bottom of the
+           window on pages with little content. -->
+      <div class="flex flex-1">
         <AppSidebar :mobile-open="mobileOpen" @navigate="mobileOpen = false" />
         <main class="min-w-0 flex-1 px-5 py-6 lg:px-8 lg:py-7">
           <div class="mx-auto w-full max-w-[1600px]">

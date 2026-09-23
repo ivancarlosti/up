@@ -46,7 +46,14 @@ function isActive(name: string): boolean {
   <aside
     :class="
       cn(
-        'fixed inset-y-14 left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-3 py-4 transition-transform lg:static lg:translate-x-0',
+        // Below the sticky header (h-14 = 3.5rem) the panel reaches the bottom of
+        // the window in both layouts: `top-14 bottom-0` when it is the fixed
+        // mobile drawer, and the same offset plus an explicit height on desktop
+        // (sticky), so the card background and the right border always end at the
+        // window bottom even on pages with little content. The page scrolls
+        // underneath it (the nav itself scrolls through overflow-y-auto) and z-20
+        // keeps it under the header (z-30).
+        'fixed top-14 bottom-0 left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-3 py-4 transition-transform lg:sticky lg:bottom-auto lg:h-[calc(100vh-3.5rem)] lg:translate-x-0',
         props.mobileOpen ? 'translate-x-0' : '-translate-x-full',
       )
     "

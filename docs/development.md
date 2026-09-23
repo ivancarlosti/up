@@ -39,7 +39,12 @@ go version && node -v && npm -v
 ## 2. Database for local development
 
 There is no database service in `docker/docker-compose.yml` (by design), so a
-disposable container is used for development and tests:
+disposable container is used for development and tests — or the bundle file,
+which declares that container itself (set `DB_HOST=mariadb`, see section 3):
+
+```bash
+docker compose -f docker/docker-compose-bundle.yml up -d   # app + MariaDB
+```
 
 ```bash
 docker run -d --name up-dev-mariadb \
@@ -60,6 +65,7 @@ docker exec up-dev-mariadb mariadb -u up -psecret up -e 'SELECT VERSION();'
 | File | Used by | `DB_HOST` |
 |---|---|---|
 | `docker/.env` | `docker compose -f docker/docker-compose.yml up` | `host.docker.internal` |
+| `docker/.env` | `docker compose -f docker/docker-compose-bundle.yml up` | `mariadb` (the DB service name) |
 | `.env` (repository root, git-ignored) | `go run ./cmd/server` | `127.0.0.1` |
 | `docker/.env.example` | the canonical reference (all variables) | `host.docker.internal` |
 
@@ -229,10 +235,13 @@ docker compose -f docker/docker-compose.yml down
 Without `--build-arg` the binary reports `dev` / `unknown` (the Dockerfile
 defaults), which is what a plain `docker build .` produces.
 
-Validate the compose file without starting it:
+Validate the compose files without starting them (the bundle declares the
+MariaDB service as well, so its `environment` block shows the credentials it
+will boot with):
 
 ```bash
 docker compose -f docker/docker-compose.yml config
+docker compose -f docker/docker-compose-bundle.yml config
 ```
 
 ### Changing the published port
@@ -274,6 +283,41 @@ Notes:
 - On a Compose version without nested defaults (`${A:-${B:-3000}}`), replace the
   `ports` line in `docker/docker-compose.yml` with
   `"${APP_PORT:-3000}:${APP_PORT:-3000}"` and use `APP_PORT` alone.
+- `docker/docker-compose-bundle.yml` interpolates the same way (same `docker/`
+  project directory, same `.env`), so `APP_PORT` / `HOST_PORT` behave there too
+  and the example commands above only need the file name changed.
+
+### The bundle: Up plus its own MariaDB
+
+`docker/docker-compose-bundle.yml` adds a `mariadb:11` service for machines
+without a database server. It is an alternative to `docker-compose.yml`, not a
+replacement: both read `docker/.env` and use the same container name (`up`), so
+running one means stopping the other.
+
+```bash
+sed -i 's/^DB_HOST=.*/DB_HOST=mariadb/' docker/.env   # the compose service name
+docker compose -f docker/docker-compose-bundle.yml up -d
+docker compose -f docker/docker-compose-bundle.yml logs -f up
+
+docker compose -f docker/docker-compose-bundle.yml ps     # up + up-mariadb healthy
+docker exec up-mariadb mariadb -u up -psecret up -e 'SHOW TABLES;'
+
+# destructive: also deletes the mariadb_data volume with every heartbeat
+docker compose -f docker/docker-compose-bundle.yml down -v
+```
+
+- `DB_HOST` must be `mariadb` (the service name): inside a compose network every
+  container is reachable by the name of its service, while
+  `host.docker.internal` would send the connection to the Docker host (where no
+  database is listening in this scenario).
+- `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD` are reused as
+  `MARIADB_DATABASE` / `MARIADB_USER` / `MARIADB_PASSWORD`, so the app and the
+  database cannot drift apart; `DB_ROOT_PASSWORD` (optional, defaults to `root`)
+  is the root password of that container.
+- The database is not published on the host by default: `Up` reaches it over the
+  compose network. Uncomment the `ports` block of the `mariadb` service (and set
+  the optional `DB_HOST_PORT`) only when a client on the host has to connect.
+- Data lives in the `mariadb_data` volume; `down` keeps it, `down -v` erases it.
 
 ## 8. Notification sinks for testing
 
@@ -359,7 +403,7 @@ PY
 | Symptom | Check |
 |---|---|
 | `Up cannot start: invalid configuration` | the printed list; `docker/.env.example` is the reference |
-| Database retries forever | `DB_HOST`, credentials, and whether the DB accepts connections from the container (`host.docker.internal`) |
+| Database retries forever | `DB_HOST`, credentials, and whether the DB accepts connections from the container (`host.docker.internal` for `docker-compose.yml`, `mariadb` for the bundle) |
 | Monitor stays `pending` | the worker log line `monitor worker started`; then `GET /api/monitors/:id/heartbeats` |
 | No notification | `GET /api/notifications/logs`, then `POST /api/notifications/:id/test` |
 | Dashboard not updating live | `GET /api/ws` requires the session cookie; check the reverse proxy upgrade headers |
@@ -377,4 +421,7 @@ PY
   the three locale files.
 - Docker/docs references: keep `docker/.env.example`, `docker/.env` and this
   document in sync when a variable is added.
-- `docker/` contains exactly `docker-compose.yml`, `.env` and `.env.example`.
+- `docker/` contains the compose files (`docker-compose.yml`,
+  `docker-compose-bundle.yml`), `.env` and `.env.example`. Any new compose-only
+  variable (like `HOST_PORT`, `DB_ROOT_PASSWORD`, `DB_HOST_PORT`) belongs in
+  `.env.example` next to the service that reads it.
