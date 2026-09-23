@@ -41,6 +41,9 @@ function emptyForm(): MonitorPayload {
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', headers: [] },
     notification_ids: [],
     group_ids: [],
+    cert_watch: false,
+    cert_notify: false,
+    cert_warn_days: '',
   }
 }
 
@@ -65,7 +68,11 @@ const typeOptions = computed(() => [
   { value: 'keyword', label: t('monitor.typeKeyword') },
   { value: 'tcp', label: t('monitor.typeTcp') },
   { value: 'dns', label: t('monitor.typeDns') },
+  { value: 'ssl', label: t('monitor.typeSsl') },
 ])
+
+/** Only the types that speak TLS can watch a certificate. */
+const supportsCertificate = computed(() => ['http', 'keyword', 'ssl'].includes(type.value))
 
 const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
@@ -89,12 +96,38 @@ function toggleGroup(id: number, value: boolean): void {
   form.group_ids = [...ids]
 }
 
+/** toNumber converts what a native number input produces (a string). */
+function toNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 function submit(): void {
   const payload: MonitorPayload = JSON.parse(JSON.stringify(form))
   payload.config = payload.config ?? {}
   if (!isHttpLike.value) {
     payload.config.headers = []
   }
+  // Native `type="number"` inputs emit strings and the API decodes into ints:
+  // without this coercion saving a monitor was rejected with
+  // "cannot unmarshal string into ... of type int".
+  payload.interval_seconds = toNumber(form.interval_seconds, 60)
+  payload.timeout_seconds = toNumber(form.timeout_seconds, 10)
+  payload.retries = toNumber(form.retries, 0)
+  payload.retries_interval_seconds = toNumber(form.retries_interval_seconds, 60)
+  payload.resend_interval_seconds = toNumber(form.resend_interval_seconds, 0)
+  const config = payload.config
+  if (config.port !== undefined && config.port !== null && String(config.port) !== '') {
+    config.port = toNumber(config.port, 0)
+  } else {
+    delete config.port
+  }
+  if (config.max_redirects !== undefined && config.max_redirects !== null && String(config.max_redirects) !== '') {
+    config.max_redirects = toNumber(config.max_redirects, 10)
+  } else {
+    delete config.max_redirects
+  }
+  payload.cert_warn_days = (form.cert_warn_days ?? '').trim()
   emit('submit', payload)
 }
 </script>
@@ -181,6 +214,19 @@ function submit(): void {
           >
             {{ channel.name }} ({{ channel.type }})
           </Checkbox>
+        </div>
+      </section>
+
+      <!-- Certificate -->
+      <section v-if="supportsCertificate" id="monitor-certificate" class="grid gap-2 border-t border-border pt-4">
+        <Label :help="t('monitor.certHelp')">{{ t('monitor.certSection') }}</Label>
+        <div class="flex flex-wrap items-center gap-4">
+          <Switch v-model="form.cert_watch as boolean">{{ t('monitor.certWatch') }}</Switch>
+          <Switch v-model="form.cert_notify as boolean">{{ t('monitor.certNotify') }}</Switch>
+        </div>
+        <div v-if="form.cert_watch" class="grid gap-1 sm:max-w-sm">
+          <Label for="monitor-cert-warn" :help="t('monitor.certWarnDaysHelp')">{{ t('monitor.certWarnDays') }}</Label>
+          <Input id="monitor-cert-warn" v-model="form.cert_warn_days" placeholder="30,14,7,1" />
         </div>
       </section>
 

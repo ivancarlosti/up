@@ -11,10 +11,47 @@
  *
  * Usage: npm run check:i18n
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { createI18n } from 'vue-i18n'
 
 const directory = new URL('../src/locales/', import.meta.url)
+
+/**
+ * Every `t('some.key')` used in the source must exist in every locale: a typo
+ * (or a key added to one namespace by mistake) renders the raw key in the UI,
+ * which is exactly the kind of bug a compiling check does not catch.
+ */
+function usedKeys() {
+  const root = new URL('../src/', import.meta.url)
+  const files = []
+  const walk = (url) => {
+    for (const entry of readdirSync(url)) {
+      const child = new URL(entry, url)
+      if (statSync(child).isDirectory()) walk(new URL(`${entry}/`, url))
+      else if (/\.(vue|ts)$/.test(entry)) files.push(child)
+    }
+  }
+  walk(root)
+
+  const keys = new Set()
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
+    for (const match of source.matchAll(/\bt(?:c)?\(\s*'([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)'/g)) {
+      keys.add(match[1])
+    }
+  }
+  return [...keys].sort()
+}
+
+/** hasKey resolves a dotted path inside a messages object. */
+function hasKey(messages, key) {
+  let node = messages
+  for (const part of key.split('.')) {
+    if (node === null || typeof node !== 'object' || !(part in node)) return false
+    node = node[part]
+  }
+  return node !== undefined && node !== null
+}
 
 /**
  * Every error code of internal/i18n/errors.go must exist in the "errors"
@@ -39,6 +76,7 @@ function keysOf(messages, prefix = '') {
 let checked = 0
 const failures = []
 const codes = errorCodes()
+const used = usedKeys()
 
 for (const file of readdirSync(directory).filter((name) => name.endsWith('.json')).sort()) {
   const locale = file.replace(/\.json$/, '')
@@ -71,10 +109,16 @@ for (const file of readdirSync(directory).filter((name) => name.endsWith('.json'
     if (!codes.includes(key)) failures.push(`${locale} errors.${key}: no matching code in internal/i18n/errors.go`)
   }
 
+  // Every key the code asks for must exist here.
+  for (const key of used) {
+    if (!hasKey(messages, key)) failures.push(`${locale} ${key}: used in the source but missing here`)
+  }
+
   console.log(`  ${locale.padEnd(6)} ${keys.length} messages`)
 }
 
 console.log(`  codes  ${codes.length} error codes checked in every locale`)
+console.log(`  usage  ${used.length} keys used by the source checked in every locale`)
 
 if (failures.length > 0) {
   console.error(`x ${failures.length} message(s) do not compile:`)

@@ -48,6 +48,16 @@ const cloneForm = reactive<MonitorCloneOptions>({ name: '', copy_notifications: 
 
 const groupNames = computed(() => new Map(groups.value.map((group) => [group.id, group.name])))
 
+/** hasCertificates reveals the validity column only when it says something. */
+const hasCertificates = computed(() => monitors.value.some((monitor) => monitor.cert_watch || monitor.certificate))
+
+/** certificateVariant colours the validity badge by urgency. */
+function certificateVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
+  if (daysLeft <= 7) return 'danger'
+  if (daysLeft <= 30) return 'warning'
+  return 'success'
+}
+
 /** groupFilterOptions adds the "all groups" entry to the real groups. */
 const groupFilterOptions = computed(() => [
   { value: '', label: t('monitor.allGroups') },
@@ -187,6 +197,7 @@ onMounted(load)
             <th>{{ t('common.name') }}</th>
             <th>{{ t('common.type') }}</th>
             <th>{{ t('monitor.groupsSection') }}</th>
+            <th v-if="hasCertificates">{{ t('certificate.column') }}</th>
             <th>{{ t('common.status') }}</th>
             <th>{{ t('common.interval') }}</th>
             <th>{{ t('common.uptime') }}</th>
@@ -210,6 +221,13 @@ onMounted(load)
               </div>
             </td>
             <td><StatusBadge :status="monitor.status" /></td>
+            <td v-if="hasCertificates">
+              <Badge v-if="monitor.certificate" :variant="certificateVariant(monitor.certificate.days_left)">
+                {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
+              </Badge>
+              <span v-else-if="monitor.cert_watch" class="text-muted-foreground">{{ t('certificate.pending') }}</span>
+              <span v-else class="text-muted-foreground">—</span>
+            </td>
             <td>{{ formatInterval(monitor.interval_seconds) }}</td>
             <td>{{ formatUptime(monitor.uptime_24h) }}</td>
             <td>

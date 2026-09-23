@@ -160,6 +160,12 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > template, add two monitors by pasting `name,url` in the bulk dialog (with a row
 > interval override), preview the bulk edit and apply it, checking that the
 > targets survive. It also cleans up after itself.
+>
+> `npm run e2e:certificates` starts the local helper `go run ./tools/tls-lab`
+> (a valid and an expired certificate), creates a `ssl` monitor through the real
+> form with the certificate switches on, checks the validity badge and the API
+> payload, and kills the helper at the end.
+
 
 ### 6.1 Screenshots and layout checks
 

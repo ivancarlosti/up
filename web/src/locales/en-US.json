@@ -178,7 +178,30 @@
     "deleteTitle": "Delete monitor",
     "deleteWarning": "The monitor and all of its heartbeats will be removed. This cannot be undone.",
     "pauseTitle": "Pause monitor",
-    "pauseWarning": "Pausing stops the checks until you resume the monitor."
+    "pauseWarning": "Pausing stops the checks until you resume the monitor.",
+    "allGroups": "All groups",
+    "probeOptions": "Probe options",
+    "typeSsl": "SSL/TLS certificate",
+    "sslHost": "Host",
+    "sslPort": "Port",
+    "sslServerName": "SNI server name",
+    "sslServerNameHelp": "Optional: the name sent during the handshake (needed when the certificate depends on the virtual host).",
+    "sslServerNamePlaceholder": "example.com",
+    "sslHelp": "A ssl monitor checks the handshake; with “ignore TLS errors” it also reports a self signed certificate as up.",
+    "certSection": "Certificate",
+    "certHelp": "Watch the TLS certificate of this target: the days left are shown here and the reminders reach the channels.",
+    "certWatch": "Watch the certificate",
+    "certNotify": "Notify when it is about to expire",
+    "certWarnDays": "Days before expiry",
+    "certWarnDaysHelp": "Free list, e.g. 7,6,5,30. Each value alerts once when it is crossed; below the smallest one the reminder repeats once a day.",
+    "groupsSection": "Groups",
+    "groupsHelp": "Groups organise the monitor list and feed the status pages that include them.",
+    "clone": "Clone",
+    "cloneTitle": "Clone monitor",
+    "cloneHelp": "The copy starts with a clean history: the heartbeats are not copied.",
+    "cloneName": "Name of the copy (empty = \"name (copy)\")",
+    "copyNotifications": "Copy the notification channels",
+    "copyGroups": "Copy the groups"
   },
   "monitorDetail": {
     "responseTime": "Response time",
@@ -198,17 +221,7 @@
     "node": "Node",
     "checkedAt": "Checked at",
     "message": "Message",
-    "offline": "offline",
-    "groupsSection": "Groups",
-    "groupsHelp": "Groups organise the monitor list and feed the status pages that include them.",
-    "clone": "Clone",
-    "cloneTitle": "Clone monitor",
-    "cloneHelp": "The copy starts with a clean history: the heartbeats are not copied.",
-    "cloneName": "Name of the copy (empty = \"name (copy)\")",
-    "copyNotifications": "Copy the notification channels",
-    "copyGroups": "Copy the groups",
-    "allGroups": "All groups",
-    "probeOptions": "Probe options"
+    "offline": "offline"
   },
   "groups": {
     "title": "Monitor groups",
@@ -243,7 +256,16 @@
     "channels": "Notification channels applied to the monitors",
     "groups": "Groups applied to the monitors",
     "deleteTitle": "Delete template",
-    "deleteWarning": "The template is removed; the monitors created from it stay untouched."
+    "deleteWarning": "The template is removed; the monitors created from it stay untouched.",
+    "certHelp": "Certificate watching applied to the monitors created from this template."
+  },
+  "certificate": {
+    "column": "Certificate",
+    "daysLeft": "{days} days",
+    "pending": "pending",
+    "expired": "expired",
+    "expiresOn": "Expires on {date}",
+    "issuer": "Issuer: {issuer}"
   },
   "bulk": {
     "button": "Add in bulk",
@@ -538,6 +560,7 @@
     "ERR_MONITOR_GROUP_INVALID": "Invalid monitor group",
     "ERR_MONITOR_TEMPLATE_NOT_FOUND": "Monitor template not found",
     "ERR_MONITOR_TEMPLATE_INVALID": "Invalid monitor template",
-    "ERR_MONITOR_BULK_INVALID": "Invalid bulk request"
+    "ERR_MONITOR_BULK_INVALID": "Invalid bulk request",
+    "ERR_MONITOR_CERT_INVALID": "Invalid certificate configuration"
   }
 }

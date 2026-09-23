@@ -43,7 +43,7 @@ const SAFE_FIELDS = [
   'tags',
 ]
 
-const ALL_FIELDS = [...SAFE_FIELDS, 'active', 'config', 'notification_ids', 'group_ids']
+const ALL_FIELDS = [...SAFE_FIELDS, 'active', 'config', 'notification_ids', 'group_ids', 'cert_watch', 'cert_notify', 'cert_warn_days']
 
 const form = reactive<{ templateId: number | null; fields: string[]; monitorIds: number[]; search: string }>({
   templateId: null,
@@ -75,6 +75,9 @@ const fieldLabels: Record<string, string> = {
   config: 'monitor.probeOptions',
   notification_ids: 'monitor.notificationsSection',
   group_ids: 'groups.title',
+  cert_watch: 'monitor.certWatch',
+  cert_notify: 'monitor.certNotify',
+  cert_warn_days: 'monitor.certWarnDays',
 }
 
 const filteredMonitors = computed(() => {

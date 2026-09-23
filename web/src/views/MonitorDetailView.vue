@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next'
+import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import StatCard from '@/components/ui/StatCard.vue'
@@ -12,7 +13,7 @@ import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime, formatLatency, formatUptime, statusColor } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { Heartbeat, Monitor, UptimeStats } from '@/lib/types'
+import type { CertificateInfo, Heartbeat, Monitor, UptimeStats } from '@/lib/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,9 +83,25 @@ function target(): string {
       return `${config.host}:${config.port}`
     case 'dns':
       return `${config.record_type} ${config.hostname} @${config.resolver_server}`
+    case 'ssl':
+      return `${config.host}:${config.port ?? 443}`
     default:
       return config.url ?? ''
   }
+}
+
+/** certificateVariant colours the validity badge by urgency. */
+function certificateVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
+  if (daysLeft <= 0) return 'danger'
+  if (daysLeft <= 7) return 'danger'
+  if (daysLeft <= 30) return 'warning'
+  return 'success'
+}
+
+/** certificateTitle is the tooltip of the badge (issuer + exact expiry). */
+function certificateTitle(certificate: CertificateInfo): string {
+  const parts = [certificate.issuer, certificate.subject].filter(Boolean)
+  return `${parts.join(' — ')} (${formatDateTime(certificate.not_after, locale.value)})`
 }
 
 onMounted(load)
@@ -102,6 +119,14 @@ watch(hours, load)
         <p class="truncate text-xs text-muted-foreground">{{ target() }}</p>
       </div>
       <StatusBadge :status="monitor.status" pulse class="ml-2" />
+      <Badge
+        v-if="monitor.certificate"
+        :variant="certificateVariant(monitor.certificate.days_left)"
+        :title="certificateTitle(monitor.certificate)"
+        class="ml-1"
+      >
+        {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
+      </Badge>
       <div class="ml-auto flex items-center gap-2">
         <Button variant="outline" size="sm" :loading="loading" @click="load">
           <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />

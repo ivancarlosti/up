@@ -147,6 +147,26 @@ function removeHeader(index: number): void {
     <p class="text-[11px] text-muted-foreground sm:col-span-2">{{ t('monitor.tcpHelp') }}</p>
   </section>
 
+  <!-- SSL / TLS -->
+  <section v-else-if="type === 'ssl'" class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+    <div v-if="withTarget" class="grid gap-1">
+      <Label for="monitor-ssl-host" required>{{ t('monitor.sslHost') }}</Label>
+      <Input id="monitor-ssl-host" v-model="config.host" placeholder="example.com" />
+    </div>
+    <div class="grid gap-1">
+      <Label for="monitor-ssl-port" required>{{ t('monitor.sslPort') }}</Label>
+      <Input id="monitor-ssl-port" v-model="config.port" type="number" min="1" max="65535" />
+    </div>
+    <div class="grid gap-1 sm:col-span-2">
+      <Label for="monitor-ssl-sni" :help="t('monitor.sslServerNameHelp')">{{ t('monitor.sslServerName') }}</Label>
+      <Input id="monitor-ssl-sni" v-model="config.server_name" :placeholder="t('monitor.sslServerNamePlaceholder')" />
+    </div>
+    <div class="flex items-center gap-4 sm:col-span-2">
+      <Switch v-model="config.ignore_tls as boolean">{{ t('monitor.ignoreTls') }}</Switch>
+      <p class="text-[11px] text-muted-foreground">{{ t('monitor.sslHelp') }}</p>
+    </div>
+  </section>
+
   <!-- DNS -->
   <section v-else class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
     <div v-if="withTarget" class="grid gap-1">

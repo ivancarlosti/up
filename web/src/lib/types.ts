@@ -6,7 +6,7 @@ import type { ClusterStatus } from './types-platform'
  * the backend and the UI.
  */
 
-export type MonitorType = 'http' | 'keyword' | 'tcp' | 'dns'
+export type MonitorType = 'http' | 'keyword' | 'tcp' | 'dns' | 'ssl'
 export type AggregateStatus = 'up' | 'down' | 'degraded' | 'pending' | 'maintenance' | 'unknown'
 export type HeartbeatStatus = 'up' | 'down' | 'pending' | 'maintenance'
 export type FailureStrategy = 'ANY_NODE_FAILS' | 'ALL_NODES_FAIL' | 'QUORUM'
@@ -45,6 +45,21 @@ export interface MonitorConfig {
   record_type?: string
   expected_value?: string
   invert_check?: boolean
+  // SNI of a ssl monitor (the certificate usually names a virtual host).
+  server_name?: string
+}
+
+/** CertificateInfo is the TLS certificate read by the probe of a monitor. */
+export interface CertificateInfo {
+  subject: string
+  issuer: string
+  serial?: string
+  not_before: string
+  not_after: string
+  dns_names?: string[]
+  days_left: number
+  captured_at: string
+  captured_by_node?: string
 }
 
 export interface HeartbeatSummary {
@@ -94,6 +109,13 @@ export interface Monitor {
   votes?: NodeVote[]
   notification_ids: number[]
   group_ids: number[]
+  // Certificate watching (see docs/monitors.md §9).
+  cert_watch: boolean
+  cert_notify: boolean
+  /** Free form list of days before expiry, e.g. "7,6,5,30". */
+  cert_warn_days: string
+  /** Last certificate read by a probe (only when cert_watch is on). */
+  certificate?: CertificateInfo
 }
 
 export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
@@ -149,6 +171,10 @@ export interface TemplateDefaults {
   active?: boolean
   notification_ids: number[]
   group_ids: number[]
+  /** Certificate watching applied to the monitors created from the template. */
+  cert_watch: boolean
+  cert_notify: boolean
+  cert_warn_days: string
 }
 
 /**

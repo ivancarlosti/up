@@ -178,7 +178,30 @@
     "deleteTitle": "Eliminar monitor",
     "deleteWarning": "El monitor y todos sus heartbeats serán eliminados. Esta acción no se puede deshacer.",
     "pauseTitle": "Pausar monitor",
-    "pauseWarning": "Pausar detiene las verificaciones hasta que el monitor se reanude."
+    "pauseWarning": "Pausar detiene las verificaciones hasta que el monitor se reanude.",
+    "allGroups": "Todos los grupos",
+    "probeOptions": "Opciones de la sonda",
+    "typeSsl": "Certificado SSL/TLS",
+    "sslHost": "Host",
+    "sslPort": "Puerto",
+    "sslServerName": "Nombre SNI",
+    "sslServerNameHelp": "Opcional: el nombre enviado en el handshake (necesario cuando el certificado depende del host virtual).",
+    "sslServerNamePlaceholder": "ejemplo.com",
+    "sslHelp": "Un monitor ssl verifica el handshake; con “ignorar errores TLS” también reporta un certificado autofirmado como up.",
+    "certSection": "Certificado",
+    "certHelp": "Vigila el certificado TLS de este objetivo: los días restantes se muestran aquí y los recordatorios llegan a los canales.",
+    "certWatch": "Vigilar el certificado",
+    "certNotify": "Notificar cuando esté por expirar",
+    "certWarnDays": "Días antes de expirar",
+    "certWarnDaysHelp": "Lista libre, p. ej. 7,6,5,30. Cada valor avisa una vez al cruzarse; por debajo del menor el recordatorio se repite 1x por día.",
+    "groupsSection": "Grupos",
+    "groupsHelp": "Los grupos organizan la lista de monitores y alimentan las páginas de estado que los incluyen.",
+    "clone": "Clonar",
+    "cloneTitle": "Clonar monitor",
+    "cloneHelp": "La copia empieza con historial limpio: los heartbeats no se copian.",
+    "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
+    "copyNotifications": "Copiar los canales de notificación",
+    "copyGroups": "Copiar los grupos"
   },
   "monitorDetail": {
     "responseTime": "Tiempo de respuesta",
@@ -198,16 +221,7 @@
     "node": "Nodo",
     "checkedAt": "Verificado en",
     "message": "Mensaje",
-    "offline": "desconectado",
-    "groupsSection": "Grupos",
-    "groupsHelp": "Los grupos organizan la lista de monitores y alimentan las páginas de estado que los incluyen.",
-    "clone": "Clonar",
-    "cloneTitle": "Clonar monitor",
-    "cloneHelp": "La copia empieza con historial limpio: los heartbeats no se copian.",
-    "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
-    "copyNotifications": "Copiar los canales de notificación",
-    "copyGroups": "Copiar los grupos",
-    "allGroups": "Todos los grupos"
+    "offline": "desconectado"
   },
   "groups": {
     "title": "Grupos de monitores",
@@ -242,7 +256,16 @@
     "channels": "Canales de notificación aplicados a los monitores",
     "groups": "Grupos aplicados a los monitores",
     "deleteTitle": "Eliminar plantilla",
-    "deleteWarning": "La plantilla se elimina; los monitores creados con ella permanecen."
+    "deleteWarning": "La plantilla se elimina; los monitores creados con ella permanecen.",
+    "certHelp": "Vigilancia de certificado aplicada a los monitores creados con esta plantilla."
+  },
+  "certificate": {
+    "column": "Certificado",
+    "daysLeft": "{days} días",
+    "pending": "pendiente",
+    "expired": "expirado",
+    "expiresOn": "Expira el {date}",
+    "issuer": "Emisor: {issuer}"
   },
   "bulk": {
     "button": "Agregar en lote",
@@ -537,6 +560,7 @@
     "ERR_MONITOR_GROUP_INVALID": "Grupo de monitores inválido",
     "ERR_MONITOR_TEMPLATE_NOT_FOUND": "Plantilla de monitor no encontrada",
     "ERR_MONITOR_TEMPLATE_INVALID": "Plantilla de monitor inválida",
-    "ERR_MONITOR_BULK_INVALID": "Solicitud en lote inválida"
+    "ERR_MONITOR_BULK_INVALID": "Solicitud en lote inválida",
+    "ERR_MONITOR_CERT_INVALID": "Configuración de certificado inválida"
   }
 }

@@ -68,6 +68,9 @@ function blank(): TemplateForm {
       description: '',
       notification_ids: [],
       group_ids: [],
+      cert_watch: false,
+      cert_notify: false,
+      cert_warn_days: '',
     },
   }
 }
@@ -141,7 +144,7 @@ async function save(): Promise<void> {
       name: form.name.trim(),
       description: form.description,
       type: form.type,
-      config: form.config,
+      config: { ...form.config },
       defaults: {
         ...form.defaults,
         interval_seconds: Number(form.defaults.interval_seconds) || 60,
@@ -150,6 +153,19 @@ async function save(): Promise<void> {
         retries_interval_seconds: Number(form.defaults.retries_interval_seconds) || 60,
         resend_interval_seconds: Number(form.defaults.resend_interval_seconds) || 0,
       },
+    }
+    // The probe options come from native number inputs too (they emit strings).
+    if (payload.config) {
+      if (payload.config.port !== undefined && String(payload.config.port) !== '') {
+        payload.config.port = Number(payload.config.port) || 0
+      } else {
+        delete payload.config.port
+      }
+      if (payload.config.max_redirects !== undefined && String(payload.config.max_redirects) !== '') {
+        payload.config.max_redirects = Number(payload.config.max_redirects) || 10
+      } else {
+        delete payload.config.max_redirects
+      }
     }
     if (editing.value) await api.updateMonitorTemplate(editing.value.id, payload)
     else await api.createMonitorTemplate(payload)
@@ -291,6 +307,18 @@ onMounted(load)
           <div class="grid gap-1 sm:col-span-3">
             <Label for="template-default-description">{{ t('templates.monitorDescription') }}</Label>
             <Textarea id="template-default-description" v-model="form.defaults!.description" :rows="2" />
+          </div>
+        </section>
+
+        <section class="grid gap-2 border-t border-border pt-4">
+          <Label :help="t('templates.certHelp')">{{ t('monitor.certSection') }}</Label>
+          <div class="flex flex-wrap items-center gap-4">
+            <Switch v-model="form.defaults.cert_watch as boolean">{{ t('monitor.certWatch') }}</Switch>
+            <Switch v-model="form.defaults.cert_notify as boolean">{{ t('monitor.certNotify') }}</Switch>
+          </div>
+          <div v-if="form.defaults.cert_watch" class="grid gap-1 sm:max-w-sm">
+            <Label for="template-cert-warn" :help="t('monitor.certWarnDaysHelp')">{{ t('monitor.certWarnDays') }}</Label>
+            <Input id="template-cert-warn" v-model="form.defaults.cert_warn_days" placeholder="30,14,7,1" />
           </div>
         </section>
 
