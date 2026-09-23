@@ -69,7 +69,12 @@ func DefaultClusterSettings() *ClusterSettings {
 
 // ClusterStatus is the payload of GET /api/cluster/status.
 type ClusterStatus struct {
-	Enabled          bool             `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// Mode is the CLUSTER_MODE this node runs in: "shared" (every node points at
+	// the same database) or "federated" (one database per node, the nodes
+	// synchronise over the peer API). It is additive: an older frontend simply
+	// ignores it.
+	Mode             string           `json:"mode"`
 	NodeID           string           `json:"node_id"`
 	NodeName         string           `json:"node_name"`
 	IsPrimary        bool             `json:"is_primary"`

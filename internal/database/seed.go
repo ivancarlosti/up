@@ -76,40 +76,11 @@ func Seed(ctx context.Context, db *gorm.DB, cfg *config.Config, log *slog.Logger
 
 	// Node registration: every installation (even without clustering) has a
 	// node row, which is what the heartbeats reference through node_id.
-	now := time.Now().UTC()
-	var node models.Node
-	err = db.WithContext(ctx).Where("node_id = ?", cfg.NodeID).First(&node).Error
-	if err == gorm.ErrRecordNotFound {
-		var primaries int64
-		if err := db.WithContext(ctx).Model(&models.Node{}).Where("is_primary = ?", true).Count(&primaries).Error; err != nil {
-			return err
-		}
-		node = models.Node{
-			NodeID:        cfg.NodeID,
-			Name:          cfg.NodeName,
-			APIURL:        cfg.AppURL,
-			LastHeartbeat: &now,
-			Status:        models.NodeStatusOnline,
-			IsPrimary:     primaries == 0,
-		}
-		if err := db.WithContext(ctx).Create(&node).Error; err != nil {
-			return err
-		}
-		log.Info("node registered", "node_id", node.NodeID, "is_primary", node.IsPrimary)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	// Existing node: refresh the liveness metadata.
-	return db.WithContext(ctx).Model(&models.Node{}).Where("id = ?", node.ID).Updates(map[string]any{
-		"name":           cfg.NodeName,
-		"api_url":        cfg.AppURL,
-		"last_heartbeat": now,
-		"status":         models.NodeStatusOnline,
-		"updated_at":     now,
-	}).Error
+	//
+	// The claim itself lives in ClaimSelf so that the boot path and the runtime
+	// path (ClusterService.EnsureSelf) cannot disagree about who is primary.
+	_, err = ClaimSelf(ctx, db, cfg, log)
+	return err
 }
 
 // ensureSetting creates the setting when it does not exist yet.

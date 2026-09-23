@@ -5,11 +5,25 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ivancarlosti/up/internal/config"
 	"github.com/ivancarlosti/up/internal/models"
 )
 
 // Enabled reports whether clustering is turned on by the environment.
 func (s *ClusterService) Enabled() bool { return s.cfg.ClusterEnabled }
+
+// Mode is the CLUSTER_MODE this node runs in (config.ClusterModeShared or
+// config.ClusterModeFederated). "shared" is the only implemented mode.
+func (s *ClusterService) Mode() string { return s.cfg.ClusterMode }
+
+// Federated reports whether this node runs with its own database and
+// synchronises the configuration over the peer API.
+//
+// Nothing branches on it yet: it exists so the phases of
+// docs/clustering-federated.md can switch a behaviour without changing every
+// call site at once. Always false today, because config.validate refuses to
+// boot with CLUSTER_MODE=federated.
+func (s *ClusterService) Federated() bool { return s.cfg.ClusterMode == config.ClusterModeFederated }
 
 // NodeID is this node identity (NODE_ID).
 func (s *ClusterService) NodeID() string { return s.cfg.NodeID }

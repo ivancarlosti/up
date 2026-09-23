@@ -17,13 +17,17 @@ import (
 // the template: it is what the operator provides per monitor, either in the form
 // or in the bulk text.
 type MonitorTemplate struct {
-	ID          uint             `gorm:"primaryKey" json:"id"`
-	UUID        string           `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
-	Name        string           `gorm:"size:150;not null;uniqueIndex" json:"name"`
-	Description string           `gorm:"size:500" json:"description"`
-	Type        MonitorType      `gorm:"size:20;not null" json:"type"`
-	Config      MonitorConfig    `gorm:"serializer:json;type:json" json:"config"`
-	Defaults    TemplateDefaults `gorm:"serializer:json;type:json" json:"defaults"`
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	UUID string `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
+	// OriginNodeID and Revision complete the sync identity of the row (the UUID
+	// is the global id; see docs/clustering-federated.md).
+	OriginNodeID string           `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64            `gorm:"not null;default:1" json:"revision"`
+	Name         string           `gorm:"size:150;not null;uniqueIndex" json:"name"`
+	Description  string           `gorm:"size:500" json:"description"`
+	Type         MonitorType      `gorm:"size:20;not null" json:"type"`
+	Config       MonitorConfig    `gorm:"serializer:json;type:json" json:"config"`
+	Defaults     TemplateDefaults `gorm:"serializer:json;type:json" json:"defaults"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -33,6 +37,9 @@ type MonitorTemplate struct {
 func (t *MonitorTemplate) BeforeCreate(tx *gorm.DB) error {
 	if t.UUID == "" {
 		t.UUID = uuid.NewString()
+	}
+	if t.Revision == 0 {
+		t.Revision = 1
 	}
 	return nil
 }

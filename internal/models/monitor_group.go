@@ -17,10 +17,15 @@ import (
 // only meaningful inside one database, while the UUID survives an export/import
 // (and the cluster synchronisation of a future release).
 type MonitorGroup struct {
-	ID          uint   `gorm:"primaryKey" json:"id"`
-	UUID        string `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
-	Name        string `gorm:"size:150;not null;uniqueIndex" json:"name"`
-	Description string `gorm:"size:500" json:"description"`
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	UUID string `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
+	// OriginNodeID and Revision complete the sync identity of the row: the UUID
+	// above is the global id, these two say who wrote it last and how many
+	// times (docs/clustering-federated.md).
+	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64  `gorm:"not null;default:1" json:"revision"`
+	Name         string `gorm:"size:150;not null;uniqueIndex" json:"name"`
+	Description  string `gorm:"size:500" json:"description"`
 	// Color is an optional CSS colour used by the UI badge of the group.
 	Color string `gorm:"size:20" json:"color"`
 	// SortOrder orders the groups in the UI (equal values fall back to name).
@@ -43,6 +48,9 @@ type MonitorGroup struct {
 func (g *MonitorGroup) BeforeCreate(tx *gorm.DB) error {
 	if g.UUID == "" {
 		g.UUID = uuid.NewString()
+	}
+	if g.Revision == 0 {
+		g.Revision = 1
 	}
 	return nil
 }

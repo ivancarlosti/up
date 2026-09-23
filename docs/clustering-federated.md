@@ -1,8 +1,21 @@
 # Up - Federated clustering (one database per node)
 
-> **Status: design, not implemented.** This document specifies the next
-> development cycle. Today's cluster is the *shared database* mode described in
-> [clustering.md](clustering.md); nothing here changes it until the work starts.
+> **Status: phase 0 implemented, phases 1-6 are design.** The synchronisation
+> identity (`uuid`, `origin_node_id`, `revision` on monitors, status pages, groups
+> and templates), the idempotent backfill and the `CLUSTER_MODE` skeleton are in
+> the code. Nothing else here is built yet: the working cluster is still the
+> *shared database* mode described in [clustering.md](clustering.md), and
+> `CLUSTER_MODE=federated` is refused at boot until the mode is real.
+>
+> | Phase | Deliverable | Status |
+> |---|---|---|
+> | 0 | sync identity, backfill, `CLUSTER_MODE` skeleton | **done** |
+> | 1 | peer registry, signed ping, ownership settle time | design |
+> | 2 | outbox, pull/apply, LWW, manifest/snapshot, monitors + groups | design |
+> | 3 | status pages (+ items/groups) and templates | design |
+> | 4 | federated voting, derived leader, leader-owned notifications | design |
+> | 5 | Admin UI, observability, conflict log | design |
+> | 6 | opt-in channels/settings/session-secret sync, push sync | design |
 
 ## 1. Goal
 
@@ -188,45 +201,85 @@ Offline nodes are dropped from the vote exactly as today (heartbeat older than
 derived from the local online view:
 
 - `lowest_id` (default): the online node with the smallest `node_id` is the
-  leader. Every node computes the same winner from its own view.
+  leader, provided it has been continuously online for
+  `CLUSTER_LEADER_SETTLE_SECONDS` (default 60 s, twice the ping interval). Every
+  node computes the same winner from its own view.
 - `explicit`: `CLUSTER_LEADER_NODE_ID` pins the leader (for an ordered
   deployment).
-- `hash`: a rendezvous hash over the online node ids, used when the
-  `NOTIFY_ELECTION=hash` ring is preferred for notifications too.
+- `hash`: a rendezvous hash (HRW) over the online node ids, used when the
+  `NOTIFY_ELECTION=hash` owner is preferred for notifications too. Never
+  `% len(candidates)`: modulo reassigns most monitors whenever the membership
+  changes.
 
 `IsPrimary()` returns `leaderNodeID == cfg.NodeID`, so `run_on=primary` and the
-`PRIMARY_ONLY` sender keep working. During a partition two nodes may each believe
-they are the leader — the notification election below (or `NOTIFY_ELECTION=origin`)
-is what prevents a duplicate alert, and `QUORUM` reports `degraded` when a
-majority of the known nodes is unreachable, which surfaces the situation in the
-UI instead of hiding it.
+`PRIMARY_ONLY` sender keep working.
+
+The settle time exists because leadership is not only about who alerts: the
+scheduler asks `IsPrimary()` through `handles()` for every monitor on every
+reconcile pass, so a flapping view would start and stop the same probe on two
+nodes at once — doubling the load on a target that `run_on=primary` was chosen to
+protect — and would move the notification duty mid-incident. One minute of
+stability is cheaper than either.
+
+During a partition two nodes may each believe they are the leader. With
+`NOTIFY_ELECTION=leader` that can still produce a duplicate alert, which
+`origin` removes at the cost of a single alerting point (section 8). `QUORUM`
+reports `degraded` when a majority of the known nodes is unreachable, which
+surfaces the situation in the UI instead of hiding it.
 
 ## 8. Notification election without a shared lock
 
 `notification_locks` relied on a unique index in the shared database. Federated
-mode computes the sender instead of racing for it:
+mode computes the sender instead of racing for it.
 
-1. The candidate set is the **online** nodes of the local view, sorted by
-   `node_id` (deterministic).
-2. `index = fnv1a(monitor_uuid + "|" + event + "|" + bucket) % len(candidates)`,
-   where `bucket` is the 60 s window for status events and the day for
-   certificate events — the same windows the lock table used
-   (`NotificationLockWindowSeconds`, daily reminder).
-3. If the elected node is not the local one, the node stays quiet. If the
-   elected node is offline *in the local view*, the next candidate is elected
-   (all nodes compute the same successor).
-4. The winner is recorded in `notification_logs.node_id`, so which node sent what
+**The node that decides a transition is the node that sends it.** Every node
+still evaluates the aggregate status (the dashboard and the status pages need a
+local verdict), but only the *owner* compares it with its previous value and
+dispatches. Keeping decision and dispatch on the same node removes the failure
+mode where two nodes compute a different `event` for one incident: a `QUORUM`
+denominator that differs by one fetched vote already flips `DEGRADED` into
+`DOWN`, and a ring keyed on `event` would then elect two different senders and
+send two notifications for the same outage.
+
+Owner selection, always from the local view:
+
+1. The candidate set is the **online** nodes, sorted by `node_id`.
+2. The owner is the **lowest `node_id`** that has been continuously online for
+   `CLUSTER_LEADER_SETTLE_SECONDS` (default 60 s, twice the ping interval). The
+   settle time is what keeps a peer blip or a rejoining node from taking the duty
+   mid-incident. It is the same rule the `lowest_id` leader derivation uses in
+   section 7, so "who probes `run_on=primary`" and "who alerts" move together on
+   failover.
+3. The owner keeps a **local** `notification_locks` row per
+   `(monitor_id, event, bucket)` so it cannot send twice for one window
+   (`NotificationLockWindowSeconds` = 60 s for status events, the day for
+   certificate events). The table is no longer the cluster-wide guarantee, only a
+   per-node one.
+4. Neither the owner nor the bucket is derived from the wall clock, so two nodes
+   whose clocks disagree cannot elect different senders. The liveness view is the
+   only shared input.
+5. The winner is recorded in `notification_logs.node_id`, so which node sent what
    stays observable exactly as today.
 
-`notification_locks` is kept for **per-node** de-duplication (the same node must
-not send twice for one window) but it is no longer the cluster-wide guarantee.
+The failure mode to accept and document: if the owner dies, alerting pauses until
+the next low `node_id` has been online past the settle time — about 90 s with the
+defaults. That is the price of at-most-once, and the alternatives below trade it
+for possible duplicates or for a single point of alerting.
+
 Alternatives, selectable with `CLUSTER_NOTIFY_ELECTION`:
 
 | Value | Behaviour | Trade-off |
 |---|---|---|
-| `hash` (default) | the ring above | spreads the load; a split view can still double-send |
-| `origin` | the node that created the monitor sends | no duplicates from a split view; alerting pauses when that node is down |
-| `primary` | only the derived leader sends | simplest to reason about; the leader is a single point of alerting |
+| `leader` (default) | the sticky lowest-id online node above | at most one alert per transition; alerting pauses for one settle period when that node dies |
+| `hash` | owner per monitor: rendezvous (HRW) over `monitor_uuid` | spreads the load; a split view can still double-send, so the clocks must agree (NTP) |
+| `origin` | the node that created the monitor sends | no duplicates from a split view; alerting for the monitors it owns stops while it is down |
+
+> `hash` must use **rendezvous** hashing, never `fnv1a(key) % len(candidates)`:
+> plain modulo reassigns roughly half of the monitors every time a node joins or
+> leaves, so a single peer blip would hand most monitors to a different owner. It
+> must also be keyed on `monitor_uuid` alone — putting `event` or a wall-clock
+> bucket in the key reintroduces both the two-senders bug and the clock
+> dependency (see decision **D3**).
 
 ## 9. Liveness
 
@@ -251,6 +304,38 @@ statements — only the source of `last_heartbeat` changes.
 | `settings` | opt-in | whitelist only (app name, default locale, default theme); the cluster key is exchanged at join |
 | `session_secret` | opt-in | without it a login is valid on one dashboard only (decision **D4**) |
 | `api_tokens`, `ip_rules`, per-node rate limits | never | security configuration stays a per-node concern |
+
+### 10.1 Which nodes probe a monitor (`run_on`)
+
+`run_on` survives federated mode **unchanged**, because it is a pure function of
+the synchronised monitor row plus the local member view: every node evaluates the
+same rule on the same row and reaches the same answer without coordinating. It
+selects two things at once — the **probe set** (the scheduler) and the **vote set**
+(`participatesInVoting`) — and the notification owner can only send what the vote
+set produced:
+
+| `run_on` | Probe set | Who alerts | If a probe node dies |
+|---|---|---|---|
+| `all` (default) | every node | the owner | resilient: any survivor still has votes, and takes the notification duty after the settle time |
+| `primary` | the derived leader | the same leader | probing and alerting fail over **together** |
+| `node` | one node | the owner | no data at all from that monitor → `PENDING`, and **no** alert from any node |
+| `some` (D11) | the listed nodes | the owner | same as `node`, as soon as the last listed node is gone |
+
+The `node`/`some` row is a data problem, not a permission problem: the owner
+cannot alert about a verdict nobody produced. It is also **not a regression** — in
+shared mode today a pinned monitor whose node is dead has no fresh heartbeats
+either, so it sits in `PENDING` just the same. The UI should show it as "no node
+matches this selection" rather than leaving an unexplained gap.
+
+Two consequences worth stating:
+
+- For a monitor the owner does **not** probe itself (`node` / `some`), the owner
+  learns the verdict from `peer_votes`, so alerting can lag by up to
+  `CLUSTER_SYNC_SECONDS` (15 s by default). For `all` and `primary` the owner
+  probes directly and the latency stays ~0, which is a good reason to keep `all`
+  the default.
+- A `PENDING` monitor reports `PENDING`; it never becomes `DOWN` behind the
+  operator's back just because its voters disappeared.
 
 ## 11. Peer API
 
@@ -288,17 +373,31 @@ New tables (added to `database.MigrationModels()`):
 | `sync_conflicts` | `id`, `entity`, `uuid`, `kept_origin`, `kept_revision`, `lost_origin`, `lost_revision`, `detected_at` |
 | `sync_nonces` | `nonce` (PK), `node_id`, `created_at` (replay protection; may be replaced by an in-memory LRU) |
 
-Column additions:
+Column additions (**phase 0, implemented**):
 
 - `monitors`: `uuid` (unique), `origin_node_id`, `revision`
 - `status_pages`: `uuid` (unique), `origin_node_id`, `revision`
 - `monitor_groups`, `monitor_templates`: `origin_node_id`, `revision` (uuid exists)
 - `monitor_states`, `heartbeats`, `notification_locks`: unchanged
 
-A **backfill** step runs once after `AutoMigrate` (new `internal/database/backfill.go`,
-idempotent): existing rows get a generated `uuid`,
-`origin_node_id = NODE_ID` and `revision = 1`. The step is safe to run on every
-boot and is covered by a test that runs it twice.
+The `uuid` column of `monitors` and `status_pages` is **nullable**, while the one
+of `monitor_groups`/`monitor_templates` is `NOT NULL`. This is deliberate: those
+two tables already had rows when the column was introduced, and MySQL/MariaDB
+refuse a unique index over several empty strings. A NULL is not compared by a
+unique index, so `AutoMigrate` adds the column and the index in a single pass and
+`database.Backfill` fills the NULLs immediately after; the `BeforeCreate` hook of
+both models means a row created by the application is never NULL. Verified
+against a real MariaDB: the upgrade of a populated schema and the second boot
+both succeed (see section 18).
+
+A **backfill** step runs after `AutoMigrate` (new
+`internal/database/backfill.go`, called between `Migrate` and `Seed` in
+`cmd/server/main.go`): every row still missing a value gets `uuid = UUID()`,
+`origin_node_id = NODE_ID` and `revision = 1`. It is **idempotent by
+construction** — each of the three statements per table selects only the rows
+that are still missing a value, so the second run matches nothing and reports
+`sync identity backfill: nothing to do`. That is why it is safe (and expected) to
+run on every boot, and why it needs no version guard.
 
 Deletes keep today's hard-delete semantics; the tombstone lives in
 `sync_outbox`/`sync_objects`, so no existing behaviour or test changes.
@@ -314,7 +413,8 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | `CLUSTER_SYNC_TOMBSTONE_DAYS` | `30` | tombstone retention before a full resync is required |
 | `CLUSTER_LEADER_ELECTION` | `lowest_id` | `lowest_id` \| `explicit` \| `hash` |
 | `CLUSTER_LEADER_NODE_ID` | - | required when `explicit` |
-| `CLUSTER_NOTIFY_ELECTION` | `hash` | `hash` \| `origin` \| `primary` |
+| `CLUSTER_NOTIFY_ELECTION` | `leader` | `leader` \| `hash` \| `origin` |
+| `CLUSTER_LEADER_SETTLE_SECONDS` | `60` | how long a node must be continuously online before it may take the leader role (and the notification duty) instead of the current one |
 | `CLUSTER_SYNC_NOTIFICATIONS` | `false` | sync the notification channels (secret-bearing) |
 | `CLUSTER_SYNC_SETTINGS` | `false` | sync the non-secret settings whitelist |
 | `CLUSTER_INSECURE_SKIP_VERIFY` | `false` | explicit opt-in for a self-signed peer TLS certificate (logged loudly) |
@@ -339,19 +439,22 @@ the same "report every problem at once" style.
 | `web/src/views/admin/AdminClusterView.vue`, `types-platform.ts`, 3 locales | mode badge, derived leader, per-peer sync table (cursor lag, last manifest, last error), conflict log, "Sync now" |
 | `web/scripts/e2e-cluster-federated.mjs` (new), `docker/docker-compose-federated.yml` (new) | end-to-end validation with two nodes and two databases |
 
-The sync core (merge order, cursor arithmetic, election ring, checksums,
+The sync core (merge order, cursor arithmetic, notification ownership, checksums,
 manifest diff) is written as pure functions so it can be unit-tested without a
 database — the same approach that makes `AggregateVotes` testable today. The
 repository has no database in its Go tests (no sqlite driver, no `gorm.Open` in
-any `_test.go`), so the DB-touching paths are covered by the two-node e2e script
-unless decision **D6** changes that convention.
+any `_test.go`), so the DB-touching paths are covered by the e2e scripts and by
+the operational recipes in `development.md` (decision **D6**, deferred: a
+test-only sqlite driver is still an option, it simply did not justify a new
+dependency in phase 0).
 
 ## 15. Phases
 
 | Phase | Deliverable | Exit criteria |
 |---|---|---|
-| 0 | uuids, `origin_node_id`, `revision`, backfill, `CLUSTER_MODE` skeleton | `go test ./...` unchanged, migration idempotent, `CLUSTER_MODE=shared` behaviour identical |
-| 1 | peer registry, HTTP liveness, signed request middleware, `ping` | a two-node pair reports each other online; unsigned/replayed calls rejected |
+| 0 | uuids, `origin_node_id`, `revision`, backfill, `CLUSTER_MODE` skeleton — **done** | `go test ./...` unchanged, migration idempotent (verified against MariaDB 11), `CLUSTER_MODE=shared` behaviour identical |
+| 0.5 | **`run_on=some`** (decision **D11**): `run_on_nodes`, membership tests in the three decision points, UI + templates | independent of federated mode and shippable in shared mode |
+| 1 | peer registry, HTTP liveness, signed request middleware, `ping`, **ownership settle time** | a two-node pair reports each other online; unsigned/replayed calls rejected |
 | 2 | outbox, pull/apply, LWW merge, tombstones, manifest/snapshot, **monitors + groups** | a monitor created on node A is scheduled by node B after one interval |
 | 3 | **status pages** (+ items/groups) and templates | a status page created on A answers publicly on B with the right monitors |
 | 4 | federated voting (`peer_votes`), derived leader, notification election | `ALL_NODES_FAIL`/`QUORUM` behave as documented; one e-mail per transition in a two-node test |
@@ -364,7 +467,7 @@ unless decision **D6** changes that convention.
 |---|---|
 | A peer is offline | its votes drop out after 2 min; `IGNORE`/`MARK_DEGRADED` decides what the operator sees |
 | The same record is edited on two nodes | deterministic LWW; the loser lands in `sync_conflicts` and the UI |
-| Network partition | both sides may see themselves as leader; the notification election is the safety net, `QUORUM` reports `degraded`, and `NOTIFY_ELECTION=origin/primary` removes the duplicate risk at the cost of a single alerting point |
+| Network partition | both sides may see themselves as leader; `NOTIFY_ELECTION=leader` can then double-alert, `origin` removes that risk at the cost of a single alerting point, and `QUORUM` can report `DOWN` on an isolated minority because its denominator is the *reachable* nodes (decision **D7**) |
 | Cursor points at a compacted tombstone | the manifest pass triggers a full snapshot resync |
 | Clock skew | ordering is revision-first, so skew only affects the tiebreak |
 | Version drift between nodes | `protocol_version` mismatch refuses to sync with a clear log line |
@@ -387,7 +490,7 @@ unless decision **D6** changes that convention.
 ## 18. Tests and documentation
 
 - **Unit (pure):** merge order, cursor arithmetic, tombstone expiry, manifest
-  diff, election ring (determinism, plus the successor when the elected node is
+  diff, notification ownership (determinism, plus the successor when the owner is
   offline), conflict detection.
 - **httptest:** the peer endpoints against a fake store (the pattern already used
   in `internal/checkers/checker_test.go` and `cluster_join_test.go`), including
@@ -395,31 +498,58 @@ unless decision **D6** changes that convention.
 - **e2e:** `web/scripts/e2e-cluster-federated.mjs` with two nodes and two
   databases: create/edit/delete on each side, status page propagation, voting
   with one node stopped, one notification per transition.
+- **e2e (phase 0, implemented):** `npm run e2e:backfill` checks through the API
+  that every synchronised row carries a well formed and **distinct** `uuid`, that
+  `revision >= 1`, that a freshly created monitor gets its identity from
+  `BeforeCreate`, and that `/api/cluster/status` reports `mode: "shared"`.
 - **Docs:** this document is the reference; `clustering.md`, `database.md`,
   `architecture.md`, `security.md`, `README.md` and `development.md` are updated
   in phases 2–5 as each piece lands.
+
+**How phase 0 proved its own exit criteria** without a database in the test
+suite:
+
+- *"`go test ./...` unchanged"* → nothing reads the new columns yet, so the suite
+  is the regression gate.
+- *"migration idempotent"* → structural: every backfill statement selects only the
+  rows still missing a value. Confirmed against a real MariaDB 11 by upgrading a
+  populated pre-phase-0 schema (the `ALTER TABLE … ADD uuid` +
+  `ADD UNIQUE KEY` pair that a naive `NOT NULL` column would have failed on) and
+  booting a second time, which logged `sync identity backfill: nothing to do`.
+- *"`uuid` is never empty"* → `npm run e2e:backfill`.
 
 ## 19. Open decisions
 
 | Id | Decision | Options | Recommendation |
 |---|---|---|---|
 | **D1** | Conflict model | LWW per record / owner-authoritative / field-level merge | **LWW per record** with a conflict log; configuration is written rarely and an owner-authoritative model needs edit proxying between nodes |
-| **D2** | Leader election | `lowest_id` / `explicit` / `hash` | **`lowest_id`** with the explicit override for ordered deployments |
-| **D3** | Notification election | `hash` / `origin` / `primary` | **`hash`**, with `origin` documented as the partition-safe alternative |
+| **D2** | Leader election | `lowest_id` / `explicit` / `hash` | **`lowest_id`**, plus `CLUSTER_LEADER_SETTLE_SECONDS` so a blip cannot move the role; `explicit` stays available for ordered deployments |
+| **D3** | Notification election | `leader` / `hash` (HRW) / `origin` | **decided: `leader`** — the sticky lowest-id online node owns both the decision and the send. `hash` (rendezvous over `monitor_uuid`, never modulo, never keyed on `event` or a wall-clock bucket) is the load-sharing option; `origin` is the partition-safe one, at the cost of alerting stopping while that node is down |
 | **D4** | Notification channels and session secret | never / opt-in / always | **opt-in for both**; without the session secret a login stays valid on one dashboard only |
 | **D5** | Heartbeat history | node-local / replicate a rolling window | **node-local**: the per-node breakdown already exists, and replicating the biggest table defeats the purpose |
-| **D6** | DB-level Go tests | keep pure + e2e / add `gorm.io/driver/sqlite` (test-only) | **add sqlite** for the apply path when phase 2 starts, keeping the e2e script as the integration gate |
+| **D6** | DB-level Go tests | keep pure + e2e / add `gorm.io/driver/sqlite` (test-only) | **deferred**: no new dependency. Phase 0 verified its migration operatively (two boots against MariaDB 11) plus `e2e:backfill`; revisit when phase 2 adds the apply path |
+| **D7** | Partition alerting rule | keep `QUORUM` = majority of the *reachable* nodes / add a majority-of-all-known variant | the current rule lets an isolated minority report `DOWN` from a single vote; settle this before phase 4, and note that `run_on=some` makes it likelier (section 10.1) |
+| **D8** | Leadership settle time | none / 2× ping / 90 s | **2× ping (60 s)**: long enough to absorb a blip, short enough to be a real failover |
+| **D9** | Notification ownership stickiness | per-monitor / per-bucket | **per-monitor** — implied by D3, and it removes the wall-clock dependency entirely |
+| **D10** | "No third-party component" | hard requirement / negotiable | **hard**: D3 keeps federated mode broker-free. A shared Redis/etcd lock would make the election trivial and correct, so revisit this decision before accepting duplicates instead |
+| **D11** | Node selection for probing | `all` / `primary` / `node` / + subset / + labels | **subset in v1**: `run_on=some` + `run_on_nodes` (comma separated, like `tags`), with `node_id` and `run_on=node` untouched for compatibility. Labels are the follow-up once the member view carries them |
 
 ## 20. Migration and compatibility
 
 1. `CLUSTER_MODE` defaults to `shared`, so an existing deployment is untouched
    until the operator opts in.
-2. The uuid/backfill work of phase 0 ships **without** enabling federated mode:
-   it is prerequisite plumbing with no behaviour change.
-3. A cluster cannot be half-shared/half-federated: a `shared` node and a
+2. The uuid/backfill work of phase 0 has shipped **without** enabling federated
+   mode: it is prerequisite plumbing with no behaviour change, and it was
+   verified on a populated database (section 18).
+3. `CLUSTER_MODE=federated` is refused at boot with an explicit problem until the
+   mode is real. Accepting the value early would produce a node that claims to be
+   federated and silently behaves like a shared one (its own database, nothing
+   synchronised). The check lives in `internal/config/validate.go` and is deleted
+   in phase 4.
+4. A cluster cannot be half-shared/half-federated: a `shared` node and a
    `federated` node exchange nothing (the protocol version is rejected), which
    keeps the two modes from silently mixing.
-4. Moving from shared to federated is a deliberate migration: provision one
+5. Moving from shared to federated is a deliberate migration: provision one
    database per node, point every node at its own, restart, and let the phase 2/3
    sync converge the configuration. Heartbeats start fresh per node.
 

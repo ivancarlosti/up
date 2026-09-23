@@ -152,6 +152,19 @@ func (s *NotificationService) monitorIDs(ctx context.Context, notificationID uin
 	return ids, nil
 }
 
+// PurgeOlderThan deletes the delivery history older than the given time.
+//
+// Unlike the notification de-duplication locks, the delivery history is
+// information the operator may want to keep, so the job is opt-in: it only runs
+// when NOTIFICATION_LOG_RETENTION_DAYS is greater than zero.
+func (s *NotificationService) PurgeOlderThan(ctx context.Context, before time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).Where("created_at < ?", before).Delete(&models.NotificationLog{})
+	if result.Error != nil {
+		return 0, ErrInternal(result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
 func (s *NotificationService) publish(event string, payload any) {
 	if s.hub != nil {
 		s.hub.Publish(event, payload)

@@ -114,6 +114,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// services), so it is attached here.
 	container.Scheduler = sched
 	sched.SetCertificateService(certificates)
+	sched.SetNotificationService(notifications)
 	if err := sched.Start(ctx); err != nil {
 		return nil, err
 	}

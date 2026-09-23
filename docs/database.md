@@ -55,8 +55,8 @@ FLUSH PRIVILEGES;
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
 | `notifications` | SMTP / Webhook channels | few |
-| `notification_logs` | delivery history (success/failure + reason) | thousands |
-| `notification_locks` | de-duplication lock for ANY_WITH_LOCK | thousands (60 s window) |
+| `notification_logs` | delivery history (success/failure + reason); kept forever unless `NOTIFICATION_LOG_RETENTION_DAYS` is set | thousands |
+| `notification_locks` | de-duplication lock for ANY_WITH_LOCK; pruned after 24 h | thousands (60 s window) |
 | `nodes` | cluster members, liveness and role | few |
 | `cluster_settings` | failure / node-unavailable / sender strategies (single row) | 1 |
 | `status_pages` | public status pages | few |
@@ -64,6 +64,16 @@ FLUSH PRIVILEGES;
 | `status_page_groups` | monitor groups included in a page (membership driven) | tens |
 | `api_tokens` | public API bearer tokens (hashed) | few |
 | `ip_rules` | allow/deny list by scope | few |
+
+Every table that federated clustering has to synchronise (`monitors`,
+`status_pages`, `monitor_groups`, `monitor_templates`) carries three extra
+columns: `uuid`, `origin_node_id` and `revision` (see
+[clustering-federated.md](clustering-federated.md)). The `uuid` is the global
+identity of a row - the auto-increment `id` is only meaningful inside one
+database - and `origin_node_id` / `revision` are the two inputs of the
+last-writer-wins merge. They are filled by the `BeforeCreate` hook of the model
+(`uuid`, `revision`) and by `database.Backfill` (`origin_node_id`), and they
+change nothing until a node runs in federated mode.
 
 ## 3. Complete DDL (dumped from a live instance running MariaDB 11.8)
 
@@ -163,6 +173,8 @@ CREATE TABLE `monitor_certificates` (
 CREATE TABLE `monitor_templates` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `uuid` varchar(36) NOT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
   `name` varchar(150) NOT NULL,
   `description` varchar(500) DEFAULT NULL,
   `type` varchar(20) NOT NULL,
@@ -178,6 +190,8 @@ CREATE TABLE `monitor_templates` (
 CREATE TABLE `monitor_groups` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `uuid` varchar(36) NOT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
   `name` varchar(150) NOT NULL,
   `description` varchar(500) DEFAULT NULL,
   `color` varchar(20) DEFAULT NULL,
@@ -200,6 +214,9 @@ CREATE TABLE `monitor_group_members` (
 
 CREATE TABLE `monitors` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) DEFAULT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
   `name` varchar(200) NOT NULL,
   `type` varchar(20) NOT NULL,
   `active` tinyint(1) NOT NULL DEFAULT 1,
@@ -217,6 +234,7 @@ CREATE TABLE `monitors` (
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_monitors_uuid` (`uuid`),
   KEY `idx_monitors_type` (`type`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
@@ -297,6 +315,9 @@ CREATE TABLE `status_page_monitors` (
 
 CREATE TABLE `status_pages` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) DEFAULT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
   `slug` varchar(120) NOT NULL,
   `title` varchar(200) NOT NULL,
   `description` varchar(500) DEFAULT NULL,
@@ -310,7 +331,8 @@ CREATE TABLE `status_pages` (
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_status_pages_slug` (`slug`)
+  UNIQUE KEY `idx_status_pages_slug` (`slug`),
+  UNIQUE KEY `idx_status_pages_uuid` (`uuid`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 ```
 
@@ -324,6 +346,18 @@ Notes on the generated DDL:
   (`internal/models/monitor_config.go`), serialized by GORM with
   `serializer:json`.
 - Every timestamp is stored in UTC (`loc=UTC` in the DSN).
+- `monitors.uuid` and `status_pages.uuid` are **nullable** while
+  `monitor_groups.uuid` and `monitor_templates.uuid` are `NOT NULL`. That is not
+  an oversight: the first two columns were added to a table that already had
+  rows, and MySQL/MariaDB reject a unique index over several empty strings. A
+  NULL is not compared by a unique index, so `AutoMigrate` can add the column and
+  the index in one pass, and `database.Backfill` fills the NULLs right after it
+  (see [clustering-federated.md](clustering-federated.md)). The `BeforeCreate`
+  hook of both models means a row created by the application is never NULL.
+- `origin_node_id` and `revision` are appended at the **end** of an existing
+  table by `AutoMigrate`, while a fresh install creates them right after `id`.
+  The column order has no functional meaning; the DDL above is from a fresh
+  install.
 
 ## 4. `monitors.config` (JSON) fields
 

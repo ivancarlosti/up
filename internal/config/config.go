@@ -22,6 +22,19 @@ const (
 	AuthMethodKeycloak AuthMethod = "keycloak"
 )
 
+// Cluster modes (CLUSTER_MODE).
+const (
+	// ClusterModeShared is the only mode implemented today: every node of the
+	// cluster points at the SAME external MariaDB/MySQL database, which is what
+	// keeps monitors, heartbeats, the aggregated state and the notification
+	// lock synchronised without any message broker.
+	ClusterModeShared = "shared"
+	// ClusterModeFederated gives every node its own database and synchronises
+	// the configuration over the peer API. It is specified, not implemented:
+	// see docs/clustering-federated.md.
+	ClusterModeFederated = "federated"
+)
+
 // SupportedLocales and SupportedThemes are the values accepted by
 // DEFAULT_LOCALE / DEFAULT_THEME and by the Admin > Settings page.
 var (
@@ -68,7 +81,12 @@ type Config struct {
 	DefaultTheme  string
 
 	// --- Clustering -------------------------------------------------------
-	ClusterEnabled    bool
+	ClusterEnabled bool
+	// ClusterMode is CLUSTER_MODE: "shared" (one database for every node) or
+	// "federated" (one database per node). Only "shared" is implemented; the
+	// variable exists so an operator cannot silently configure a mode that is
+	// not there yet.
+	ClusterMode       string
 	NodeID            string
 	NodeName          string
 	ClusterPrivateKey string
@@ -83,10 +101,15 @@ type Config struct {
 	// CRUD handlers can only touch the process that served the request.
 	SchedulerReconcileSeconds int
 	HeartbeatRetentionDays    int
-	SessionTTLHours           int
-	SecurityBypassIPRules     bool
-	SecurityLoginRateLimit    int
-	SecurityPublicRateLimit   int
+	// NotificationLogRetentionDays purges the delivery history
+	// (notification_logs). 0 keeps every entry, the same convention as
+	// HeartbeatRetentionDays: retention is opt-in so nothing is deleted behind
+	// the operator's back.
+	NotificationLogRetentionDays int
+	SessionTTLHours              int
+	SecurityBypassIPRules        bool
+	SecurityLoginRateLimit       int
+	SecurityPublicRateLimit      int
 }
 
 // Load reads the environment (optionally from a .env file), validates it and
@@ -122,6 +145,7 @@ func Load() (*Config, error) {
 		DefaultLocale:                 env("DEFAULT_LOCALE", "en-US"),
 		DefaultTheme:                  env("DEFAULT_THEME", "system"),
 		ClusterEnabled:                mustBool("CLUSTER_ENABLED", false),
+		ClusterMode:                   strings.ToLower(env("CLUSTER_MODE", ClusterModeShared)),
 		NodeID:                        env("NODE_ID", "up-node-1"),
 		NodeName:                      env("NODE_NAME", "Primary Node"),
 		ClusterPrivateKey:             strings.TrimSpace(env("CLUSTER_PRIVATE_KEY", "")),
@@ -129,6 +153,7 @@ func Load() (*Config, error) {
 		SchedulerMaxConcurrent:        envInt("SCHEDULER_MAX_CONCURRENT", 20),
 		SchedulerReconcileSeconds:     envInt("SCHEDULER_RECONCILE_SECONDS", 30),
 		HeartbeatRetentionDays:        envInt("HEARTBEAT_RETENTION_DAYS", 0),
+		NotificationLogRetentionDays:  envInt("NOTIFICATION_LOG_RETENTION_DAYS", 0),
 		SessionTTLHours:               envInt("SESSION_TTL_HOURS", 720),
 		SecurityBypassIPRules:         mustBool("SECURITY_BYPASS_IP_RULES", false),
 		SecurityLoginRateLimit:        envInt("SECURITY_LOGIN_RATE_LIMIT", 20),

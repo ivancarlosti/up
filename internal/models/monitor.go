@@ -3,13 +3,38 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Monitor is a probe definition. All the type specific options live inside the
 // Config JSON column; the columns kept here are the ones the scheduler, the
 // cluster and the statistics always need.
 type Monitor struct {
-	ID          uint        `gorm:"primaryKey" json:"id"`
+	ID uint `gorm:"primaryKey" json:"id"`
+
+	// --- Sync identity (federated clustering) -----------------------------
+	//
+	// UUID is the global identity of the row: the auto-increment ID is only
+	// meaningful inside one database, while the synchronisation protocol
+	// addresses rows by uuid (docs/clustering-federated.md).
+	//
+	// The column is NULLABLE on purpose. AutoMigrate adds it to a table that
+	// already has rows, and MySQL refuses a unique index over several empty
+	// strings: every pre-existing row would hold "". NULL values are not
+	// compared by a unique index, so the migration succeeds and
+	// database.Backfill fills the column right after it.
+	UUID string `gorm:"size:36;uniqueIndex" json:"uuid"`
+	// OriginNodeID is the node that created the row. It is kept even after the
+	// row is edited elsewhere, and it stays empty on a single node installation
+	// that predates federated mode.
+	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
+	// Revision is incremented by the node that performs an edit. It is the
+	// primary component of the last-writer-wins merge order, so a wrong clock
+	// cannot make an old edit win.
+	Revision int64 `gorm:"not null;default:1" json:"revision"`
+
 	Name        string      `gorm:"size:200;not null" json:"name"`
 	Type        MonitorType `gorm:"size:20;not null;index" json:"type"`
 	Active      bool        `gorm:"not null;default:true" json:"active"`
@@ -69,6 +94,19 @@ type Monitor struct {
 	// Certificate is the last TLS certificate read by a probe (only when the
 	// monitor watches its certificate).
 	Certificate *CertificateInfo `gorm:"-" json:"certificate,omitempty"`
+}
+
+// BeforeCreate fills the sync identity of a new row: the UUID is the global id
+// and the revision starts at 1 (the pattern MonitorGroup and MonitorTemplate
+// already use).
+func (m *Monitor) BeforeCreate(tx *gorm.DB) error {
+	if m.UUID == "" {
+		m.UUID = uuid.NewString()
+	}
+	if m.Revision == 0 {
+		m.Revision = 1
+	}
+	return nil
 }
 
 // TagList returns the comma separated tags as a slice.

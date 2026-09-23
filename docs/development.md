@@ -171,6 +171,14 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > (a valid and an expired certificate), creates a `ssl` monitor through the real
 > form with the certificate switches on, checks the validity badge and the API
 > payload, and kills the helper at the end.
+>
+> `npm run e2e:backfill` checks the synchronisation identity that federated
+> clustering will need: it creates two monitors and asserts that every monitor,
+> status page, group and template carries a well formed and **distinct** `uuid`
+> with `revision >= 1`, that a new row gets its identity from the model's
+> `BeforeCreate` hook, and that `/api/cluster/status` reports `mode: "shared"`
+> (see [clustering-federated.md](clustering-federated.md)). It needs a running
+> instance and writes to the database.
 
 
 ### 6.1 Screenshots and layout checks
@@ -378,6 +386,38 @@ curl -s -b c1.txt localhost:3000/api/cluster/status | python3 -m json.tool | hea
 > `-p` must stay equal to `APP_PORT` (3000 by default): `-p 3002:3000` publishes the
 > second node on 3002 while it still listens on 3000 internally, and `APP_URL` must
 > stay `http://up-node2:3000` (the port other nodes reach it on).
+
+### 9.1 Watching the sync identity migration (and proving it is idempotent)
+
+`database.Backfill` runs on every boot and is idempotent **by construction**: each
+of its statements selects only the rows that are still missing a value, so the
+second run matches nothing. To watch it work — or to check a real upgrade — point
+an instance at a database that already holds rows and boot it twice:
+
+```bash
+docker run -d --name up-backfill-check -e MARIADB_ROOT_PASSWORD=root \
+  -e MARIADB_DATABASE=up -p 3307:3306 mariadb:11
+
+export DB_HOST=127.0.0.1 DB_PORT=3307 DB_DATABASE=up \
+       DB_USERNAME=root DB_PASSWORD=root APP_URL=http://localhost:3005
+
+go run ./cmd/server   # first boot: "sync identity backfilled" with the counts per table
+go run ./cmd/server   # second boot: "sync identity backfill: nothing to do"
+```
+
+Then check the invariants by hand:
+
+```sql
+SELECT COUNT(*) AS rows_total, COUNT(DISTINCT uuid) AS uuid_total,
+       SUM(uuid IS NULL) AS uuid_missing FROM monitors;   -- uuid_total = rows_total, uuid_missing = 0
+```
+
+> A `uuid` column declared `NOT NULL` + `uniqueIndex` fails on this upgrade with
+> `Duplicate entry '' for key 'idx_monitors_uuid'`, because every pre-existing row
+> holds an empty string. The column is nullable for exactly that reason (MySQL does
+> not compare NULLs in a unique index); the `BeforeCreate` hook fills it for every
+> row the application creates. See [database.md](database.md) and
+> [clustering-federated.md](clustering-federated.md).
 
 ## 10. Regenerating the icons
 

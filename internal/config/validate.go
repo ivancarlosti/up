@@ -125,6 +125,28 @@ func (c *Config) validate() []string {
 	}
 
 	// --- Clustering --------------------------------------------------------
+	switch c.ClusterMode {
+	case ClusterModeShared:
+		// The implemented mode: every node points at the same database.
+	case ClusterModeFederated:
+		if !c.ClusterEnabled {
+			problems = append(problems, "CLUSTER_MODE=federated requires CLUSTER_ENABLED=true")
+		}
+		// NODE_ID is not checked here: it is already required by
+		// CLUSTER_ENABLED=true just below, and federated mode requires the
+		// clustering to be enabled. Reporting it twice would only add noise.
+		//
+		// Refusing to boot is deliberate. Accepting the value would give a node
+		// that claims to be federated and silently behaves like a shared one
+		// (one database per node, nothing synchronised). Remove this line when
+		// the mode is implemented (docs/clustering-federated.md, phase 4).
+		problems = append(problems,
+			"CLUSTER_MODE=federated is not implemented yet: use CLUSTER_MODE=shared")
+	default:
+		problems = append(problems, fmt.Sprintf("CLUSTER_MODE must be %s or %s, got %q",
+			ClusterModeShared, ClusterModeFederated, c.ClusterMode))
+	}
+
 	if c.ClusterEnabled {
 		if strings.TrimSpace(c.NodeID) == "" {
 			problems = append(problems, "NODE_ID is required when CLUSTER_ENABLED=true")
@@ -151,6 +173,11 @@ func (c *Config) validate() []string {
 	}
 	if c.SessionTTLHours < 1 {
 		c.SessionTTLHours = 720
+	}
+	// A negative retention would mean "delete everything": read it as the
+	// documented default, which keeps the history.
+	if c.NotificationLogRetentionDays < 0 {
+		c.NotificationLogRetentionDays = 0
 	}
 	if c.SecurityLoginRateLimit < 1 {
 		c.SecurityLoginRateLimit = 20

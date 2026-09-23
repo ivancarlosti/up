@@ -87,3 +87,15 @@ type NotificationLock struct {
 // nodes evaluating the same transition within this many seconds only produce a
 // single notification.
 const NotificationLockWindowSeconds = 60
+
+// NotificationLockRetentionHours is how long a de-duplication row is kept before
+// the maintenance job deletes it. The row only means something inside its own
+// window (60 s for a status event, the day for a certificate reminder), so this
+// is pure hygiene: before the prune existed the table grew for the whole life of
+// the deployment, because the only delete was the one that runs when a monitor is
+// deleted.
+//
+// The prune compares created_at and NOT bucket: bucket is a minute window for
+// status events but a day number for certificate events, so any bucket-based
+// cut-off would delete every certificate lock.
+const NotificationLockRetentionHours = 24

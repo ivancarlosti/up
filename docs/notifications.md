@@ -209,6 +209,17 @@ SELECT created_at, event, notification_id, success, LEFT(error,120) AS error, no
 FROM notification_logs ORDER BY id DESC LIMIT 20;
 ```
 
+The history is kept **forever by default**. Set `NOTIFICATION_LOG_RETENTION_DAYS`
+to a positive number and the maintenance loop deletes the entries older than that
+every six hours (the same opt-in convention as `HEARTBEAT_RETENTION_DAYS`).
+
+The notification *de-duplication* rows in `notification_locks` are different:
+they are meaningless after their own window (60 s for a status event, the day for
+a certificate reminder), so they are pruned automatically after
+`models.NotificationLockRetentionHours` (24 h) with no configuration. The prune
+compares `created_at`, never `bucket`, because a bucket is a minute window for
+status events but a day number for certificate events.
+
 ## 5. Testing a channel from the CLI
 
 ```bash

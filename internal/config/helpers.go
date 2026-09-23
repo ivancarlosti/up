@@ -150,8 +150,10 @@ func (c *Config) Summary() string {
 		fmt.Sprintf("locale=%s", c.DefaultLocale),
 		fmt.Sprintf("theme=%s", c.DefaultTheme),
 		fmt.Sprintf("cluster=%t", c.ClusterEnabled),
+		fmt.Sprintf("cluster_mode=%s", c.ClusterMode),
 		fmt.Sprintf("reconcile_seconds=%d", c.SchedulerReconcileSeconds),
 		fmt.Sprintf("retention_days=%d", c.HeartbeatRetentionDays),
+		fmt.Sprintf("notification_log_retention_days=%d", c.NotificationLogRetentionDays),
 	}
 	if c.ClusterEnabled {
 		parts = append(parts, fmt.Sprintf("node_id=%s", c.NodeID), fmt.Sprintf("node_name=%q", c.NodeName))

@@ -52,6 +52,12 @@ func run() error {
 	if err := database.Migrate(db, log); err != nil {
 		return err
 	}
+	// The sync identity (uuid / origin_node_id / revision) is stamped on the
+	// rows that predate it, right after the columns exist. Idempotent: the
+	// second boot changes nothing.
+	if err := database.Backfill(ctx, db, cfg, log); err != nil {
+		return err
+	}
 	if err := database.Seed(ctx, db, cfg, log); err != nil {
 		return err
 	}

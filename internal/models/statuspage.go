@@ -1,11 +1,26 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
 
 // StatusPage is a public, read-only dashboard of a selection of monitors.
 type StatusPage struct {
-	ID   uint   `gorm:"primaryKey" json:"id"`
-	Slug string `gorm:"size:120;uniqueIndex;not null" json:"slug"`
+	ID uint `gorm:"primaryKey" json:"id"`
+	// --- Sync identity (federated clustering) -----------------------------
+	//
+	// See models.Monitor for why the UUID column is nullable: it is added by
+	// AutoMigrate to a table that already has rows, and a unique index over
+	// several empty strings would be rejected by MySQL.
+	UUID string `gorm:"size:36;uniqueIndex" json:"uuid"`
+	// OriginNodeID is the node that created the page, Revision the number of
+	// edits it received (docs/clustering-federated.md).
+	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64  `gorm:"not null;default:1" json:"revision"`
+	Slug         string `gorm:"size:120;uniqueIndex;not null" json:"slug"`
 	// Title is shown as the page heading.
 	Title       string `gorm:"size:200;not null" json:"title"`
 	Description string `gorm:"size:500" json:"description"`
@@ -32,6 +47,17 @@ type StatusPage struct {
 	OverallStatus AggregateStatus   `gorm:"-" json:"overall_status"`
 	UpMonitors    int               `gorm:"-" json:"up_monitors"`
 	DownMonitors  int               `gorm:"-" json:"down_monitors"`
+}
+
+// BeforeCreate fills the sync identity of a new page (see models.Monitor).
+func (p *StatusPage) BeforeCreate(tx *gorm.DB) error {
+	if p.UUID == "" {
+		p.UUID = uuid.NewString()
+	}
+	if p.Revision == 0 {
+		p.Revision = 1
+	}
+	return nil
 }
 
 // StatusPageMonitor links a monitor to a status page, optionally renaming it

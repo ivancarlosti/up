@@ -40,6 +40,7 @@ flowchart TB
 | Variable | Node 1 | Node 2 | Meaning |
 |---|---|---|---|
 | `CLUSTER_ENABLED` | `true` | `true` | enables the cluster features on that node |
+| `CLUSTER_MODE` | `shared` | `shared` | **no other value is implemented**: `federated` (one database per node) is refused at boot — see [clustering-federated.md](clustering-federated.md) |
 | `NODE_ID` | `up-node-1` | `up-node-2` | **unique** per node, becomes `heartbeats.node_id` |
 | `NODE_NAME` | `Primary Node` | `Node 2` | display name |
 | `APP_URL` | `http://up-node1:3000` | `http://up-node2:3000` | must be **reachable from the other nodes** (it is stored as `nodes.api_url`) |
@@ -103,6 +104,26 @@ the operator did not name.
 `POST /api/cluster/leave` with `{"node_id":"up-node-2"}` (empty body = the node
 running the request). If the leaving node was the primary, the oldest remaining
 node is promoted automatically.
+
+### Exactly one primary
+
+The primary role is claimed inside one transaction that takes a locking read on
+the single `cluster_settings` row, so two nodes booting at the same instant
+cannot both see "there is no primary yet" and both register themselves. A cluster
+with two primaries would send every notification twice under `PRIMARY_ONLY` and
+run each `run_on=primary` monitor on two nodes at once.
+
+The same transaction **repairs** a database that already ended up with more than
+one primary (possible with the racy claim of earlier releases): the oldest node
+keeps the role, the rest are demoted, and the boot log reports it:
+
+```
+WARN more than one primary node found: keeping the oldest and demoting the rest  kept=up-node-1 demoted=1
+```
+
+`is_primary` is still a stored column (federated mode derives the role instead,
+see [clustering-federated.md](clustering-federated.md)), but it is now written by
+one code path (`database.ClaimSelf`) instead of two.
 
 ## 4. Liveness and the offline rule
 

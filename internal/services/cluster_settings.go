@@ -113,6 +113,7 @@ func (s *ClusterService) Status(ctx context.Context) (*models.ClusterStatus, err
 
 	status := &models.ClusterStatus{
 		Enabled:    s.cfg.ClusterEnabled,
+		Mode:       s.Mode(),
 		NodeID:     s.cfg.NodeID,
 		NodeName:   s.cfg.NodeName,
 		IsPrimary:  s.IsPrimary(ctx),

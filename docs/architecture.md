@@ -13,9 +13,12 @@ Up is a minimalist, cluster-ready uptime monitor:
 - **External database only**: MariaDB/MySQL lives outside the container
   (`DB_HOST`, default `host.docker.internal`). The compose file never declares a
   database service.
-- **Cluster ready**: several Up instances share the same database, each running
-  its own scheduler and writing its own heartbeats (`node_id`), while the
-  dashboard aggregates them.
+- **Cluster ready**: several Up instances share the same database
+  (`CLUSTER_MODE=shared`, the only mode implemented), each running its own
+  scheduler and writing its own heartbeats (`node_id`), while the dashboard
+  aggregates them. A mode with one database per node is designed in
+  [clustering-federated.md](clustering-federated.md); the synchronisation identity
+  it needs (a global `uuid` per row) is already in the schema.
 - **Authentication is environment driven**: `none`, `account` (single account)
   or `keycloak` (OIDC + e-mail/domain allow list).
 - **Notifications** use [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) as
@@ -64,7 +67,8 @@ sequenceDiagram
     M->>C: Load() reads .env + environment
     C-->>M: Config or ValidationError (all problems at once)
     M->>D: Connect() with exponential backoff (up to 90s)
-    D->>D: Migrate() AutoMigrate(14 tables)
+    D->>D: Migrate() AutoMigrate(19 tables)
+    D->>D: Backfill() sync identity (uuid, origin_node_id, revision)
     D->>D: Seed() settings, session secret, cluster key, node row
     M->>A: build services (settings, stats, monitors, heartbeats, ...)
     A->>A: EnsureSelf() registers this node
@@ -190,8 +194,8 @@ All variables, their defaults and validation rules live in
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |
-| Cluster | `CLUSTER_ENABLED`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
-| Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
+| Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared` only), `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
+| Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
 
 Validation lives in `internal/config/validate.go`; the aggregated error type is
 `config.ValidationError` (printed by `cmd/server/main.go`, exit code 2).

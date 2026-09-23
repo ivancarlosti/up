@@ -54,6 +54,10 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 		notify = true
 	}
 
+	// dispatched is true only on the node that actually sent the notification:
+	// only that node may advance the notification bookkeeping (see
+	// stateUpdateColumns).
+	dispatched := false
 	if notify && s.notifications != nil {
 		event := normalizeEvent(status)
 		allowed, claimErr := s.claimNotification(ctx, monitor.ID, event)
@@ -66,6 +70,7 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 				"from", previous, "to", status, "channels", len(logs))
 			state.Notified = status
 			state.NotifiedAt = &now
+			dispatched = true
 		}
 	}
 
@@ -80,7 +85,7 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 	state.LastCheckAt = &now
 	state.UpdatedAt = now
 
-	if err := s.saveState(ctx, &state); err != nil {
+	if err := s.saveState(ctx, &state, dispatched); err != nil {
 		return err
 	}
 
@@ -148,14 +153,51 @@ func (s *ClusterService) claimEvent(ctx context.Context, monitorID uint, event m
 	return false, nil
 }
 
+// PurgeExpiredLocks deletes the notification de-duplication rows that no node can
+// claim any more.
+//
+// The unique index keeps the table correct without this; the prune keeps it
+// small. It used to grow for the whole life of the deployment: the only delete
+// was the one running when a monitor is deleted, so every transition (and every
+// re-notification) left a row behind forever.
+//
+// The cut-off is created_at, never bucket - see
+// models.NotificationLockRetentionHours for why.
+func (s *ClusterService) PurgeExpiredLocks(ctx context.Context, before time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).Where("created_at < ?", before).Delete(&models.NotificationLock{})
+	if result.Error != nil {
+		return 0, ErrInternal(result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+// stateUpdateColumns is the pure core of saveState: it lists the columns the
+// upsert refreshes.
+//
+// The notification bookkeeping (notified, notified_at) is advanced only by the
+// node that actually dispatched the notification. Without that distinction the
+// loser of a claim writes back the values it read *before* the winner committed:
+// with resend_interval_seconds > 0 the resend clock is then rewound and the same
+// incident is alerted again earlier than configured.
+//
+// The rest of the columns stay last-writer-wins: two nodes evaluating the same
+// shared votes compute the same aggregated status, so whichever write lands last
+// the value is equivalent.
+func stateUpdateColumns(dispatched bool) []string {
+	columns := []string{
+		"status", "changed_at", "last_message", "last_latency", "last_check_at", "updated_at",
+	}
+	if dispatched {
+		columns = append(columns, "notified", "notified_at")
+	}
+	return columns
+}
+
 // saveState upserts the aggregated monitor state.
-func (s *ClusterService) saveState(ctx context.Context, state *models.MonitorState) error {
+func (s *ClusterService) saveState(ctx context.Context, state *models.MonitorState, dispatched bool) error {
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "monitor_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"status", "changed_at", "notified", "notified_at", "last_message",
-			"last_latency", "last_check_at", "updated_at",
-		}),
+		Columns:   []clause.Column{{Name: "monitor_id"}},
+		DoUpdates: clause.AssignmentColumns(stateUpdateColumns(dispatched)),
 	}).Create(state).Error
 }
 

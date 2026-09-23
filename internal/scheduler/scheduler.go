@@ -35,6 +35,10 @@ type Scheduler struct {
 	// certificates stores and evaluates the TLS certificates read by the probes
 	// (optional: nil on a build without the feature).
 	certificates *services.CertificateService
+	// notifications is injected for the retention job only: the delivery history
+	// is the one notification table that grows over time, and the scheduler owns
+	// the housekeeping loop.
+	notifications *services.NotificationService
 }
 
 type commandKind int
@@ -92,6 +96,12 @@ func (s *Scheduler) Start(parent context.Context) error {
 // SetCertificateService injects the TLS certificate service: it stores what the
 // probes read and decides when a reminder is due.
 func (s *Scheduler) SetCertificateService(c *services.CertificateService) { s.certificates = c }
+
+// SetNotificationService injects the notification service so the maintenance
+// loop can apply NOTIFICATION_LOG_RETENTION_DAYS to the delivery history.
+func (s *Scheduler) SetNotificationService(n *services.NotificationService) {
+	s.notifications = n
+}
 
 // reconcileInterval is how often the worker set is compared with the database.
 func (s *Scheduler) reconcileInterval() time.Duration {
