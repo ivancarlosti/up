@@ -22,10 +22,11 @@ type EventPublisher interface {
 
 // MonitorFilter narrows down a monitor listing.
 type MonitorFilter struct {
-	Type   string
-	Search string
-	Active *bool
-	Tag    string
+	Type    string
+	Search  string
+	Active  *bool
+	Tag     string
+	GroupID uint
 }
 
 // VoteProvider is implemented by the cluster service: it merges the per node
@@ -68,6 +69,10 @@ func (s *MonitorService) List(ctx context.Context, filter MonitorFilter) ([]*mod
 	}
 	if filter.Tag != "" {
 		query = query.Where("tags LIKE ?", "%"+filter.Tag+"%")
+	}
+	if filter.GroupID > 0 {
+		query = query.Where("id IN (?)",
+			s.db.Model(&models.MonitorGroupMember{}).Select("monitor_id").Where("group_id = ?", filter.GroupID))
 	}
 	if filter.Search != "" {
 		like := "%" + strings.TrimSpace(filter.Search) + "%"
@@ -138,6 +143,11 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 		linksByMonitor[link.MonitorID] = append(linksByMonitor[link.MonitorID], link.NotificationID)
 	}
 
+	groups, err := s.AllGroupMembers(ctx)
+	if err != nil {
+		return err
+	}
+
 	for _, m := range monitors {
 		if stats, ok := windows[m.ID]; ok {
 			m.Uptime24h = stats.Uptime
@@ -162,6 +172,11 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 			m.NotificationIDs = ids
 		} else {
 			m.NotificationIDs = []uint{}
+		}
+		if ids, ok := groups[m.ID]; ok {
+			m.GroupIDs = ids
+		} else {
+			m.GroupIDs = []uint{}
 		}
 	}
 	return nil

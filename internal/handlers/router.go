@@ -25,6 +25,7 @@ type Container struct {
 	DB            *gorm.DB
 	Settings      *services.SettingService
 	Monitors      *services.MonitorService
+	MonitorGroups *services.MonitorGroupService
 	Heartbeats    *services.HeartbeatService
 	Stats         *services.StatsService
 	Notifications *services.NotificationService

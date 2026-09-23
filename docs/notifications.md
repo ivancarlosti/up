@@ -179,7 +179,7 @@ Only the writable fields belong in the body: `name`, `type`, `active`,
 `is_default`, `resend_interval_seconds` and `config`. `id`, `created_at`,
 `updated_at` and `monitor_ids` are read-only - sending an empty `created_at` back
 is rejected with `ERR_INVALID_PAYLOAD` ("cannot parse ...") - and the numbers stay
-numbers (`"port": 587`, never `"587"`). See `docs/api.md` §4.
+numbers (`"port": 587`, never `"587"`). See `docs/api.md` §5.
 
 ## 4. Delivery log
 

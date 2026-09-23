@@ -36,6 +36,10 @@ const (
 	CodeMonitorTypeInvalid = "ERR_MONITOR_TYPE_INVALID"
 	CodeMonitorConfig      = "ERR_MONITOR_CONFIG_INVALID"
 
+	// Monitor groups
+	CodeMonitorGroupNotFound = "ERR_MONITOR_GROUP_NOT_FOUND"
+	CodeMonitorGroupInvalid  = "ERR_MONITOR_GROUP_INVALID"
+
 	// Notifications
 	CodeNotificationNotFound = "ERR_NOTIFICATION_NOT_FOUND"
 	CodeNotificationConfig   = "ERR_NOTIFICATION_CONFIG_INVALID"
@@ -62,8 +66,9 @@ const (
 	CodeSlugTaken          = "ERR_STATUS_PAGE_SLUG_TAKEN"
 )
 
-// AllCodes lists every code, which makes it easy to keep the locale files in
-// sync (see the key parity check in tools/check-locales.mjs).
+// AllCodes lists every code, which keeps the locale files in sync: the parity
+// between this list and the "errors" namespace of web/src/locales/*.json is
+// checked by web/scripts/i18n-check.mjs (npm run check:i18n).
 func AllCodes() []string {
 	return []string{
 		CodeInternal, CodeValidation, CodeInvalidPayload, CodeNotFound, CodeAlreadyExists,
@@ -72,6 +77,7 @@ func AllCodes() []string {
 		CodeAuthCaptchaFailed, CodeAuthCaptchaMissing, CodeAuthStateInvalid, CodeAuthProviderError,
 		CodeAuthMethodDisabled,
 		CodeMonitorNotFound, CodeMonitorTypeInvalid, CodeMonitorConfig,
+		CodeMonitorGroupNotFound, CodeMonitorGroupInvalid,
 		CodeNotificationNotFound, CodeNotificationConfig, CodeNotificationSend,
 		CodeClusterDisabled, CodeClusterKeyInvalid, CodeClusterJoinFailed, CodeClusterPrimarySelf,
 		CodeClusterStrategy,

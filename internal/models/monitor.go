@@ -54,6 +54,7 @@ type Monitor struct {
 	Heartbeats      []HeartbeatSummary `gorm:"-" json:"heartbeats,omitempty"`
 	Votes           []NodeVote         `gorm:"-" json:"votes,omitempty"`
 	NotificationIDs []uint             `gorm:"-" json:"notification_ids"`
+	GroupIDs        []uint             `gorm:"-" json:"group_ids"`
 }
 
 // TagList returns the comma separated tags as a slice.

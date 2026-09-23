@@ -151,7 +151,36 @@ Stop/start the workers of that monitor (the history is preserved).
 }
 ```
 
-## 4. Notifications
+### `POST /api/monitors/:id/clone` -> `201`
+
+Body (all optional): `{"name": "...", "copy_notifications": true, "copy_groups": true}`.
+An empty `name` produces `<name> (copy)`; the heartbeat history and the aggregated
+state are never copied, so the copy starts clean. The worker of the new monitor
+starts on the node that served the request.
+
+## 4. Monitor groups
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/monitor-groups` | list with `monitor_ids` and `monitor_count` |
+| POST | `/api/monitor-groups` | create (`{"name": "...", "monitor_ids": [6,7]}`) |
+| GET | `/api/monitor-groups/:id` | single group |
+| PUT | `/api/monitor-groups/:id` | update; omitting `monitor_ids` keeps the members |
+| DELETE | `/api/monitor-groups/:id` | delete the group (the monitors stay) |
+| PUT | `/api/monitor-groups/:id/monitors` | `{"monitor_ids": [6,7]}` |
+| POST | `/api/monitor-groups/:id/clone` | `{"name": "...", "deep": true, "copy_links": true}` |
+
+A monitor belongs to any number of groups: the create/update payload of a monitor
+takes `group_ids` (omitted = keep the current groups, `[]` = clear them) and the
+listing filters with `?group_id=`. Names are unique
+(`409 ERR_MONITOR_GROUP_INVALID`) and an unknown id answers
+`400 ERR_MONITOR_GROUP_INVALID` / `404 ERR_MONITOR_GROUP_NOT_FOUND`.
+
+`deep: true` also clones the monitors of the group (each one with its `(copy)`
+name and, with `copy_links`, its channels and groups); without `deep` the copy
+starts empty on purpose, so two groups cannot silently share the same monitors.
+
+## 5. Notifications
 
 | Method | Path | Notes |
 |---|---|---|
@@ -180,7 +209,7 @@ Validation problems answer `400` with `ERR_NOTIFICATION_CONFIG_INVALID` and the
 offending field in `message` (`config.webhook.url must start with http:// or
 https://`); the UI shows that detail next to the translated sentence.
 
-## 5. Status pages
+## 6. Status pages
 
 | Method | Path | Notes |
 |---|---|---|
@@ -194,7 +223,7 @@ https://`); the UI shows that detail next to the translated sentence.
 | GET | `/api/public/status/:slug` | **public** payload rendered by the page |
 | GET | `/api/public/status/:slug/badge.svg` | **public** shields.io style badge |
 
-## 6. Cluster
+## 7. Cluster
 
 | Method | Path | Notes |
 |---|---|---|
@@ -208,7 +237,7 @@ https://`); the UI shows that detail next to the translated sentence.
 | POST | `/api/cluster/private-key/regenerate` | rotates the key |
 | POST | `/api/cluster/heartbeat` | refresh liveness, returns `{"online":[],"offline":[]}` |
 
-## 7. Settings, tokens and IP rules
+## 8. Settings, tokens and IP rules
 
 | Method | Path | Notes |
 |---|---|---|
@@ -224,7 +253,7 @@ https://`); the UI shows that detail next to the translated sentence.
 | PUT | `/api/ip-rules/:id` | update |
 | DELETE | `/api/ip-rules/:id` | `204` |
 
-## 8. Real time channel
+## 9. Real time channel
 
 `GET /api/ws` (WebSocket, session cookie). Client -> server messages:
 
@@ -247,7 +276,7 @@ Event types published by the server (envelope
 
 The hub sends a ping every 25 s and drops clients that do not answer (60 s).
 
-## 9. Public REST API (`/api/v1`)
+## 10. Public REST API (`/api/v1`)
 
 Requires a bearer token and is documented in full in `docs/public-api.md`:
 
@@ -261,7 +290,7 @@ Requires a bearer token and is documented in full in `docs/public-api.md`:
 | POST | `/api/v1/monitors/:id/pause` / `resume` | write |
 | GET | `/api/v1/status-pages/:slug` | read |
 
-## 10. Error codes
+## 11. Error codes
 
 The complete, stable catalogue (also present in `web/src/locales/*.json` under
 `errors`):
@@ -306,7 +335,7 @@ The complete, stable catalogue (also present in `web/src/locales/*.json` under
 | `ERR_STATUS_PAGE_NOT_PUBLIC` | 403 | page hidden from anonymous visitors |
 | `ERR_STATUS_PAGE_SLUG_TAKEN` | 409 | duplicate slug |
 
-## 11. Conventions
+## 12. Conventions
 
 - Timestamps are RFC3339 in UTC (`2026-09-22T18:00:00.123456789Z`).
 - Heartbeat `status` is a string (`up`/`down`/`pending`/`maintenance`); the

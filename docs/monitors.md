@@ -163,16 +163,57 @@ current links, send `[]` to clear them.
 | Immediate check | `POST /api/monitors/:id/check` (202, queued) |
 | Heartbeats | `GET /api/monitors/:id/heartbeats?hours=24&limit=500` |
 | Statistics + bars | `GET /api/monitors/:id/stats?hours=24&limit=60` |
+| Clone | `POST /api/monitors/:id/clone` (see below) |
 | Delete | `DELETE /api/monitors/:id` (removes heartbeats, state, links) |
 
-## 7. Upside down monitors
+### Clone
+
+`POST /api/monitors/:id/clone` with an optional
+`{"name": "...", "copy_notifications": true, "copy_groups": true}` body. Without
+a name the copy is `<name> (copy)` (and `(2)`, `(3)`… when that one is taken).
+
+What is copied: the type, every configuration field, the scheduling options and
+`run_on`, plus the notification links and the groups when asked. What is **not**
+copied: the heartbeat history and the aggregated state, so a copy starts with a
+clean history and never inherits an old incident.
+
+## 7. Groups
+
+Groups are named collections of monitors (Admin > Monitor groups). They exist to
+organise a large monitor list, to filter it (`GET /api/monitors?group_id=12`) and
+— from the status page side — to publish a whole set of monitors at once: adding a
+monitor to a group makes it appear on every page that includes the group.
+
+| Action | Endpoint |
+|---|---|
+| List (with `monitor_ids` and `monitor_count`) | `GET /api/monitor-groups` |
+| Create / update | `POST /api/monitor-groups` · `PUT /api/monitor-groups/:id` |
+| Replace the members | `PUT /api/monitor-groups/:id/monitors` |
+| Delete (the monitors stay) | `DELETE /api/monitor-groups/:id` |
+| Clone | `POST /api/monitor-groups/:id/clone` |
+
+Rules that matter in practice:
+
+- A monitor belongs to **any number** of groups. On the monitor payload
+  `group_ids` follows the same contract as `notification_ids`: omitted keeps the
+  current groups, `[]` clears them.
+- Group names are unique (`409 ERR_MONITOR_GROUP_INVALID`); the ids in
+  `monitor_ids`/`group_ids` are validated, so a typo answers
+  `400 ERR_MONITOR_GROUP_INVALID` instead of creating a dangling link.
+- Deleting a monitor removes its memberships; deleting a group keeps the
+  monitors (it is a hard delete, so the name is free again immediately).
+- The clone is **shallow by default** (an empty group with the same settings).
+  With `deep: true` every monitor inside is cloned too, each one with its
+  `(copy)` name and, with `copy_links`, its channels and groups.
+
+## 8. Upside down monitors
 
 `upside_down=true` swaps `up` and `down` **after** the probe, with a
 `upside down:` prefix in the message. Typical use: an IP that must stay blocked
 (a TCP monitor to a port that must remain closed) or a DNS name that must not
 exist.
 
-## 8. How the UI is wired
+## 9. How the UI is wired
 
 | Element | File |
 |---|---|

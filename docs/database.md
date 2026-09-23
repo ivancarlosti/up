@@ -44,6 +44,8 @@ FLUSH PRIVILEGES;
 | `settings` | key/value runtime configuration shared by every node | tiny |
 | `monitors` | probe definitions (type specific options in a JSON column) | tens |
 | `monitor_notifications` | monitor <-> channel links | tens |
+| `monitor_groups` | named collections of monitors (`uuid` + unique name) | tens |
+| `monitor_group_members` | monitor <-> group links (a monitor can be in many) | tens |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
 | `notifications` | SMTP / Webhook channels | few |
@@ -134,6 +136,29 @@ CREATE TABLE `monitor_states` (
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`monitor_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_groups` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) NOT NULL,
+  `name` varchar(150) NOT NULL,
+  `description` varchar(500) DEFAULT NULL,
+  `color` varchar(20) DEFAULT NULL,
+  `sort_order` bigint(20) NOT NULL DEFAULT 0,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_monitor_groups_uuid` (`uuid`),
+  UNIQUE KEY `idx_monitor_groups_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_group_members` (
+  `group_id` bigint(20) unsigned NOT NULL,
+  `monitor_id` bigint(20) unsigned NOT NULL,
+  `sort_order` bigint(20) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`group_id`,`monitor_id`),
+  KEY `idx_monitor_group_members_group_id` (`group_id`),
+  KEY `idx_monitor_group_members_monitor_id` (`monitor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `monitors` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,

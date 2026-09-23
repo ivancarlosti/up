@@ -12,9 +12,9 @@ import (
 	"github.com/ivancarlosti/up/internal/models"
 )
 
-// Create inserts a monitor, links the notification channels and creates the
-// aggregated state row.
-func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, notificationIDs []uint) error {
+// Create inserts a monitor, links the notification channels and the groups and
+// creates the aggregated state row.
+func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, notificationIDs, groupIDs []uint) error {
 	if err := s.Validate(monitor); err != nil {
 		return err
 	}
@@ -23,6 +23,9 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 			return err
 		}
 		if err := replaceMonitorNotifications(tx, monitor.ID, notificationIDs); err != nil {
+			return err
+		}
+		if err := replaceMonitorGroups(tx, monitor.ID, groupIDs); err != nil {
 			return err
 		}
 		state := models.MonitorState{
@@ -40,8 +43,9 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 	return nil
 }
 
-// Update saves the editable fields of a monitor.
-func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, notificationIDs []uint) error {
+// Update saves the editable fields of a monitor. A nil notificationIDs/groupIDs
+// keeps the current links, exactly like the update endpoint always did.
+func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, notificationIDs, groupIDs []uint) error {
 	if err := s.Validate(monitor); err != nil {
 		return err
 	}
@@ -78,7 +82,12 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 			return gorm.ErrRecordNotFound
 		}
 		if notificationIDs != nil {
-			return replaceMonitorNotifications(tx, monitor.ID, notificationIDs)
+			if err := replaceMonitorNotifications(tx, monitor.ID, notificationIDs); err != nil {
+				return err
+			}
+		}
+		if groupIDs != nil {
+			return replaceMonitorGroups(tx, monitor.ID, groupIDs)
 		}
 		return nil
 	})
@@ -103,6 +112,9 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 			return err
 		}
 		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorNotification{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorGroupMember{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("monitor_id = ?", id).Delete(&models.NotificationLock{}).Error; err != nil {
@@ -154,6 +166,31 @@ func replaceMonitorNotifications(tx *gorm.DB, monitorID uint, notificationIDs []
 		seen[id] = true
 		link := models.MonitorNotification{MonitorID: monitorID, NotificationID: id, OnDown: true, OnUp: true}
 		if err := tx.Create(&link).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// replaceMonitorGroups rewrites the groups a monitor belongs to (the reverse of
+// replaceMonitorGroupMembers: here the monitor is the fixed side).
+func replaceMonitorGroups(tx *gorm.DB, monitorID uint, groupIDs []uint) error {
+	if err := validateGroupIDs(tx, groupIDs); err != nil {
+		return err
+	}
+	if err := tx.Where("monitor_id = ?", monitorID).Delete(&models.MonitorGroupMember{}).Error; err != nil {
+		return err
+	}
+	seen := map[uint]bool{}
+	order := 0
+	for _, id := range groupIDs {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		order++
+		member := models.MonitorGroupMember{GroupID: id, MonitorID: monitorID, SortOrder: order}
+		if err := tx.Create(&member).Error; err != nil {
 			return err
 		}
 	}

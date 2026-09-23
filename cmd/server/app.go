@@ -36,6 +36,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	settings := services.NewSettingService(db, cfg, log)
 	stats := services.NewStatsService(db)
 	monitors := services.NewMonitorService(db, cfg, log, stats)
+	monitorGroups := services.NewMonitorGroupService(db, cfg, log)
 	heartbeats := services.NewHeartbeatService(db, cfg, log)
 	notificationEngine := notify.NewEngine(log, 15*time.Second)
 	notifications := services.NewNotificationService(db, cfg, log, notificationEngine)
@@ -53,6 +54,8 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// --- wiring -----------------------------------------------------------
 	monitors.SetPublisher(hub)
 	monitors.SetVoteProvider(cluster)
+	monitorGroups.SetPublisher(hub)
+	monitorGroups.SetMonitorService(monitors)
 	heartbeats.SetPublisher(hub)
 	notifications.SetPublisher(hub)
 	cluster.SetPublisher(hub)
@@ -81,6 +84,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		DB:            db,
 		Settings:      settings,
 		Monitors:      monitors,
+		MonitorGroups: monitorGroups,
 		Heartbeats:    heartbeats,
 		Stats:         stats,
 		Notifications: notifications,

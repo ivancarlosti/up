@@ -18,14 +18,17 @@ type monitorPayload struct {
 	// NotificationIDs is a pointer so an omitted field keeps the current links
 	// on update, while an empty list clears them.
 	NotificationIDs *[]uint `json:"notification_ids"`
+	// GroupIDs follows the same contract for the monitor groups.
+	GroupIDs *[]uint `json:"group_ids"`
 }
 
 // monitorFilter reads the listing filters from the query string.
 func monitorFilter(c *gin.Context) services.MonitorFilter {
 	filter := services.MonitorFilter{
-		Type:   queryString(c, "type"),
-		Search: queryString(c, "search"),
-		Tag:    queryString(c, "tag"),
+		Type:    queryString(c, "type"),
+		Search:  queryString(c, "search"),
+		Tag:     queryString(c, "tag"),
+		GroupID: uint(queryInt(c, "group_id", 0)),
 	}
 	if raw := strings.TrimSpace(c.Query("active")); raw != "" {
 		active := queryBool(c, "active", true)
@@ -82,7 +85,11 @@ func (h *Container) createMonitor(c *gin.Context) {
 	if payload.NotificationIDs != nil {
 		ids = *payload.NotificationIDs
 	}
-	if err := h.Monitors.Create(c.Request.Context(), &payload.Monitor, ids); err != nil {
+	groupIDs := []uint{}
+	if payload.GroupIDs != nil {
+		groupIDs = *payload.GroupIDs
+	}
+	if err := h.Monitors.Create(c.Request.Context(), &payload.Monitor, ids, groupIDs); err != nil {
 		api.WriteServiceError(c, err)
 		return
 	}
@@ -116,7 +123,15 @@ func (h *Container) updateMonitor(c *gin.Context) {
 			notificationIDs = []uint{}
 		}
 	}
-	if err := h.Monitors.Update(c.Request.Context(), &payload.Monitor, notificationIDs); err != nil {
+	// Same contract for the groups.
+	var groupIDs []uint
+	if payload.GroupIDs != nil {
+		groupIDs = *payload.GroupIDs
+		if groupIDs == nil {
+			groupIDs = []uint{}
+		}
+	}
+	if err := h.Monitors.Update(c.Request.Context(), &payload.Monitor, notificationIDs, groupIDs); err != nil {
 		api.WriteServiceError(c, err)
 		return
 	}
@@ -128,6 +143,41 @@ func (h *Container) updateMonitor(c *gin.Context) {
 		return
 	}
 	api.OK(c, updated)
+}
+
+// cloneMonitor duplicates a monitor (optionally its channels and groups).
+func (h *Container) cloneMonitor(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		Name              string `json:"name"`
+		CopyNotifications bool   `json:"copy_notifications"`
+		CopyGroups        bool   `json:"copy_groups"`
+	}
+	// An empty body is valid: the copy gets "<name> (copy)" and keeps neither
+	// the channels nor the groups.
+	if c.Request.ContentLength > 0 {
+		if !bindJSON(c, &payload) {
+			return
+		}
+	}
+	clone, err := h.Monitors.Clone(c.Request.Context(), id, services.MonitorCloneOptions{
+		Name:              payload.Name,
+		CopyNotifications: payload.CopyNotifications,
+		CopyGroups:        payload.CopyGroups,
+	})
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	// The copy must start being checked by this node now instead of waiting for
+	// the periodic reconciliation.
+	if clone.Active {
+		h.scheduleUpsert(clone.ID)
+	}
+	api.Created(c, clone)
 }
 
 // deleteMonitor removes a monitor and stops its worker.

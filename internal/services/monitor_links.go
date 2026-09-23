@@ -39,6 +39,21 @@ func (s *MonitorService) AllLinks(ctx context.Context) ([]models.MonitorNotifica
 	return links, nil
 }
 
+// AllGroupMembers returns the group memberships of every monitor, grouped by
+// monitor id (used by Decorate: the dashboard and the monitor list show the
+// groups of each row).
+func (s *MonitorService) AllGroupMembers(ctx context.Context) (map[uint][]uint, error) {
+	var members []models.MonitorGroupMember
+	if err := s.db.WithContext(ctx).Order("group_id ASC").Find(&members).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	out := make(map[uint][]uint, len(members))
+	for _, member := range members {
+		out[member.MonitorID] = append(out[member.MonitorID], member.GroupID)
+	}
+	return out, nil
+}
+
 // ActiveForHost returns the active monitors this node is responsible for. The
 // run_on field is respected: "all" runs everywhere, "primary" only on the
 // primary node and "node" only on the node whose NODE_ID matches.
