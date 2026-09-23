@@ -10,7 +10,9 @@
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "check:i18n": "node scripts/i18n-check.mjs",
+    "e2e:notifications": "node scripts/e2e-notifications.mjs"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

@@ -138,6 +138,14 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > The driver lives in `web/scripts/browser.mjs`: it talks to Chrome through the
 > DevTools Protocol over the `WebSocket` client built into Node 24, so there is no
 > dependency to install. `web/scripts/smoke.mjs` is the small client of it.
+>
+> Two more checks use the same driver. `npm run check:i18n` compiles every message
+> of every locale with vue-i18n (a `{{.Event}}` placeholder in a translated string
+> is a message compilation error, and rendering it takes the whole page down: the
+> webhook body help did exactly that). `npm run e2e:notifications` fills the
+> notification channel dialog in a real browser, saves a webhook channel, edits it
+> and deletes it again, so it needs a running instance **and writes to the
+> database** (`npm run e2e:notifications -- --url http://localhost:3000`).
 
 ### 6.1 Screenshots and layout checks
 
