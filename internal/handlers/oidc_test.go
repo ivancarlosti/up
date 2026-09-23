@@ -65,10 +65,12 @@ func TestNewOIDCProviderDiscoversLogoutURL(t *testing.T) {
 	}
 }
 
-// TestLoginOptionsOnlyForwardsPromptLogin covers the "sign in with another
-// account" escape hatch: prompt=login is what makes the provider show its form
-// again, and every other value is dropped instead of travelling verbatim into
-// the authorization URL. The PKCE/nonce options must survive either way.
+// TestLoginOptionsOnlyForwardsPromptLogin covers the prompt=login parameter of
+// the login endpoint: it is what makes the provider show its form again instead
+// of reusing the browser session, and every other value is dropped instead of
+// travelling verbatim into the authorization URL. The rejection page no longer
+// links it, but the endpoint still supports it. The PKCE/nonce options must
+// survive either way.
 func TestLoginOptionsOnlyForwardsPromptLogin(t *testing.T) {
 	client := &oauth2.Config{
 		ClientID: "up-client",
@@ -190,10 +192,11 @@ func TestOIDCLogoutFallsBackToTheAppWithoutProviderLogout(t *testing.T) {
 	}
 }
 
-// TestRenderOIDCErrorOffersAWayOutOfTheProviderSession pins the fix for the
-// rejected-account loop: the page offers the forced re-login and the logout
-// handoff, and the provider message is still escaped.
-func TestRenderOIDCErrorOffersAWayOutOfTheProviderSession(t *testing.T) {
+// TestRenderOIDCErrorOffersOnlyTheProviderLogout pins the rejection page: it
+// offers the logout handoff (the action that actually clears the provider
+// cookie) and not the forced re-login, which was confusing and unreliable with
+// Keycloak. The provider message is still escaped.
+func TestRenderOIDCErrorOffersOnlyTheProviderLogout(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &Container{
 		Cfg: &config.Config{AppURL: "https://up.example.com", KeycloakRealm: "up-realm"},
@@ -225,15 +228,18 @@ func TestRenderOIDCErrorOffersAWayOutOfTheProviderSession(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, needle := range []string{
-		"https://up.example.com/api/auth/oidc/login?redirect=/login&amp;prompt=login",
 		"https://up.example.com/api/auth/oidc/logout?redirect=/login",
-		"Sign in with another account",
 		"Sign out of up-realm",
 		"&quot;ivan.almeida@kuarup.com.br&quot; &lt;b&gt;",
 		i18n.CodeAuthDomainNotAllowed,
 	} {
 		if !strings.Contains(body, needle) {
 			t.Errorf("the error page is missing %q:\n%s", needle, body)
+		}
+	}
+	for _, gone := range []string{"/api/auth/oidc/login", "Sign in with another account"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the error page still offers %q:\n%s", gone, body)
 		}
 	}
 }

@@ -78,8 +78,10 @@ Sets the `up_session` cookie. Errors: `401 ERR_AUTH_INVALID_CREDENTIALS`,
 
 302 to the identity provider (Authorization Code + PKCE, see
 `docs/authentication.md`). `?prompt=login` is forwarded to the provider, which
-then shows its form again instead of reusing the browser session, which is how
-another account can be used after a rejected login.
+then shows its form again instead of reusing the browser session. The endpoint
+still supports it, but the callback error page no longer links it: on Keycloak
+it looks confusing and does not behave well. Signing out of the provider session
+(`GET /api/auth/oidc/logout` below) is the way out offered there.
 
 ### `GET /api/auth/oidc/logout?redirect=/login`
 
@@ -93,8 +95,9 @@ provider `end_session_endpoint` (RP-initiated logout: `client_id`,
 
 Handled by the provider redirect; sets the session cookie and redirects to
 `APP_URL + redirect`. Failures render a small HTML page with the error code
-(`ERR_CLUSTER_*` style codes, `ERR_AUTH_DOMAIN_NOT_ALLOWED`, ...) and the two
-ways out of the provider session ("Sign in with another account" and "Sign out").
+(`ERR_CLUSTER_*` style codes, `ERR_AUTH_DOMAIN_NOT_ALLOWED`, ...) and one way
+out of the provider session: "Sign out of `<realm>`", which performs the
+RP-initiated logout described below.
 
 ## 3. Dashboard and monitors
 

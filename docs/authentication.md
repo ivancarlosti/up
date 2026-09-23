@@ -160,8 +160,10 @@ Two endpoints cover that:
 | Sign in as somebody else | `GET /api/auth/oidc/login?prompt=login` | `prompt=login` makes the provider show its form again instead of reusing the SSO session. No provider side configuration is needed. |
 | Sign out | `GET /api/auth/oidc/logout?redirect=/login` | clears `up_session`, the OIDC state and the ID token cookies, then redirects to the provider `end_session_endpoint` (RP-initiated logout) so the provider session is dropped as well |
 
-The error page shown after a rejected login offers both actions, and the dashboard
-"Sign out" uses `/api/auth/oidc/logout` whenever `AUTH_METHOD=keycloak`.
+The error page shown after a rejected login offers only the sign out handoff
+("Sign out of `<realm>`"): the forced re-login was removed from it because it
+looks confusing and does not behave well on Keycloak. The dashboard "Sign out"
+uses `/api/auth/oidc/logout` whenever `AUTH_METHOD=keycloak`.
 
 Details:
 
@@ -198,8 +200,8 @@ Checklist on the Keycloak side:
    `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` when it is set explicitly.
 4. A user with a real e-mail belonging to `KEYCLOAK_ACCOUNTS`.
 5. A user **outside** the allow list, to exercise the rejection page: sign in
-   with it, then use "Sign in with another account" (or "Sign out") and check
-   that the allowed account can be entered afterwards.
+   with it, then use "Sign out of up-realm" and check that the allowed account
+   can be entered afterwards.
 6. `KEYCLOAK_BASE_URL` must be reachable **from the Up container**: use
    `http://up-dev-keycloak:8080` for a container on the same Docker network, or
    the public URL. If discovery works but the callback fails, check the

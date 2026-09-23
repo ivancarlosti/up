@@ -121,9 +121,11 @@ func (h *Container) oidcCallback(c *gin.Context) {
 // body would be confusing) containing the stable error code that the frontend
 // translates when the user comes back to the dashboard.
 //
-// The page always offers a way out of the provider session: after a rejected
-// login the browser still holds the provider cookie, so starting the login again
-// would sign the very same account in, and "Try again" alone can never work.
+// The page offers the way out of the provider session: after a rejected login
+// the browser still holds the provider cookie, so signing in again would sign
+// the very same account in. The logout handoff is the action that reliably
+// clears that cookie; the forced re-login (prompt=login) is intentionally not
+// offered here.
 func (h *Container) renderOIDCError(c *gin.Context, status int, code, message string) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Status(status)
@@ -137,11 +139,9 @@ func (h *Container) renderOIDCError(c *gin.Context, status int, code, message st
 min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:38rem;padding:2rem}
 code{background:#111827;padding:.15rem .4rem;border-radius:.25rem}</style></head>
 <body><main><h1>Authentication failed</h1><p>%s</p><p>Error code: <code>%s</code></p>
-<p>The browser is still signed in at the identity provider, so signing in again would use the same account.</p>
-<p><a style="color:#60a5fa" href="%s/api/auth/oidc/login?redirect=/login&amp;prompt=login">Sign in with another account</a>
-&nbsp;&middot;&nbsp;
-<a style="color:#60a5fa" href="%s/api/auth/oidc/logout?redirect=/login">%s</a></p></main></body></html>`,
-		htmlEscape(message), htmlEscape(code), h.Cfg.AppURL, h.Cfg.AppURL, htmlEscape(signOut))
+<p>The browser is still signed in at the identity provider. Sign out below and sign in again to use another account.</p>
+<p><a style="color:#60a5fa" href="%s/api/auth/oidc/logout?redirect=/login">%s</a></p></main></body></html>`,
+		htmlEscape(message), htmlEscape(code), h.Cfg.AppURL, htmlEscape(signOut))
 }
 
 func firstNonEmpty(values ...string) string {

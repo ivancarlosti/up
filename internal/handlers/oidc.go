@@ -136,8 +136,10 @@ func (h *Container) oidcLogin(c *gin.Context) {
 }
 
 // loginOptions builds the authorization request options, including an optional
-// prompt=login. That value is what lets the user pick another account after a
-// rejected login: without it the provider silently reuses the browser session.
+// prompt=login. That value makes the provider show its form again instead of
+// reusing the browser session, so a different account can be picked. The
+// rejection page no longer links it (confusing and unreliable on Keycloak), but
+// the endpoint keeps supporting it.
 func loginOptions(prompt, nonce, verifier string) []oauth2.AuthCodeOption {
 	options := []oauth2.AuthCodeOption{
 		oidc.Nonce(nonce),
