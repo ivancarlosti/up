@@ -8,6 +8,7 @@ import type {
   IPRule,
   StatusPage,
   StatusPageMonitorItem,
+  StatusPageGroupLink,
 } from './types'
 
 /** Admin API client: status pages, cluster, runtime settings and security. */
@@ -21,6 +22,12 @@ export const adminApi = {
   statusPageMonitors: (id: number) => get<StatusPageMonitorItem[]>(`/api/status-pages/${id}/monitors`),
   setStatusPageMonitors: (id: number, monitorIds: number[]) =>
     put<StatusPageMonitorItem[]>(`/api/status-pages/${id}/monitors`, { monitor_ids: monitorIds }),
+  statusPageGroups: (id: number) =>
+    get<StatusPageGroupLink[]>(`/api/status-pages/${id}/groups`).then((data) => data ?? []),
+  setStatusPageGroups: (id: number, groupIds: number[]) =>
+    put<StatusPageGroupLink[]>(`/api/status-pages/${id}/groups`, {
+      groups: groupIds.map((group_id) => ({ group_id })),
+    }).then((data) => data ?? []),
   publicStatusPage: (slug: string) => get<StatusPage>(`/api/public/status/${slug}`),
 
   clusterStatus: () => get<ClusterStatus>('/api/cluster/status'),

@@ -291,6 +291,8 @@
     "customCss": "CSS personalizado",
     "selectMonitors": "Monitores mostrados",
     "selectMonitorsHelp": "El orden de la lista define el orden de visualización.",
+    "selectGroups": "Grupos mostrados",
+    "selectGroupsHelp": "Se muestran todos los monitores del grupo, así que agregar un monitor al grupo lo publica aquí.",
     "badge": "Insignia (badge)",
     "badgeHelp": "Insignia SVG lista para incrustar en un README.",
     "deleteTitle": "Eliminar página de estado",

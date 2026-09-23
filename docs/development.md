@@ -151,6 +151,10 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > with members, clones it shallow and deep, renames it, deletes it through the UI
 > and clones a monitor from the monitor list, cleaning up everything it created
 > (it also writes to the database).
+>
+> `npm run e2e:status-page-groups` proves the membership promise: a public page
+> that includes a group shows a monitor added to the group **without editing the
+> page**, and the admin dialog shows the group ticked.
 
 ### 6.1 Screenshots and layout checks
 

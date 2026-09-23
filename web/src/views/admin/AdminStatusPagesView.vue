@@ -18,19 +18,21 @@ import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { copyToClipboard } from '@/lib/utils'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, StatusPage } from '@/lib/types'
+import type { Monitor, MonitorGroup, StatusPage } from '@/lib/types'
 
 const { t } = useI18n()
 const toasts = useToastStore()
 
 const pages = ref<StatusPage[]>([])
 const monitors = ref<Monitor[]>([])
+const groups = ref<MonitorGroup[]>([])
 const dialogOpen = ref(false)
 const saving = ref(false)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<StatusPage | null>(null)
 const editing = ref<StatusPage | null>(null)
 const selectedMonitors = ref<number[]>([])
+const selectedGroups = ref<number[]>([])
 const form = ref<Partial<StatusPage>>(blank())
 
 const themeOptions = computed(() => [
@@ -65,9 +67,14 @@ function badgeURL(slug: string): string {
 
 async function load(): Promise<void> {
   try {
-    const [pageList, monitorList] = await Promise.all([api.statusPages(), api.monitors({ decorate: 'false' })])
+    const [pageList, monitorList, groupList] = await Promise.all([
+      api.statusPages(),
+      api.monitors({ decorate: 'false' }),
+      api.monitorGroups(),
+    ])
     pages.value = pageList
     monitors.value = monitorList
+    groups.value = groupList
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   }
@@ -78,6 +85,8 @@ async function openEdit(page: StatusPage): Promise<void> {
   form.value = JSON.parse(JSON.stringify(page))
   const items = await api.statusPageMonitors(page.id)
   selectedMonitors.value = items.map((item) => item.monitor_id)
+  const links = await api.statusPageGroups(page.id)
+  selectedGroups.value = links.map((link) => link.group_id)
   dialogOpen.value = true
 }
 
@@ -85,6 +94,7 @@ function openCreate(): void {
   editing.value = null
   form.value = blank()
   selectedMonitors.value = []
+  selectedGroups.value = []
   dialogOpen.value = true
 }
 
@@ -95,14 +105,23 @@ function toggleMonitor(id: number, value: boolean): void {
   selectedMonitors.value = [...set]
 }
 
+function toggleGroup(id: number, value: boolean): void {
+  const set = new Set(selectedGroups.value)
+  if (value) set.add(id)
+  else set.delete(id)
+  selectedGroups.value = [...set]
+}
+
 async function save(): Promise<void> {
   saving.value = true
   try {
     if (editing.value) {
       await api.updateStatusPage(editing.value.id, form.value)
       await api.setStatusPageMonitors(editing.value.id, selectedMonitors.value)
+      await api.setStatusPageGroups(editing.value.id, selectedGroups.value)
     } else {
-      await api.createStatusPage({ ...form.value, monitor_ids: selectedMonitors.value })
+      const created = await api.createStatusPage({ ...form.value, monitor_ids: selectedMonitors.value })
+      if (created?.id) await api.setStatusPageGroups(created.id, selectedGroups.value)
     }
     dialogOpen.value = false
     toasts.success(t('common.saved'))
@@ -156,6 +175,9 @@ onMounted(load)
             {{ page.is_public ? t('statusPages.isPublic') : t('common.disabled') }}
           </Badge>
           <Badge variant="outline">{{ t('statusPages.selectMonitors') }}: {{ page.monitors_count }}</Badge>
+          <Badge v-if="page.groups_count" variant="outline">
+            {{ t('statusPages.selectGroups') }}: {{ page.groups_count }}
+          </Badge>
           <code class="rounded bg-muted px-1.5 py-0.5">/status/{{ page.slug }}</code>
         </div>
 
@@ -230,6 +252,19 @@ onMounted(load)
               @update:model-value="toggleMonitor(monitor.id, $event)"
             >
               {{ monitor.name }}
+            </Checkbox>
+          </div>
+        </div>
+        <div v-if="groups.length" class="grid gap-2 sm:col-span-2">
+          <Label :help="t('statusPages.selectGroupsHelp')">{{ t('statusPages.selectGroups') }}</Label>
+          <div class="flex flex-wrap gap-4">
+            <Checkbox
+              v-for="group in groups"
+              :key="group.id"
+              :model-value="selectedGroups.includes(group.id)"
+              @update:model-value="toggleGroup(group.id, $event)"
+            >
+              {{ group.name }} ({{ group.monitor_count }})
             </Checkbox>
           </div>
         </div>

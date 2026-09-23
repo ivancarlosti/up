@@ -35,6 +35,22 @@ const banner = computed(() => {
   }
 })
 
+/**
+ * sections is what the page renders: one section per group (in page order)
+ * followed by the monitors that are on the page but in no group. The API returns
+ * the same order in `monitors` (the flat list) and in `groups` (the sections), so
+ * a monitor never appears twice.
+ */
+const sections = computed(() => {
+  const groups = (page.value?.groups ?? []).filter((group) => group.monitors?.length)
+  const grouped = new Set(groups.flatMap((group) => group.monitors.map((monitor) => monitor.id)))
+  const ungrouped = (page.value?.monitors ?? []).filter((monitor) => !grouped.has(monitor.id))
+  return [
+    ...groups.map((group) => ({ name: group.name, monitors: group.monitors })),
+    ...(ungrouped.length ? [{ name: '', monitors: ungrouped }] : []),
+  ]
+})
+
 async function load(): Promise<void> {
   refreshing.value = true
   try {
@@ -102,26 +118,31 @@ watch(slug, load)
 
       <EmptyState v-if="!page.monitors?.length" :title="t('publicStatus.noMonitors')" />
 
-      <div v-else class="flex flex-col gap-3">
-        <article
-          v-for="monitor in page.monitors"
-          :key="monitor.id"
-          class="rounded-xl border border-border bg-card px-4 py-3"
-        >
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="h-2.5 w-2.5 rounded-full" :class="statusColor(monitor.status)" />
-            <h2 class="text-sm font-medium">{{ monitor.name }}</h2>
-            <span class="ml-auto text-[11px] text-muted-foreground">{{ t(`status.${monitor.status}`) }}</span>
-          </div>
+      <div v-else class="flex flex-col gap-5">
+        <section v-for="(section, index) in sections" :key="`${section.name}-${index}`" class="flex flex-col gap-3">
+          <h3 v-if="section.name" class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {{ section.name }}
+          </h3>
+          <article
+            v-for="monitor in section.monitors"
+            :key="monitor.id"
+            class="rounded-xl border border-border bg-card px-4 py-3"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="h-2.5 w-2.5 rounded-full" :class="statusColor(monitor.status)" />
+              <h2 class="text-sm font-medium">{{ monitor.name }}</h2>
+              <span class="ml-auto text-[11px] text-muted-foreground">{{ t(`status.${monitor.status}`) }}</span>
+            </div>
 
-          <HeartbeatBar v-if="page.show_charts" class="mt-3" :heartbeats="monitor.heartbeats" :size="40" />
+            <HeartbeatBar v-if="page.show_charts" class="mt-3" :heartbeats="monitor.heartbeats" :size="40" />
 
-          <div class="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
-            <span v-if="page.show_uptime">{{ t('publicStatus.uptime') }} 24h: {{ formatUptime(monitor.uptime_24h) }}</span>
-            <span>{{ t('publicStatus.lastCheck') }}: {{ formatDateTime(monitor.last_check_at, locale) }}</span>
-            <span v-if="page.show_tags && monitor.tags">{{ monitor.tags }}</span>
-          </div>
-        </article>
+            <div class="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
+              <span v-if="page.show_uptime">{{ t('publicStatus.uptime') }} 24h: {{ formatUptime(monitor.uptime_24h) }}</span>
+              <span>{{ t('publicStatus.lastCheck') }}: {{ formatDateTime(monitor.last_check_at, locale) }}</span>
+              <span v-if="page.show_tags && monitor.tags">{{ monitor.tags }}</span>
+            </div>
+          </article>
+        </section>
       </div>
 
       <footer v-if="page.footer_text" class="pt-2 text-center text-[11px] text-muted-foreground">

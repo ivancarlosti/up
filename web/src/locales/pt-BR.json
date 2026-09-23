@@ -291,6 +291,8 @@
     "customCss": "CSS personalizado",
     "selectMonitors": "Monitores exibidos",
     "selectMonitorsHelp": "A ordem da lista define a ordem de exibição.",
+    "selectGroups": "Grupos exibidos",
+    "selectGroupsHelp": "Todos os monitores do grupo são exibidos, então adicionar um monitor ao grupo publica ele aqui.",
     "badge": "Selo (badge)",
     "badgeHelp": "Selo SVG pronto para o README do projeto.",
     "deleteTitle": "Excluir página de status",

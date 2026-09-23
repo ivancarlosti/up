@@ -96,10 +96,26 @@ export interface StatusPage {
   created_at: string
   updated_at: string
   monitors?: Monitor[]
+  groups?: StatusPageGroupSection[]
   monitors_count: number
+  groups_count?: number
   overall_status: AggregateStatus
   up_monitors: number
   down_monitors: number
+}
+
+/** A rendered section of the public status page (a group, or the ungrouped ones). */
+export interface StatusPageGroupSection {
+  name: string
+  monitors: Monitor[]
+}
+
+/** A monitor group included in a status page (admin payload). */
+export interface StatusPageGroupLink {
+  group_id: number
+  display_name?: string
+  sort_order?: number
+  group_name?: string
 }
 
 export interface StatusPageMonitorItem {

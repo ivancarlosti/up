@@ -291,6 +291,8 @@
     "customCss": "Custom CSS",
     "selectMonitors": "Displayed monitors",
     "selectMonitorsHelp": "The list order defines the display order.",
+    "selectGroups": "Displayed groups",
+    "selectGroupsHelp": "Every monitor of the group is shown, so adding a monitor to the group publishes it here.",
     "badge": "Badge",
     "badgeHelp": "SVG badge ready to be embedded in a README.",
     "deleteTitle": "Delete status page",
