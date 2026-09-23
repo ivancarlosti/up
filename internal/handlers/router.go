@@ -68,6 +68,7 @@ func (h *Container) Register(engine *gin.Engine) {
 	auth.POST("/login", middleware.RateLimit(h.Cfg.SecurityLoginRateLimit, time.Minute), h.login)
 	auth.POST("/logout", h.logout)
 	auth.GET("/oidc/login", h.oidcLogin)
+	auth.GET("/oidc/logout", h.oidcLogout)
 	auth.GET("/callback", h.oidcCallback)
 
 	// --- Public status pages --------------------------------------------

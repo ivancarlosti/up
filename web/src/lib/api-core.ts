@@ -35,6 +35,12 @@ export const coreApi = {
     }),
   logout: () => post<void>('/api/auth/logout'),
   oidcLoginURL: (redirect = '/') => buildURL('/api/auth/oidc/login', { redirect }),
+  /**
+   * oidcLogoutURL clears the local session and then hands the browser over to
+   * the identity provider, which drops its own session as well. Without it the
+   * next "Sign in with Keycloak" would silently reuse the same account.
+   */
+  oidcLogoutURL: (redirect = '/login') => buildURL('/api/auth/oidc/logout', { redirect }),
 
   dashboard: (query?: Query) => get<DashboardResponse>('/api/dashboard', query),
 

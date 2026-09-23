@@ -81,6 +81,10 @@ func (h *Container) oidcCallback(c *gin.Context) {
 		h.renderOIDCError(c, http.StatusForbidden, i18n.CodeAuthStateInvalid, "the id_token nonce does not match")
 		return
 	}
+	// Kept for a short while so the logout offered below (and the "Sign out" of
+	// the dashboard) can send it back as `id_token_hint` and make the provider
+	// drop its session without asking for a confirmation.
+	h.storeIDToken(c, rawIDToken)
 
 	claims := struct {
 		Email             string `json:"email"`
@@ -116,17 +120,28 @@ func (h *Container) oidcCallback(c *gin.Context) {
 // renderOIDCError returns a small HTML page (the browser is involved, so a JSON
 // body would be confusing) containing the stable error code that the frontend
 // translates when the user comes back to the dashboard.
+//
+// The page always offers a way out of the provider session: after a rejected
+// login the browser still holds the provider cookie, so starting the login again
+// would sign the very same account in, and "Try again" alone can never work.
 func (h *Container) renderOIDCError(c *gin.Context, status int, code, message string) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Status(status)
+	signOut := "Sign out"
+	if h.Cfg.KeycloakRealm != "" {
+		signOut += " of " + h.Cfg.KeycloakRealm
+	}
 	fmt.Fprintf(c.Writer, `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Up - authentication failed</title>
 <style>body{font-family:system-ui,sans-serif;background:#0b0f19;color:#e5e7eb;display:flex;
 min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:38rem;padding:2rem}
 code{background:#111827;padding:.15rem .4rem;border-radius:.25rem}</style></head>
 <body><main><h1>Authentication failed</h1><p>%s</p><p>Error code: <code>%s</code></p>
-<p><a style="color:#60a5fa" href="%s/api/auth/oidc/login">Try again</a></p></main></body></html>`,
-		htmlEscape(message), htmlEscape(code), h.Cfg.AppURL)
+<p>The browser is still signed in at the identity provider, so signing in again would use the same account.</p>
+<p><a style="color:#60a5fa" href="%s/api/auth/oidc/login?redirect=/login&amp;prompt=login">Sign in with another account</a>
+&nbsp;&middot;&nbsp;
+<a style="color:#60a5fa" href="%s/api/auth/oidc/logout?redirect=/login">%s</a></p></main></body></html>`,
+		htmlEscape(message), htmlEscape(code), h.Cfg.AppURL, h.Cfg.AppURL, htmlEscape(signOut))
 }
 
 func firstNonEmpty(values ...string) string {

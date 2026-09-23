@@ -7,6 +7,7 @@ import { storeToRefs } from 'pinia'
 import Button from '@/components/ui/Button.vue'
 import LocaleSwitcher from '@/components/layout/LocaleSwitcher.vue'
 import ThemeToggle from '@/components/layout/ThemeToggle.vue'
+import { api } from '@/lib/api'
 import { useAppStore } from '@/stores/app'
 import { useMonitorStore } from '@/stores/monitors'
 import { cn } from '@/lib/utils'
@@ -55,8 +56,15 @@ const realtimeHint = computed(() => {
 })
 
 async function signOut(): Promise<void> {
+  const keycloak = app.authMethod === 'keycloak'
   await app.signOut()
   menuOpen.value = false
+  if (keycloak) {
+    // The identity provider keeps its own session: without the logout handoff
+    // the next sign in would reuse the same account.
+    window.location.assign(api.oidcLogoutURL('/login'))
+    return
+  }
   await router.push({ name: 'login' })
 }
 </script>

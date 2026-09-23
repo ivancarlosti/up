@@ -77,13 +77,24 @@ Sets the `up_session` cookie. Errors: `401 ERR_AUTH_INVALID_CREDENTIALS`,
 ### `GET /api/auth/oidc/login?redirect=/admin/cluster`
 
 302 to the identity provider (Authorization Code + PKCE, see
-`docs/authentication.md`).
+`docs/authentication.md`). `?prompt=login` is forwarded to the provider, which
+then shows its form again instead of reusing the browser session, which is how
+another account can be used after a rejected login.
+
+### `GET /api/auth/oidc/logout?redirect=/login`
+
+Clears the session, the OIDC state and the ID token cookies, then 302 to the
+provider `end_session_endpoint` (RP-initiated logout: `client_id`,
+`post_logout_redirect_uri` = `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`, and
+`id_token_hint` while the ID token cookie is still valid). Without a discovered
+`end_session_endpoint` it redirects to `APP_URL + redirect` instead.
 
 ### `GET /api/auth/callback`
 
 Handled by the provider redirect; sets the session cookie and redirects to
 `APP_URL + redirect`. Failures render a small HTML page with the error code
-(`ERR_CLUSTER_*` style codes, `ERR_AUTH_DOMAIN_NOT_ALLOWED`, ...).
+(`ERR_CLUSTER_*` style codes, `ERR_AUTH_DOMAIN_NOT_ALLOWED`, ...) and the two
+ways out of the provider session ("Sign in with another account" and "Sign out").
 
 ## 3. Dashboard and monitors
 

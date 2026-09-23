@@ -53,14 +53,15 @@ type Config struct {
 	RecaptchaClientSecret string
 	RecaptchaEnabled      bool
 
-	KeycloakBaseURL      string
-	KeycloakRealm        string
-	KeycloakClientID     string
-	KeycloakClientSecret string
-	KeycloakRedirectURI  string
-	KeycloakAccounts     []string
-	KeycloakIssuer       string
-	KeycloakCallbackPath string
+	KeycloakBaseURL               string
+	KeycloakRealm                 string
+	KeycloakClientID              string
+	KeycloakClientSecret          string
+	KeycloakRedirectURI           string
+	KeycloakPostLogoutRedirectURI string
+	KeycloakAccounts              []string
+	KeycloakIssuer                string
+	KeycloakCallbackPath          string
 
 	// --- I18n & theme defaults -------------------------------------------
 	DefaultLocale string
@@ -98,37 +99,40 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		AppURL:                    trimURL(env("APP_URL", "http://localhost:3000")),
-		AppPort:                   envInt("APP_PORT", 3000),
-		DBHost:                    env("DB_HOST", ""),
-		DBPort:                    envInt("DB_PORT", 3306),
-		DBDatabase:                env("DB_DATABASE", ""),
-		DBUsername:                env("DB_USERNAME", ""),
-		DBPassword:                env("DB_PASSWORD", ""),
-		AuthMethod:                AuthMethod(strings.ToLower(env("AUTH_METHOD", string(AuthMethodAccount)))),
-		AccountLogin:              env("ACCOUNT_LOGIN", ""),
-		AccountPassword:           env("ACCOUNT_PASSWORD", ""),
-		RecaptchaClientID:         env("RECAPTCHA_CLIENTID", ""),
-		RecaptchaClientSecret:     env("RECAPTCHA_CLIENTSECRET", ""),
-		KeycloakBaseURL:           trimURL(env("KEYCLOAK_BASE_URL", "")),
-		KeycloakRealm:             env("KEYCLOAK_REALM", ""),
-		KeycloakClientID:          env("KEYCLOAK_CLIENT_ID", ""),
-		KeycloakClientSecret:      env("KEYCLOAK_CLIENT_SECRET", ""),
-		KeycloakRedirectURI:       strings.TrimSpace(env("KEYCLOAK_REDIRECT_URI", "")),
-		DefaultLocale:             env("DEFAULT_LOCALE", "en-US"),
-		DefaultTheme:              env("DEFAULT_THEME", "system"),
-		ClusterEnabled:            mustBool("CLUSTER_ENABLED", false),
-		NodeID:                    env("NODE_ID", "up-node-1"),
-		NodeName:                  env("NODE_NAME", "Primary Node"),
-		ClusterPrivateKey:         strings.TrimSpace(env("CLUSTER_PRIVATE_KEY", "")),
-		LogLevel:                  strings.ToLower(env("LOG_LEVEL", "info")),
-		SchedulerMaxConcurrent:    envInt("SCHEDULER_MAX_CONCURRENT", 20),
-		SchedulerReconcileSeconds: envInt("SCHEDULER_RECONCILE_SECONDS", 30),
-		HeartbeatRetentionDays:    envInt("HEARTBEAT_RETENTION_DAYS", 0),
-		SessionTTLHours:           envInt("SESSION_TTL_HOURS", 720),
-		SecurityBypassIPRules:     mustBool("SECURITY_BYPASS_IP_RULES", false),
-		SecurityLoginRateLimit:    envInt("SECURITY_LOGIN_RATE_LIMIT", 20),
-		SecurityPublicRateLimit:   envInt("SECURITY_PUBLIC_RATE_LIMIT", 240),
+		AppURL:                trimURL(env("APP_URL", "http://localhost:3000")),
+		AppPort:               envInt("APP_PORT", 3000),
+		DBHost:                env("DB_HOST", ""),
+		DBPort:                envInt("DB_PORT", 3306),
+		DBDatabase:            env("DB_DATABASE", ""),
+		DBUsername:            env("DB_USERNAME", ""),
+		DBPassword:            env("DB_PASSWORD", ""),
+		AuthMethod:            AuthMethod(strings.ToLower(env("AUTH_METHOD", string(AuthMethodAccount)))),
+		AccountLogin:          env("ACCOUNT_LOGIN", ""),
+		AccountPassword:       env("ACCOUNT_PASSWORD", ""),
+		RecaptchaClientID:     env("RECAPTCHA_CLIENTID", ""),
+		RecaptchaClientSecret: env("RECAPTCHA_CLIENTSECRET", ""),
+		KeycloakBaseURL:       trimURL(env("KEYCLOAK_BASE_URL", "")),
+		KeycloakRealm:         env("KEYCLOAK_REALM", ""),
+		KeycloakClientID:      env("KEYCLOAK_CLIENT_ID", ""),
+		KeycloakClientSecret:  env("KEYCLOAK_CLIENT_SECRET", ""),
+		KeycloakRedirectURI:   strings.TrimSpace(env("KEYCLOAK_REDIRECT_URI", "")),
+		// The default of KEYCLOAK_POST_LOGOUT_REDIRECT_URI depends on APP_URL,
+		// so it is resolved in validate.go.
+		KeycloakPostLogoutRedirectURI: strings.TrimSpace(env("KEYCLOAK_POST_LOGOUT_REDIRECT_URI", "")),
+		DefaultLocale:                 env("DEFAULT_LOCALE", "en-US"),
+		DefaultTheme:                  env("DEFAULT_THEME", "system"),
+		ClusterEnabled:                mustBool("CLUSTER_ENABLED", false),
+		NodeID:                        env("NODE_ID", "up-node-1"),
+		NodeName:                      env("NODE_NAME", "Primary Node"),
+		ClusterPrivateKey:             strings.TrimSpace(env("CLUSTER_PRIVATE_KEY", "")),
+		LogLevel:                      strings.ToLower(env("LOG_LEVEL", "info")),
+		SchedulerMaxConcurrent:        envInt("SCHEDULER_MAX_CONCURRENT", 20),
+		SchedulerReconcileSeconds:     envInt("SCHEDULER_RECONCILE_SECONDS", 30),
+		HeartbeatRetentionDays:        envInt("HEARTBEAT_RETENTION_DAYS", 0),
+		SessionTTLHours:               envInt("SESSION_TTL_HOURS", 720),
+		SecurityBypassIPRules:         mustBool("SECURITY_BYPASS_IP_RULES", false),
+		SecurityLoginRateLimit:        envInt("SECURITY_LOGIN_RATE_LIMIT", 20),
+		SecurityPublicRateLimit:       envInt("SECURITY_PUBLIC_RATE_LIMIT", 240),
 	}
 
 	cfg.AppTrustProxy = mustBool("APP_TRUST_PROXY", false)

@@ -102,6 +102,14 @@ func (c *Config) validate() []string {
 		if !isAbsHTTPURL(c.KeycloakRedirectURI) {
 			problems = append(problems, fmt.Sprintf("KEYCLOAK_REDIRECT_URI must be a valid absolute http(s) URL, got %q", c.KeycloakRedirectURI))
 		}
+		if c.KeycloakPostLogoutRedirectURI == "" {
+			// Where the provider sends the browser back after the logout: the
+			// SPA login screen (see handlers/oidcLogout).
+			c.KeycloakPostLogoutRedirectURI = c.AppURL + "/login"
+		}
+		if !isAbsHTTPURL(c.KeycloakPostLogoutRedirectURI) {
+			problems = append(problems, fmt.Sprintf("KEYCLOAK_POST_LOGOUT_REDIRECT_URI must be a valid absolute http(s) URL, got %q", c.KeycloakPostLogoutRedirectURI))
+		}
 	default:
 		problems = append(problems, fmt.Sprintf("AUTH_METHOD must be none, account or keycloak, got %q", c.AuthMethod))
 	}

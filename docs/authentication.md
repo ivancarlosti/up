@@ -103,6 +103,7 @@ KEYCLOAK_REALM=up-realm
 KEYCLOAK_CLIENT_ID=up-client
 KEYCLOAK_CLIENT_SECRET=YOURSECRET
 KEYCLOAK_REDIRECT_URI=
+KEYCLOAK_POST_LOGOUT_REDIRECT_URI=
 KEYCLOAK_ACCOUNTS=admin@example.com @empresa.com domain2.com
 APP_URL=https://up.example.com
 ```
@@ -111,6 +112,10 @@ APP_URL=https://up.example.com
   `/.well-known/openid-configuration` (`coreos/go-oidc`).
 - `KEYCLOAK_REDIRECT_URI` may be left empty: it is derived as
   `APP_URL + /api/auth/callback`. Register **exactly** that URL on the client.
+- `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` may be left empty too: it is derived as
+  `APP_URL + /login` and is where the provider returns the browser after a
+  logout. Register **exactly** that URL on the client as well (see
+  "Signing out and switching accounts").
 - The token exchange uses **PKCE (S256)** with a signed, single use state cookie
   (`up_oidc_state`, 10 minutes) that also carries the nonce.
 - The ID token is verified against the provider JWKS, including the nonce.
@@ -140,6 +145,39 @@ The e-mail is taken from `email`, falling back to `preferred_username` and then
 `403 ERR_AUTH_DOMAIN_NOT_ALLOWED` with a small HTML page (the browser is
 involved) and logs the rejected address with the client IP.
 
+### Signing out and switching accounts
+
+Up's session cookie is independent from the provider session: after a login the
+browser keeps the Keycloak SSO cookie, so starting the login again silently signs
+the **same** account back in. A rejected address would therefore loop forever on
+`ERR_AUTH_DOMAIN_NOT_ALLOWED` ("Try again" alone can never succeed), and a plain
+`POST /api/auth/logout` would not help either: it only clears `up_session`.
+
+Two endpoints cover that:
+
+| Action | Endpoint | What it does |
+|---|---|---|
+| Sign in as somebody else | `GET /api/auth/oidc/login?prompt=login` | `prompt=login` makes the provider show its form again instead of reusing the SSO session. No provider side configuration is needed. |
+| Sign out | `GET /api/auth/oidc/logout?redirect=/login` | clears `up_session`, the OIDC state and the ID token cookies, then redirects to the provider `end_session_endpoint` (RP-initiated logout) so the provider session is dropped as well |
+
+The error page shown after a rejected login offers both actions, and the dashboard
+"Sign out" uses `/api/auth/oidc/logout` whenever `AUTH_METHOD=keycloak`.
+
+Details:
+
+- `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` (default `APP_URL + /login`) is sent as the
+  `post_logout_redirect_uri` of that redirect and **must be registered on the
+  client**: *Clients → your client → Login settings → Valid post logout redirect
+  URIs*. Keycloak answers `400 INVALID_REDIRECT_URI` otherwise.
+- The callback stores the raw ID token in a 15 minute `HttpOnly` cookie so the
+  logout can pass it back as `id_token_hint`. Without that hint Keycloak cannot
+  tell which session belongs to this client and displays its own logout
+  confirmation page first (the logout still works, one click later).
+- The `redirect` query parameter is only used when the provider advertises no
+  `end_session_endpoint`: the browser is then sent to `APP_URL + redirect`.
+- Both endpoints are public (they only ever destroy state); a `GET` logout is
+  what the RP-Initiated Logout specification describes.
+
 ### Testing the flow locally
 
 ```bash
@@ -154,8 +192,15 @@ Checklist on the Keycloak side:
 1. Realm `up-realm`, client `up-client` (confidential).
 2. Valid redirect URI: `https://up.example.com/api/auth/callback` (or
    `http://localhost:3000/api/auth/callback` for a local test).
-3. A user with a real e-mail belonging to `KEYCLOAK_ACCOUNTS`.
-4. `KEYCLOAK_BASE_URL` must be reachable **from the Up container**: use
+3. Valid post logout redirect URI: `https://up.example.com/login` (or
+   `http://localhost:3000/login`) — needed by
+   `GET /api/auth/oidc/logout`. Use the same value as
+   `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` when it is set explicitly.
+4. A user with a real e-mail belonging to `KEYCLOAK_ACCOUNTS`.
+5. A user **outside** the allow list, to exercise the rejection page: sign in
+   with it, then use "Sign in with another account" (or "Sign out") and check
+   that the allowed account can be entered afterwards.
+6. `KEYCLOAK_BASE_URL` must be reachable **from the Up container**: use
    `http://up-dev-keycloak:8080` for a container on the same Docker network, or
    the public URL. If discovery works but the callback fails, check the
    redirect URI character by character.
