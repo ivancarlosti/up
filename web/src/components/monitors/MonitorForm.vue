@@ -10,12 +10,13 @@ import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
-import type { Header, Monitor, MonitorConfig, MonitorPayload, MonitorType, Notification } from '@/lib/types'
+import type { Header, Monitor, MonitorConfig, MonitorPayload, MonitorType, MonitorGroup, Notification } from '@/lib/types'
 
 const props = defineProps<{
   modelValue: boolean
   monitor: Monitor | null
   notifications: Notification[]
+  groups?: MonitorGroup[]
   saving?: boolean
 }>()
 
@@ -40,6 +41,7 @@ function emptyForm(): MonitorPayload {
     tags: '',
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', headers: [] },
     notification_ids: [],
+    group_ids: [],
   }
 }
 
@@ -96,6 +98,13 @@ function toggleNotification(id: number, value: boolean): void {
   if (value) ids.add(id)
   else ids.delete(id)
   form.notification_ids = [...ids]
+}
+
+function toggleGroup(id: number, value: boolean): void {
+  const ids = new Set(form.group_ids ?? [])
+  if (value) ids.add(id)
+  else ids.delete(id)
+  form.group_ids = [...ids]
 }
 
 function submit(): void {
@@ -303,6 +312,21 @@ function submit(): void {
             @update:model-value="toggleNotification(channel.id, $event)"
           >
             {{ channel.name }} ({{ channel.type }})
+          </Checkbox>
+        </div>
+      </section>
+
+      <!-- Groups -->
+      <section v-if="props.groups?.length" class="grid gap-2 border-t border-border pt-4">
+        <Label :help="t('monitor.groupsHelp')">{{ t('monitor.groupsSection') }}</Label>
+        <div class="flex flex-wrap gap-4">
+          <Checkbox
+            v-for="group in props.groups"
+            :key="group.id"
+            :model-value="(form.group_ids ?? []).includes(group.id)"
+            @update:model-value="toggleGroup(group.id, $event)"
+          >
+            {{ group.name }}
           </Checkbox>
         </div>
       </section>

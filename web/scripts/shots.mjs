@@ -18,6 +18,7 @@ import { findChrome, launch, newPage } from './browser.mjs'
 const ROUTES = [
   { path: '/', name: 'dashboard' },
   { path: '/admin/monitors', name: 'admin-monitors' },
+  { path: '/admin/monitor-groups', name: 'admin-monitor-groups' },
   { path: '/admin/notifications', name: 'admin-notifications' },
   { path: '/admin/status-pages', name: 'admin-status-pages' },
   { path: '/admin/security', name: 'admin-security' },

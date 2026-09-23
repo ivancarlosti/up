@@ -1,21 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
+import Select from '@/components/ui/Select.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
+import Switch from '@/components/ui/Switch.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatInterval, formatUptime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorPayload, Notification } from '@/lib/types'
+import type { Monitor, MonitorCloneOptions, MonitorGroup, MonitorPayload, Notification } from '@/lib/types'
 
 const { t } = useI18n()
 const toasts = useToastStore()
@@ -23,26 +27,44 @@ const router = useRouter()
 
 const monitors = ref<Monitor[]>([])
 const notifications = ref<Notification[]>([])
+const groups = ref<MonitorGroup[]>([])
 const search = ref('')
+const groupFilter = ref('')
 const formOpen = ref(false)
 const editing = ref<Monitor | null>(null)
 const saving = ref(false)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<Monitor | null>(null)
 
+const cloneOpen = ref(false)
+const cloning = ref(false)
+const cloneSource = ref<Monitor | null>(null)
+const cloneForm = reactive<MonitorCloneOptions>({ name: '', copy_notifications: true, copy_groups: true })
+
+const groupNames = computed(() => new Map(groups.value.map((group) => [group.id, group.name])))
+
+/** groupFilterOptions adds the "all groups" entry to the real groups. */
+const groupFilterOptions = computed(() => [
+  { value: '', label: t('monitor.allGroups') },
+  ...groups.value.map((group) => ({ value: String(group.id), label: `${group.name} (${group.monitor_count})` })),
+])
+
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase()
-  if (!term) return monitors.value
-  return monitors.value.filter(
-    (monitor) => monitor.name.toLowerCase().includes(term) || monitor.type.includes(term),
-  )
+  const groupID = Number(groupFilter.value) || 0
+  return monitors.value.filter((monitor) => {
+    if (groupID > 0 && !(monitor.group_ids ?? []).includes(groupID)) return false
+    if (!term) return true
+    return monitor.name.toLowerCase().includes(term) || monitor.type.includes(term)
+  })
 })
 
 async function load(): Promise<void> {
   try {
-    const [list, channels] = await Promise.all([api.monitors(), api.notifications()])
+    const [list, channels, groupList] = await Promise.all([api.monitors(), api.notifications(), api.monitorGroups()])
     monitors.value = list
     notifications.value = channels
+    groups.value = groupList
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   }
@@ -85,6 +107,34 @@ async function confirmRemove(): Promise<void> {
   }
 }
 
+/** openClone prepares the clone dialog; an empty name lets the API decide. */
+function openClone(monitor: Monitor): void {
+  cloneSource.value = monitor
+  cloneForm.name = ''
+  cloneForm.copy_notifications = true
+  cloneForm.copy_groups = true
+  cloneOpen.value = true
+}
+
+async function submitClone(): Promise<void> {
+  if (!cloneSource.value) return
+  cloning.value = true
+  try {
+    await api.cloneMonitor(cloneSource.value.id, {
+      name: cloneForm.name?.trim() || undefined,
+      copy_notifications: cloneForm.copy_notifications,
+      copy_groups: cloneForm.copy_groups,
+    })
+    cloneOpen.value = false
+    toasts.success(t('common.saved'))
+    await load()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    cloning.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -96,6 +146,7 @@ onMounted(load)
         <p class="text-xs text-muted-foreground">{{ t('dashboard.subtitle', { up: '-', down: '-', paused: '-' }) }}</p>
       </div>
       <div class="flex items-center gap-2">
+        <Select v-if="groups.length" v-model="groupFilter" class="w-44" :options="groupFilterOptions" />
         <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
         <Button variant="outline" size="sm" @click="load">
           <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
@@ -116,6 +167,7 @@ onMounted(load)
           <tr>
             <th>{{ t('common.name') }}</th>
             <th>{{ t('common.type') }}</th>
+            <th>{{ t('monitor.groupsSection') }}</th>
             <th>{{ t('common.status') }}</th>
             <th>{{ t('common.interval') }}</th>
             <th>{{ t('common.uptime') }}</th>
@@ -130,6 +182,14 @@ onMounted(load)
               </button>
             </td>
             <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
+            <td>
+              <div class="flex flex-wrap gap-1">
+                <Badge v-for="id in monitor.group_ids ?? []" :key="id" variant="outline">
+                  {{ groupNames.get(id) ?? id }}
+                </Badge>
+                <span v-if="!(monitor.group_ids ?? []).length" class="text-muted-foreground">—</span>
+              </div>
+            </td>
             <td><StatusBadge :status="monitor.status" /></td>
             <td>{{ formatInterval(monitor.interval_seconds) }}</td>
             <td>{{ formatUptime(monitor.uptime_24h) }}</td>
@@ -137,6 +197,9 @@ onMounted(load)
               <div class="flex items-center gap-1">
                 <Button variant="ghost" size="sm" @click="openEdit(monitor)">
                   <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+                <Button variant="ghost" size="sm" :title="t('common.clone')" :aria-label="t('common.clone')" @click="openClone(monitor)">
+                  <Copy class="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
                 <Button
                   variant="ghost"
@@ -153,7 +216,31 @@ onMounted(load)
       </table>
     </Card>
 
-    <MonitorForm v-model="formOpen" :monitor="editing" :notifications="notifications" :saving="saving" @submit="submit" />
+    <MonitorForm
+      v-model="formOpen"
+      :monitor="editing"
+      :notifications="notifications"
+      :groups="groups"
+      :saving="saving"
+      @submit="submit"
+    />
+
+    <Dialog v-model="cloneOpen" :title="t('monitor.cloneTitle')" :description="t('monitor.cloneHelp')">
+      <div class="grid gap-4">
+        <div class="grid gap-1">
+          <Label for="clone-name">{{ t('monitor.cloneName') }}</Label>
+          <Input id="clone-name" v-model="cloneForm.name" :placeholder="cloneSource ? `${cloneSource.name} (copy)` : ''" />
+        </div>
+        <div class="grid gap-2">
+          <Switch v-model="cloneForm.copy_notifications as boolean">{{ t('monitor.copyNotifications') }}</Switch>
+          <Switch v-model="cloneForm.copy_groups as boolean">{{ t('monitor.copyGroups') }}</Switch>
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="cloneOpen = false">{{ t('common.cancel') }}</Button>
+        <Button :loading="cloning" @click="submitClone">{{ t('common.clone') }}</Button>
+      </template>
+    </Dialog>
 
     <ConfirmDialog
       v-model="confirmOpen"

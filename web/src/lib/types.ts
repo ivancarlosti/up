@@ -93,9 +93,47 @@ export interface Monitor {
   heartbeats?: HeartbeatSummary[]
   votes?: NodeVote[]
   notification_ids: number[]
+  group_ids: number[]
 }
 
-export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & { notification_ids?: number[] }
+export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
+  notification_ids?: number[]
+  group_ids?: number[]
+}
+
+/**
+ * MonitorGroup is a named collection of monitors. Groups organise the monitor
+ * list and drive the membership of a status page (a page that includes a group
+ * shows every monitor inside it).
+ */
+export interface MonitorGroup {
+  id: number
+  uuid: string
+  name: string
+  description: string
+  color: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+  monitor_ids: number[]
+  monitor_count: number
+}
+
+export type MonitorGroupPayload = Partial<MonitorGroup> & { monitor_ids?: number[] }
+
+/** Options of a monitor clone (POST /api/monitors/:id/clone). */
+export interface MonitorCloneOptions {
+  name?: string
+  copy_notifications?: boolean
+  copy_groups?: boolean
+}
+
+/** Options of a group clone (POST /api/monitor-groups/:id/clone). */
+export interface MonitorGroupCloneOptions {
+  name?: string
+  deep?: boolean
+  copy_links?: boolean
+}
 
 export interface Heartbeat {
   id: number

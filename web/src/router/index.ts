@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { auth: true, app: true },
     },
     {
+      path: '/admin/monitor-groups',
+      name: 'admin-monitor-groups',
+      component: () => import('@/views/admin/AdminMonitorGroupsView.vue'),
+      meta: { auth: true, app: true },
+    },
+    {
       path: '/admin/notifications',
       name: 'admin-notifications',
       component: () => import('@/views/admin/AdminNotificationsView.vue'),

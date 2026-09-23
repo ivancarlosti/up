@@ -10,6 +10,7 @@
     "cancel": "Cancelar",
     "delete": "Excluir",
     "edit": "Editar",
+    "clone": "Clonar",
     "create": "Criar",
     "close": "Fechar",
     "confirm": "Confirmar",
@@ -58,6 +59,7 @@
   "nav": {
     "dashboard": "Painel",
     "monitors": "Monitores",
+    "monitorGroups": "Grupos de monitores",
     "notifications": "Notificações",
     "statusPages": "Páginas de status",
     "security": "Segurança",
@@ -195,7 +197,38 @@
     "node": "Nó",
     "checkedAt": "Verificado em",
     "message": "Mensagem",
-    "offline": "indisponível"
+    "offline": "indisponível",
+    "groupsSection": "Grupos",
+    "groupsHelp": "Os grupos organizam a lista de monitores e alimentam as status pages que os incluem.",
+    "clone": "Clonar",
+    "cloneTitle": "Clonar monitor",
+    "cloneHelp": "A cópia começa com histórico limpo: os heartbeats não são copiados.",
+    "cloneName": "Nome da cópia (vazio = \"nome (copy)\")",
+    "copyNotifications": "Copiar os canais de notificação",
+    "copyGroups": "Copiar os grupos",
+    "allGroups": "Todos os grupos"
+  },
+  "groups": {
+    "title": "Grupos de monitores",
+    "subtitle": "Coleções nomeadas de monitores: uma status page que inclui um grupo mostra todos os monitores dele",
+    "new": "Novo grupo",
+    "edit": "Editar grupo",
+    "name": "Nome do grupo",
+    "sortOrder": "Ordem",
+    "monitors": "Monitores",
+    "monitorsHelp": "Selecione os monitores que pertencem a este grupo.",
+    "searchMonitors": "Filtrar monitores",
+    "noMonitors": "Nenhum monitor neste grupo ainda",
+    "empty": "Nenhum grupo ainda",
+    "emptyHint": "Crie um grupo para organizar os monitores e publicá-los juntos em uma status page.",
+    "clone": "Clonar",
+    "cloneTitle": "Clonar grupo",
+    "cloneName": "Nome da cópia (vazio = \"nome (copy)\")",
+    "cloneDeep": "Clonar os monitores do grupo",
+    "cloneDeepHelp": "Cada monitor é duplicado com o sufixo (copy); o histórico de heartbeats não é copiado.",
+    "copyLinks": "Copiar os canais e os grupos de cada monitor",
+    "deleteTitle": "Excluir grupo",
+    "deleteWarning": "O grupo é removido; os monitores dentro dele permanecem."
   },
   "notifications": {
     "title": "Canais de notificação",
@@ -432,6 +465,8 @@
     "ERR_TOKEN_SCOPE_INSUFFICIENT": "O token não possui o escopo necessário",
     "ERR_STATUS_PAGE_NOT_FOUND": "Página de status não encontrada",
     "ERR_STATUS_PAGE_NOT_PUBLIC": "Esta página de status não é pública",
-    "ERR_STATUS_PAGE_SLUG_TAKEN": "Este identificador já está em uso"
+    "ERR_STATUS_PAGE_SLUG_TAKEN": "Este identificador já está em uso",
+    "ERR_MONITOR_GROUP_NOT_FOUND": "Grupo de monitores não encontrado",
+    "ERR_MONITOR_GROUP_INVALID": "Grupo de monitores inválido"
   }
 }

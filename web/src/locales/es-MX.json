@@ -10,6 +10,7 @@
     "cancel": "Cancelar",
     "delete": "Eliminar",
     "edit": "Editar",
+    "clone": "Clonar",
     "create": "Crear",
     "close": "Cerrar",
     "confirm": "Confirmar",
@@ -58,6 +59,7 @@
   "nav": {
     "dashboard": "Panel",
     "monitors": "Monitores",
+    "monitorGroups": "Grupos de monitores",
     "notifications": "Notificaciones",
     "statusPages": "Páginas de estado",
     "security": "Seguridad",
@@ -195,7 +197,38 @@
     "node": "Nodo",
     "checkedAt": "Verificado en",
     "message": "Mensaje",
-    "offline": "desconectado"
+    "offline": "desconectado",
+    "groupsSection": "Grupos",
+    "groupsHelp": "Los grupos organizan la lista de monitores y alimentan las páginas de estado que los incluyen.",
+    "clone": "Clonar",
+    "cloneTitle": "Clonar monitor",
+    "cloneHelp": "La copia empieza con historial limpio: los heartbeats no se copian.",
+    "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
+    "copyNotifications": "Copiar los canales de notificación",
+    "copyGroups": "Copiar los grupos",
+    "allGroups": "Todos los grupos"
+  },
+  "groups": {
+    "title": "Grupos de monitores",
+    "subtitle": "Colecciones con nombre de monitores: una página de estado que incluye un grupo muestra todos sus monitores",
+    "new": "Nuevo grupo",
+    "edit": "Editar grupo",
+    "name": "Nombre del grupo",
+    "sortOrder": "Orden",
+    "monitors": "Monitores",
+    "monitorsHelp": "Selecciona los monitores que pertenecen a este grupo.",
+    "searchMonitors": "Filtrar monitores",
+    "noMonitors": "Aún no hay monitores en este grupo",
+    "empty": "Aún no hay grupos",
+    "emptyHint": "Crea un grupo para organizar los monitores y publicarlos juntos en una página de estado.",
+    "clone": "Clonar",
+    "cloneTitle": "Clonar grupo",
+    "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
+    "cloneDeep": "Clonar los monitores del grupo",
+    "cloneDeepHelp": "Cada monitor se duplica con el sufijo (copy); el historial de heartbeats no se copia.",
+    "copyLinks": "Copiar los canales y los grupos de cada monitor",
+    "deleteTitle": "Eliminar grupo",
+    "deleteWarning": "El grupo se elimina; los monitores que contiene permanecen."
   },
   "notifications": {
     "title": "Canales de notificación",
@@ -432,6 +465,8 @@
     "ERR_TOKEN_SCOPE_INSUFFICIENT": "El token no tiene el ámbito necesario",
     "ERR_STATUS_PAGE_NOT_FOUND": "Página de estado no encontrada",
     "ERR_STATUS_PAGE_NOT_PUBLIC": "Esta página de estado no es pública",
-    "ERR_STATUS_PAGE_SLUG_TAKEN": "Este identificador ya está en uso"
+    "ERR_STATUS_PAGE_SLUG_TAKEN": "Este identificador ya está en uso",
+    "ERR_MONITOR_GROUP_NOT_FOUND": "Grupo de monitores no encontrado",
+    "ERR_MONITOR_GROUP_INVALID": "Grupo de monitores inválido"
   }
 }

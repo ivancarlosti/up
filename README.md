@@ -26,6 +26,7 @@ cluster of nodes that vote on the real status.
 | **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) |
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
 | **Dashboard** | live status via WebSocket, 24 h uptime, latency, heartbeat bars, per-node breakdown, monitor detail with statistics and event log |
+| **Groups & clones** | named groups of monitors (filter, shallow/deep clone), monitor clone, groups drive the status pages |
 | **Notifications** | SMTP and Webhook through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, delivery history, test button |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
 | **Cluster** | several nodes on the same database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting, `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender |

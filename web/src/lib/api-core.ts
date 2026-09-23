@@ -5,6 +5,10 @@ import type {
   Heartbeat,
   Identity,
   Monitor,
+  MonitorCloneOptions,
+  MonitorGroup,
+  MonitorGroupCloneOptions,
+  MonitorGroupPayload,
   MonitorPayload,
   Notification,
   NotificationLog,
@@ -39,6 +43,19 @@ export const coreApi = {
   monitorHeartbeats: (id: number, query?: Query) => get<Heartbeat[]>(`/api/monitors/${id}/heartbeats`, query),
   monitorStats: (id: number, query?: Query) =>
     get<{ stats: UptimeStats; series: Heartbeat[] }>(`/api/monitors/${id}/stats`, query),
+  cloneMonitor: (id: number, options: MonitorCloneOptions) =>
+    post<Monitor>(`/api/monitors/${id}/clone`, options),
+
+  monitorGroups: () => get<MonitorGroup[]>('/api/monitor-groups'),
+  monitorGroup: (id: number) => get<MonitorGroup>(`/api/monitor-groups/${id}`),
+  createMonitorGroup: (payload: MonitorGroupPayload) => post<MonitorGroup>('/api/monitor-groups', payload),
+  updateMonitorGroup: (id: number, payload: MonitorGroupPayload) =>
+    put<MonitorGroup>(`/api/monitor-groups/${id}`, payload),
+  deleteMonitorGroup: (id: number) => del<void>(`/api/monitor-groups/${id}`),
+  setMonitorGroupMonitors: (id: number, monitorIds: number[]) =>
+    put<MonitorGroup>(`/api/monitor-groups/${id}/monitors`, { monitor_ids: monitorIds }),
+  cloneMonitorGroup: (id: number, options: MonitorGroupCloneOptions) =>
+    post<MonitorGroup>(`/api/monitor-groups/${id}/clone`, options),
 
   notifications: () => get<Notification[]>('/api/notifications'),
   notification: (id: number) => get<Notification>(`/api/notifications/${id}`),

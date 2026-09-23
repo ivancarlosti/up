@@ -16,6 +16,16 @@ import { createI18n } from 'vue-i18n'
 
 const directory = new URL('../src/locales/', import.meta.url)
 
+/**
+ * Every error code of internal/i18n/errors.go must exist in the "errors"
+ * namespace of every locale: the API answers with a stable code and the
+ * frontend translates it, so a missing key surfaces as a raw "ERR_..." toast.
+ */
+function errorCodes() {
+  const source = readFileSync(new URL('../../internal/i18n/errors.go', import.meta.url), 'utf8')
+  return [...source.matchAll(/^\s*Code\w+\s*=\s*"(ERR_[A-Z0-9_]+)"/gm)].map((match) => match[1])
+}
+
 /** keysOf flattens the nested message tree into dot separated keys. */
 function keysOf(messages, prefix = '') {
   const keys = []
@@ -28,6 +38,7 @@ function keysOf(messages, prefix = '') {
 
 let checked = 0
 const failures = []
+const codes = errorCodes()
 
 for (const file of readdirSync(directory).filter((name) => name.endsWith('.json')).sort()) {
   const locale = file.replace(/\.json$/, '')
@@ -50,8 +61,20 @@ for (const file of readdirSync(directory).filter((name) => name.endsWith('.json'
       failures.push(`${locale} ${key}: ${String(error.message).split('\n')[0]}`)
     }
   }
+
+  // Error code parity (see errorCodes above).
+  const translated = messages.errors ?? {}
+  for (const code of codes) {
+    if (!(code in translated)) failures.push(`${locale} errors.${code}: missing translation`)
+  }
+  for (const key of Object.keys(translated)) {
+    if (!codes.includes(key)) failures.push(`${locale} errors.${key}: no matching code in internal/i18n/errors.go`)
+  }
+
   console.log(`  ${locale.padEnd(6)} ${keys.length} messages`)
 }
+
+console.log(`  codes  ${codes.length} error codes checked in every locale`)
 
 if (failures.length > 0) {
   console.error(`x ${failures.length} message(s) do not compile:`)

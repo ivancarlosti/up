@@ -146,6 +146,11 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > notification channel dialog in a real browser, saves a webhook channel, edits it
 > and deletes it again, so it needs a running instance **and writes to the
 > database** (`npm run e2e:notifications -- --url http://localhost:3000`).
+>
+> `npm run e2e:groups` does the same for the monitor groups: it creates a group
+> with members, clones it shallow and deep, renames it, deletes it through the UI
+> and clones a monitor from the monitor list, cleaning up everything it created
+> (it also writes to the database).
 
 ### 6.1 Screenshots and layout checks
 

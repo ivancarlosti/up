@@ -12,7 +12,8 @@
     "smoke": "node scripts/smoke.mjs",
     "shots": "node scripts/shots.mjs",
     "check:i18n": "node scripts/i18n-check.mjs",
-    "e2e:notifications": "node scripts/e2e-notifications.mjs"
+    "e2e:notifications": "node scripts/e2e-notifications.mjs",
+    "e2e:groups": "node scripts/e2e-groups.mjs"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

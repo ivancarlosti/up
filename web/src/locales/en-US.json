@@ -10,6 +10,7 @@
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",
+    "clone": "Clone",
     "create": "Create",
     "close": "Close",
     "confirm": "Confirm",
@@ -58,6 +59,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "monitors": "Monitors",
+    "monitorGroups": "Monitor groups",
     "notifications": "Notifications",
     "statusPages": "Status pages",
     "security": "Security",
@@ -195,7 +197,38 @@
     "node": "Node",
     "checkedAt": "Checked at",
     "message": "Message",
-    "offline": "offline"
+    "offline": "offline",
+    "groupsSection": "Groups",
+    "groupsHelp": "Groups organise the monitor list and feed the status pages that include them.",
+    "clone": "Clone",
+    "cloneTitle": "Clone monitor",
+    "cloneHelp": "The copy starts with a clean history: the heartbeats are not copied.",
+    "cloneName": "Name of the copy (empty = \"name (copy)\")",
+    "copyNotifications": "Copy the notification channels",
+    "copyGroups": "Copy the groups",
+    "allGroups": "All groups"
+  },
+  "groups": {
+    "title": "Monitor groups",
+    "subtitle": "Named collections of monitors: a status page that includes a group shows every monitor inside it",
+    "new": "New group",
+    "edit": "Edit group",
+    "name": "Group name",
+    "sortOrder": "Order",
+    "monitors": "Monitors",
+    "monitorsHelp": "Select the monitors that belong to this group.",
+    "searchMonitors": "Filter monitors",
+    "noMonitors": "No monitor in this group yet",
+    "empty": "No group yet",
+    "emptyHint": "Create a group to organise the monitors and publish them together on a status page.",
+    "clone": "Clone",
+    "cloneTitle": "Clone group",
+    "cloneName": "Name of the copy (empty = \"name (copy)\")",
+    "cloneDeep": "Clone the monitors of the group",
+    "cloneDeepHelp": "Every monitor is duplicated with a (copy) suffix; the heartbeat history is not copied.",
+    "copyLinks": "Copy the channels and the groups of each monitor",
+    "deleteTitle": "Delete group",
+    "deleteWarning": "The group is removed; the monitors inside it stay untouched."
   },
   "notifications": {
     "title": "Notification channels",
@@ -432,6 +465,8 @@
     "ERR_TOKEN_SCOPE_INSUFFICIENT": "The token does not grant the required scope",
     "ERR_STATUS_PAGE_NOT_FOUND": "Status page not found",
     "ERR_STATUS_PAGE_NOT_PUBLIC": "This status page is not public",
-    "ERR_STATUS_PAGE_SLUG_TAKEN": "This identifier is already in use"
+    "ERR_STATUS_PAGE_SLUG_TAKEN": "This identifier is already in use",
+    "ERR_MONITOR_GROUP_NOT_FOUND": "Monitor group not found",
+    "ERR_MONITOR_GROUP_INVALID": "Invalid monitor group"
   }
 }
