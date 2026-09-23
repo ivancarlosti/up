@@ -84,6 +84,12 @@ The UI flavour requires a dashboard session because it performs a server side
 HTTP request to the URL the operator typed (SSRF guard). The node-to-node
 flavour is authenticated by the cluster private key.
 
+`primary_url` has to be a plain `http(s)://host[:port][/path]` URL of a node:
+the value is validated before the outbound request (which carries the cluster
+private key) is sent, credentials and any other scheme are rejected, and a
+redirect is reported instead of being followed, so the key never reaches a host
+the operator did not name.
+
 ### Leaving
 
 `POST /api/cluster/leave` with `{"node_id":"up-node-2"}` (empty body = the node

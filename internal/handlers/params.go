@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,12 @@ func pathID(c *gin.Context) (uint, bool) {
 	raw := c.Param("id")
 	value, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil || value == 0 {
+		api.WriteError(c, 400, i18n.CodeValidation, "invalid id "+raw)
+		return 0, false
+	}
+	// `uint` is 32 bits wide on some platforms: refuse an id the local type
+	// cannot hold instead of letting the conversion wrap around.
+	if value > math.MaxUint32 {
 		api.WriteError(c, 400, i18n.CodeValidation, "invalid id "+raw)
 		return 0, false
 	}

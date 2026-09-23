@@ -195,7 +195,8 @@ func TestOIDCLogoutFallsBackToTheAppWithoutProviderLogout(t *testing.T) {
 // TestRenderOIDCErrorOffersOnlyTheProviderLogout pins the rejection page: it
 // offers the logout handoff (the action that actually clears the provider
 // cookie) and not the forced re-login, which was confusing and unreliable with
-// Keycloak. The provider message is still escaped.
+// Keycloak. The provider message is still escaped (with the standard library
+// escaper, the sanitizer recognized by `go/reflected-xss`).
 func TestRenderOIDCErrorOffersOnlyTheProviderLogout(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &Container{
@@ -207,7 +208,7 @@ func TestRenderOIDCErrorOffersOnlyTheProviderLogout(t *testing.T) {
 		// The real callback stores the ID token before it renders the page.
 		handler.storeIDToken(c, "the.id.token")
 		handler.renderOIDCError(c, http.StatusForbidden, i18n.CodeAuthDomainNotAllowed,
-			`the account "ivan.almeida@kuarup.com.br" <b> is not allowed`)
+			`the account "ivan.almeida@kuarup.com.br" <b> is not allowed & not invited`)
 	})
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/callback", nil))
@@ -230,7 +231,7 @@ func TestRenderOIDCErrorOffersOnlyTheProviderLogout(t *testing.T) {
 	for _, needle := range []string{
 		"https://up.example.com/api/auth/oidc/logout?redirect=/login",
 		"Sign out of up-realm",
-		"&quot;ivan.almeida@kuarup.com.br&quot; &lt;b&gt;",
+		"&#34;ivan.almeida@kuarup.com.br&#34; &lt;b&gt; is not allowed &amp; not invited",
 		i18n.CodeAuthDomainNotAllowed,
 	} {
 		if !strings.Contains(body, needle) {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 
@@ -126,6 +127,11 @@ func (h *Container) oidcCallback(c *gin.Context) {
 // the very same account in. The logout handoff is the action that reliably
 // clears that cookie; the forced re-login (prompt=login) is intentionally not
 // offered here.
+//
+// Every value that reaches the markup goes through html.EscapeString: the error
+// message (and the code) come back from the provider through the query string,
+// and the standard library escaper is the sanitizer the static analysis
+// recognises for `go/reflected-xss` (a hand rolled strings.NewReplacer is not).
 func (h *Container) renderOIDCError(c *gin.Context, status int, code, message string) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Status(status)
@@ -141,7 +147,8 @@ code{background:#111827;padding:.15rem .4rem;border-radius:.25rem}</style></head
 <body><main><h1>Authentication failed</h1><p>%s</p><p>Error code: <code>%s</code></p>
 <p>The browser is still signed in at the identity provider. Sign out below and sign in again to use another account.</p>
 <p><a style="color:#60a5fa" href="%s/api/auth/oidc/logout?redirect=/login">%s</a></p></main></body></html>`,
-		htmlEscape(message), htmlEscape(code), h.Cfg.AppURL, htmlEscape(signOut))
+		html.EscapeString(message), html.EscapeString(code),
+		html.EscapeString(h.Cfg.AppURL), html.EscapeString(signOut))
 }
 
 func firstNonEmpty(values ...string) string {
@@ -158,9 +165,4 @@ func ensureLeadingSlash(value string) string {
 		return value
 	}
 	return "/" + value
-}
-
-func htmlEscape(value string) string {
-	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
-	return replacer.Replace(value)
 }

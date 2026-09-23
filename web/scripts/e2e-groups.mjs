@@ -125,8 +125,15 @@ function groupCards(page) {
   }))()`)
 }
 
-const groupById = (name) =>
-  `fetch('/api/monitor-groups').then((r) => r.json()).then((list) => list.find((g) => g.name === ${JSON.stringify(name)}) ?? null)`
+/**
+ * groupById reads the group list through the page and resolves the lookup on
+ * this side: the name never travels inside the evaluated snippet, so the helper
+ * builds no code (see js/bad-code-sanitization).
+ */
+async function groupById(page, name) {
+  const groups = await page.evaluate(`fetch('/api/monitor-groups').then((r) => r.json())`)
+  return groups.find((group) => group.name === name) ?? null
+}
 
 const url = parseArgs(process.argv.slice(2))
 const chrome = findChrome()
@@ -164,7 +171,7 @@ try {
     'group shows both monitors',
     (afterCreate.find((card) => card.name === groupName)?.text ?? '').includes(monitorNames[0]),
   )
-  const group = await page.evaluate(groupById(groupName))
+  const group = await groupById(page, groupName)
   check('group persisted through the API', Boolean(group))
   if (group) created.groups.push(group.id)
 
@@ -173,7 +180,7 @@ try {
   await sleep(500)
   check('shallow clone submitted', await clickButton(page, LABELS.clone))
   await sleep(1500)
-  const shallow = await page.evaluate(groupById(`${groupName} (copy)`))
+  const shallow = await groupById(page, `${groupName} (copy)`)
   check('shallow clone uses the (copy) suffix', Boolean(shallow))
   check('shallow clone starts empty', (shallow?.monitor_ids ?? []).length === 0)
   if (shallow) created.groups.push(shallow.id)
@@ -186,7 +193,7 @@ try {
   await sleep(300)
   check('deep clone submitted', await clickButton(page, LABELS.clone))
   await sleep(3000)
-  const deep = await page.evaluate(groupById(deepName))
+  const deep = await groupById(page, deepName)
   check('deep clone created', Boolean(deep))
   if (deep) {
     created.groups.push(deep.id)
