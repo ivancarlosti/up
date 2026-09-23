@@ -27,6 +27,7 @@ type backfillTarget struct {
 var backfillTargets = []backfillTarget{
 	{table: "monitors", needsUUID: true},
 	{table: "status_pages", needsUUID: true},
+	{table: "notifications", needsUUID: true},
 	{table: "monitor_groups"},
 	{table: "monitor_templates"},
 }

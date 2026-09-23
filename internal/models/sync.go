@@ -66,10 +66,113 @@ func (p *SyncPeer) Settled(now time.Time, settle time.Duration) bool {
 	return now.Sub(*p.OnlineSince) >= settle
 }
 
-// SettledPeers returns the settled peers ordered by node id, which is the order
-// the leader derivation and the notification ownership rely on: every node
-// computes the same list from the same rule, so they pick the same winner
-// without coordinating.
+// Entity names used by the synchronisation. They are stored in sync_outbox,
+// sync_objects, sync_conflicts and sync_pending_links, and they are part of the
+// peer protocol: renaming one is a breaking change.
+const (
+	EntityMonitor         = "monitor"
+	EntityMonitorGroup    = "monitor_group"
+	EntityStatusPage      = "status_page"
+	EntityMonitorTemplate = "monitor_template"
+	EntityNotification    = "notification"
+)
+
+// Actions of a sync_outbox row.
+const (
+	ActionUpsert = "upsert"
+	ActionDelete = "delete"
+)
+
+// Link kinds carried inside a payload and tracked by sync_pending_links.
+const (
+	LinkGroupUUIDs        = "group_uuids"
+	LinkNotificationUUIDs = "notification_uuids"
+	LinkMonitorUUIDs      = "monitor_uuids"
+)
+
+// SyncOutbox is the change log of this node: every local write to a synchronised
+// entity appends one row here, inside the same transaction as the write itself,
+// so the log can never drift from the data.
+//
+// It is written by SyncObject-aware services and read by the peer endpoint that
+// serves changes; nothing else scans for differences.
+type SyncOutbox struct {
+	ID     uint   `gorm:"primaryKey" json:"id"`
+	Entity string `gorm:"size:32;not null;index:idx_sync_outbox_entity" json:"entity"`
+	UUID   string `gorm:"size:36;not null;index:idx_sync_outbox_uuid" json:"uuid"`
+	// Action is upsert or delete (a delete carries no payload).
+	Action string `gorm:"size:10;not null" json:"action"`
+	// OriginNodeID is the node that PRODUCED this change (the editor). It is not
+	// the same as the row's own origin_node_id, which is the creator and never
+	// changes: attribution of a conflict needs the editor.
+	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64  `gorm:"not null;default:1" json:"revision"`
+	// Payload is the JSON body of the row, with uuid references instead of local
+	// ids. It is null on a delete.
+	Payload string `gorm:"type:text" json:"payload,omitempty"`
+	// PayloadHash detects a change that only reorders keys: it is used for change
+	// detection, never as an authenticator.
+	PayloadHash string    `gorm:"size:64" json:"payload_hash"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// TableName keeps the table name stable.
+func (SyncOutbox) TableName() string { return "sync_outbox" }
+
+// SyncObject maps a global uuid to the local row that holds it, and remembers the
+// revision this node has applied. It is the authoritative memory of the merge:
+// the local row itself cannot say which revision it came from.
+type SyncObject struct {
+	UUID   string `gorm:"primaryKey;size:36" json:"uuid"`
+	Entity string `gorm:"size:32;not null;index:idx_sync_objects_entity" json:"entity"`
+	// LocalID is the primary key of the row in its own table.
+	LocalID      uint   `gorm:"not null" json:"local_id"`
+	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64  `gorm:"not null;default:1" json:"revision"`
+	// DeletedAt marks a tombstone: the local row is gone, the identity is kept so
+	// a late upsert cannot resurrect it.
+	DeletedAt *time.Time `json:"deleted_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+// TableName keeps the table name stable.
+func (SyncObject) TableName() string { return "sync_objects" }
+
+// SyncConflict stores an edit that lost the merge, so a concurrent edit is never
+// silently dropped: it is reported in the Admin UI instead.
+type SyncConflict struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	Entity       string    `gorm:"size:32;not null" json:"entity"`
+	UUID         string    `gorm:"size:36;not null;index:idx_sync_conflicts_uuid" json:"uuid"`
+	KeptOrigin   string    `gorm:"size:64" json:"kept_origin"`
+	KeptRevision int64     `json:"kept_revision"`
+	LostOrigin   string    `gorm:"size:64" json:"lost_origin"`
+	LostRevision int64     `json:"lost_revision"`
+	DetectedAt   time.Time `json:"detected_at"`
+}
+
+// TableName keeps the table name stable.
+func (SyncConflict) TableName() string { return "sync_conflicts" }
+
+// SyncPendingLink records a reference that arrived before its target. It is a
+// marker, not a queue: the healing pass (manifest mismatch, or the forced
+// reconcile it triggers) re-delivers the container with its full link list, and
+// by then the target exists.
+type SyncPendingLink struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+	// Entity and UUID identify the container (the monitor, the group, ...).
+	Entity string `gorm:"size:32;not null;uniqueIndex:idx_sync_pending_link,priority:1" json:"entity"`
+	UUID   string `gorm:"size:36;not null;uniqueIndex:idx_sync_pending_link,priority:2" json:"uuid"`
+	// Kind is which link list the reference came from (group_uuids, ...).
+	Kind string `gorm:"size:32;not null;uniqueIndex:idx_sync_pending_link,priority:3" json:"kind"`
+	// MissingUUID is the reference that could not be resolved yet.
+	MissingUUID string    `gorm:"size:36;not null;uniqueIndex:idx_sync_pending_link,priority:4" json:"missing_uuid"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// TableName keeps the table name stable.
+func (SyncPendingLink) TableName() string { return "sync_pending_links" }
+
 func SettledPeers(peers []SyncPeer, now time.Time, settle time.Duration) []SyncPeer {
 	out := make([]SyncPeer, 0, len(peers))
 	for _, peer := range peers {

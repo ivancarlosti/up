@@ -3,6 +3,9 @@ package models
 import (
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // NotificationType is the delivery channel kind. Only SMTP and Webhook are
@@ -23,7 +26,19 @@ func AllNotificationTypes() []NotificationType {
 // Notification is a delivery channel that can be linked to any number of
 // monitors.
 type Notification struct {
-	ID     uint             `gorm:"primaryKey" json:"id"`
+	ID uint `gorm:"primaryKey" json:"id"`
+	// --- Sync identity (federated clustering) -----------------------------
+	//
+	// Channels are synchronised by default in federated mode because the node
+	// that owns the notification election (the leader) is the one that sends: a
+	// leader without the channel would drop the alert silently. The uuid is
+	// nullable for the same reason as on monitors (see models.Monitor): the
+	// column is added to a table that already has rows and MySQL refuses a
+	// unique index over several empty strings.
+	UUID         string `gorm:"size:36;uniqueIndex" json:"uuid"`
+	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64  `gorm:"not null;default:1" json:"revision"`
+
 	Name   string           `gorm:"size:150;not null" json:"name"`
 	Type   NotificationType `gorm:"size:20;not null;index" json:"type"`
 	Active bool             `gorm:"not null;default:true" json:"active"`
@@ -40,6 +55,17 @@ type Notification struct {
 
 	// MonitorIDs is filled by the service layer for the API responses.
 	MonitorIDs []uint `gorm:"-" json:"monitor_ids"`
+}
+
+// BeforeCreate fills the sync identity of a new channel (see models.Monitor).
+func (n *Notification) BeforeCreate(tx *gorm.DB) error {
+	if n.UUID == "" {
+		n.UUID = uuid.NewString()
+	}
+	if n.Revision == 0 {
+		n.Revision = 1
+	}
+	return nil
 }
 
 // NotificationConfig groups the per-type settings. Only the block matching the

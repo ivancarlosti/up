@@ -1,0 +1,184 @@
+package models
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// Wire payloads of the peer protocol (docs/clustering-federated.md, section 5).
+//
+// They are spelled out field by field rather than embedding the models, on
+// purpose: the wire form is a contract, and a field added to a model for the
+// dashboard must not silently appear on the wire. Local ids never appear here at
+// all — references travel as uuids.
+
+// MonitorPayload is the configuration of a monitor plus its references.
+type MonitorPayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	Name                   string        `json:"name"`
+	Type                   MonitorType   `json:"type"`
+	Active                 bool          `json:"active"`
+	Description            string        `json:"description"`
+	IntervalSeconds        int           `json:"interval_seconds"`
+	Retries                int           `json:"retries"`
+	RetriesIntervalSeconds int           `json:"retries_interval_seconds"`
+	TimeoutSeconds         int           `json:"timeout_seconds"`
+	ResendIntervalSeconds  int           `json:"resend_interval_seconds"`
+	UpsideDown             bool          `json:"upside_down"`
+	RunOn                  string        `json:"run_on"`
+	NodeID                 string        `json:"node_id"`
+	Tags                   string        `json:"tags"`
+	CertWatch              bool          `json:"cert_watch"`
+	CertNotify             bool          `json:"cert_notify"`
+	CertWarnDays           string        `json:"cert_warn_days"`
+	Config                 MonitorConfig `json:"config"`
+
+	GroupUUIDs        []string `json:"group_uuids"`
+	NotificationUUIDs []string `json:"notification_uuids"`
+}
+
+// MonitorGroupPayload is a group plus its members.
+type MonitorGroupPayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	SortOrder   int    `json:"sort_order"`
+
+	MonitorUUIDs []string `json:"monitor_uuids"`
+}
+
+// MonitorTemplatePayload is a template plus its default links. The defaults
+// travel WITHOUT the two link id fields: they are local ids (see
+// TemplateDefaults) and the links travel as uuids below.
+type MonitorTemplatePayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Type        MonitorType      `json:"type"`
+	Config      MonitorConfig    `json:"config"`
+	Defaults    TemplateDefaults `json:"defaults"`
+
+	GroupUUIDs        []string `json:"group_uuids"`
+	NotificationUUIDs []string `json:"notification_uuids"`
+}
+
+// StatusPagePayload is a status page plus its selection.
+type StatusPagePayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	Slug        string `json:"slug"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	FooterText  string `json:"footer_text"`
+	Theme       string `json:"theme"`
+	IsPublic    bool   `json:"is_public"`
+	ShowUptime  bool   `json:"show_uptime"`
+	ShowCharts  bool   `json:"show_charts"`
+	ShowTags    bool   `json:"show_tags"`
+	CustomCSS   string `json:"custom_css"`
+
+	MonitorUUIDs []string `json:"monitor_uuids"`
+	GroupUUIDs   []string `json:"group_uuids"`
+}
+
+// NotificationPayload is a delivery channel plus the monitors it is linked to.
+//
+// It carries the channel configuration, credentials included: the node that owns
+// the notification election is the one that sends, so it must hold them. That is
+// why the peers must run over TLS in federated mode.
+type NotificationPayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	Name                  string             `json:"name"`
+	Type                  NotificationType   `json:"type"`
+	Active                bool               `json:"active"`
+	IsDefault             bool               `json:"is_default"`
+	ResendIntervalSeconds int                `json:"resend_interval_seconds"`
+	Config                NotificationConfig `json:"config"`
+
+	MonitorUUIDs []string `json:"monitor_uuids"`
+}
+
+// SyncChangePayload is one entry of a changes or snapshot batch.
+type SyncChangePayload struct {
+	// ID is the outbox row id: it is the cursor a peer advances, and it is local
+	// to the SENDING node (the receiver stores it as sync_peers.last_change_id).
+	ID     int64  `json:"id"`
+	Entity string `json:"entity"`
+	UUID   string `json:"uuid"`
+	Action string `json:"action"`
+	// OriginNodeID is the node that produced the change (the editor).
+	OriginNodeID string `json:"origin_node_id"`
+	Revision     int64  `json:"revision"`
+	// Payload is the marshalled row: null on a delete.
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	PayloadHash string          `json:"payload_hash"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// SyncChangesResponse answers GET /api/cluster/sync/changes.
+type SyncChangesResponse struct {
+	Changes         []SyncChangePayload `json:"changes"`
+	NextSince       int64               `json:"next_since"`
+	HasMore         bool                `json:"has_more"`
+	LatestRevision  int64               `json:"latest_revision"`
+	ProtocolVersion int                 `json:"protocol_version"`
+}
+
+// SyncSnapshotResponse answers GET /api/cluster/sync/snapshot: the current state
+// of one entity, in deterministic uuid order, paged.
+type SyncSnapshotResponse struct {
+	Entity          string              `json:"entity"`
+	Page            int                 `json:"page"`
+	HasMore         bool                `json:"has_more"`
+	ProtocolVersion int                 `json:"protocol_version"`
+	Changes         []SyncChangePayload `json:"changes"`
+}
+
+// SyncManifestEntity is the identity of one entity on the node that answers.
+type SyncManifestEntity struct {
+	Entity string `json:"entity"`
+	// Count and MaxRevision are informational; the checksum is what the peer
+	// compares.
+	Count       int64  `json:"count"`
+	MaxRevision int64  `json:"max_revision"`
+	Checksum    string `json:"checksum"`
+}
+
+// SyncManifestResponse answers GET /api/cluster/sync/manifest. It is the healing
+// trigger: two nodes that agree on every checksum are in sync and skip the
+// snapshot.
+type SyncManifestResponse struct {
+	ProtocolVersion int                  `json:"protocol_version"`
+	Entities        []SyncManifestEntity `json:"entities"`
+}
+
+// SyncedEntities lists every entity the protocol carries, in a stable order.
+func SyncedEntities() []string {
+	return []string{
+		EntityMonitor,
+		EntityMonitorGroup,
+		EntityMonitorTemplate,
+		EntityStatusPage,
+		EntityNotification,
+	}
+}
