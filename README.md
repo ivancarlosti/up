@@ -163,19 +163,19 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 
 | ![dashboard.png](docs/screenshots/dashboard.png) | 
 |:--:| 
-| *Space* |
+| *Main dashboard panel* |
 
 | ![monitor.png](docs/screenshots/monitor.png) | 
 |:--:| 
-| *Space* |
+| *Monitoring panel* |
 
 | ![singlemonitor.png](docs/screenshots/singlemonitor.png) | 
 |:--:| 
-| *Space* |
+| *Single monitor status details* |
 
 | ![status.png](docs/screenshots/status.png) | 
 |:--:| 
-| *Space* |
+| *Public Status page* |
 
 
 ## Tests
