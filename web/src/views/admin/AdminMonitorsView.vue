@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Copy, ListPlus, Pencil, Plus, RefreshCw, Trash2, Wand2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -14,12 +14,14 @@ import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import Switch from '@/components/ui/Switch.vue'
+import ApplyTemplateDialog from '@/components/monitors/ApplyTemplateDialog.vue'
+import BulkAddDialog from '@/components/monitors/BulkAddDialog.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatInterval, formatUptime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorCloneOptions, MonitorGroup, MonitorPayload, Notification } from '@/lib/types'
+import type { Monitor, MonitorCloneOptions, MonitorGroup, MonitorPayload, MonitorTemplate, Notification } from '@/lib/types'
 
 const { t } = useI18n()
 const toasts = useToastStore()
@@ -28,9 +30,12 @@ const router = useRouter()
 const monitors = ref<Monitor[]>([])
 const notifications = ref<Notification[]>([])
 const groups = ref<MonitorGroup[]>([])
+const templates = ref<MonitorTemplate[]>([])
 const search = ref('')
 const groupFilter = ref('')
 const formOpen = ref(false)
+const bulkOpen = ref(false)
+const applyOpen = ref(false)
 const editing = ref<Monitor | null>(null)
 const saving = ref(false)
 const confirmOpen = ref(false)
@@ -61,10 +66,16 @@ const filtered = computed(() => {
 
 async function load(): Promise<void> {
   try {
-    const [list, channels, groupList] = await Promise.all([api.monitors(), api.notifications(), api.monitorGroups()])
+    const [list, channels, groupList, templateList] = await Promise.all([
+      api.monitors(),
+      api.notifications(),
+      api.monitorGroups(),
+      api.monitorTemplates(),
+    ])
     monitors.value = list
     notifications.value = channels
     groups.value = groupList
+    templates.value = templateList
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   }
@@ -156,6 +167,14 @@ onMounted(load)
           <Plus class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('dashboard.addMonitor') }}
         </Button>
+        <Button variant="outline" size="sm" @click="bulkOpen = true">
+          <ListPlus class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('bulk.button') }}
+        </Button>
+        <Button v-if="templates.length" variant="outline" size="sm" @click="applyOpen = true">
+          <Wand2 class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('apply.button') }}
+        </Button>
       </div>
     </header>
 
@@ -224,6 +243,9 @@ onMounted(load)
       :saving="saving"
       @submit="submit"
     />
+
+    <BulkAddDialog v-model="bulkOpen" :templates="templates" :groups="groups" @created="load" />
+    <ApplyTemplateDialog v-model="applyOpen" :templates="templates" :monitors="monitors" @applied="load" />
 
     <Dialog v-model="cloneOpen" :title="t('monitor.cloneTitle')" :description="t('monitor.cloneHelp')">
       <div class="grid gap-4">

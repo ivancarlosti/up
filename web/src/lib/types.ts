@@ -135,6 +135,89 @@ export interface MonitorGroupCloneOptions {
   copy_links?: boolean
 }
 
+/** TemplateDefaults is the scheduling part of a monitor template. */
+export interface TemplateDefaults {
+  interval_seconds: number
+  retries: number
+  retries_interval_seconds: number
+  timeout_seconds: number
+  resend_interval_seconds: number
+  run_on: 'all' | 'primary' | 'node'
+  node_id: string
+  tags: string
+  description: string
+  active?: boolean
+  notification_ids: number[]
+  group_ids: number[]
+}
+
+/**
+ * MonitorTemplate is a reusable monitor blueprint: the probe type and its
+ * configuration plus the defaults applied to every monitor created or edited
+ * from it. The target of the probe is never part of it.
+ */
+export interface MonitorTemplate {
+  id: number
+  uuid: string
+  name: string
+  description: string
+  type: MonitorType
+  config: MonitorConfig
+  defaults: TemplateDefaults
+  created_at: string
+  updated_at: string
+}
+
+export type MonitorTemplatePayload = Partial<MonitorTemplate>
+
+/** FieldChange is one difference between a monitor and a template. */
+export interface FieldChange {
+  field: string
+  from: string
+  to: string
+}
+
+/** ApplyResult reports what happened (or would happen) to one monitor. */
+export interface ApplyResult {
+  monitor_id: number
+  name: string
+  changed?: FieldChange[]
+  applied: boolean
+  error?: string
+}
+
+export interface ApplyTemplateOptions {
+  monitor_ids: number[]
+  fields?: string[]
+  dry_run?: boolean
+}
+
+/** BulkRowResult is the outcome of one pasted line. */
+export interface BulkRowResult {
+  line: number
+  name: string
+  status: 'dry_run' | 'created' | 'duplicate' | 'invalid' | 'failed'
+  monitor_id?: number
+  error?: string
+}
+
+export interface BulkReport {
+  parsed: number
+  created: number
+  dry_run: number
+  skipped: number
+  failed: number
+  rows: BulkRowResult[]
+}
+
+export interface BulkOptions {
+  text: string
+  template_id: number
+  group_ids?: number[]
+  active?: boolean
+  dry_run?: boolean
+}
+
 export interface Heartbeat {
   id: number
   monitor_id: number

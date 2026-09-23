@@ -1,6 +1,10 @@
 import { buildURL, del, get, post, put } from './http'
 import type { Query } from './http'
 import type {
+  ApplyResult,
+  ApplyTemplateOptions,
+  BulkOptions,
+  BulkReport,
   DashboardResponse,
   Heartbeat,
   Identity,
@@ -10,6 +14,8 @@ import type {
   MonitorGroupCloneOptions,
   MonitorGroupPayload,
   MonitorPayload,
+  MonitorTemplate,
+  MonitorTemplatePayload,
   Notification,
   NotificationLog,
   PublicSettings,
@@ -56,6 +62,16 @@ export const coreApi = {
     put<MonitorGroup>(`/api/monitor-groups/${id}/monitors`, { monitor_ids: monitorIds }),
   cloneMonitorGroup: (id: number, options: MonitorGroupCloneOptions) =>
     post<MonitorGroup>(`/api/monitor-groups/${id}/clone`, options),
+
+  monitorTemplates: () => get<MonitorTemplate[]>('/api/monitor-templates'),
+  monitorTemplate: (id: number) => get<MonitorTemplate>(`/api/monitor-templates/${id}`),
+  createMonitorTemplate: (payload: MonitorTemplatePayload) => post<MonitorTemplate>('/api/monitor-templates', payload),
+  updateMonitorTemplate: (id: number, payload: MonitorTemplatePayload) =>
+    put<MonitorTemplate>(`/api/monitor-templates/${id}`, payload),
+  deleteMonitorTemplate: (id: number) => del<void>(`/api/monitor-templates/${id}`),
+  applyMonitorTemplate: (id: number, options: ApplyTemplateOptions) =>
+    post<{ dry_run: boolean; results: ApplyResult[] }>(`/api/monitor-templates/${id}/apply`, options),
+  bulkCreateMonitors: (options: BulkOptions) => post<BulkReport>('/api/monitors/bulk', options),
 
   notifications: () => get<Notification[]>('/api/notifications'),
   notification: (id: number) => get<Notification>(`/api/notifications/${id}`),

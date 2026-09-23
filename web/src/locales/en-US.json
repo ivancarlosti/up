@@ -60,6 +60,7 @@
     "dashboard": "Dashboard",
     "monitors": "Monitors",
     "monitorGroups": "Monitor groups",
+    "monitorTemplates": "Monitor templates",
     "notifications": "Notifications",
     "statusPages": "Status pages",
     "security": "Security",
@@ -206,7 +207,8 @@
     "cloneName": "Name of the copy (empty = \"name (copy)\")",
     "copyNotifications": "Copy the notification channels",
     "copyGroups": "Copy the groups",
-    "allGroups": "All groups"
+    "allGroups": "All groups",
+    "probeOptions": "Probe options"
   },
   "groups": {
     "title": "Monitor groups",
@@ -229,6 +231,70 @@
     "copyLinks": "Copy the channels and the groups of each monitor",
     "deleteTitle": "Delete group",
     "deleteWarning": "The group is removed; the monitors inside it stay untouched."
+  },
+  "templates": {
+    "title": "Monitor templates",
+    "subtitle": "Reusable blueprints: a probe configuration plus the defaults applied in bulk",
+    "new": "New template",
+    "edit": "Edit template",
+    "empty": "No template yet",
+    "emptyHint": "Create a template to add monitors in bulk or to apply the same configuration to many monitors at once.",
+    "monitorDescription": "Description applied to the monitors",
+    "channels": "Notification channels applied to the monitors",
+    "groups": "Groups applied to the monitors",
+    "deleteTitle": "Delete template",
+    "deleteWarning": "The template is removed; the monitors created from it stay untouched."
+  },
+  "bulk": {
+    "button": "Add in bulk",
+    "title": "Add monitors in bulk",
+    "help": "Paste one monitor per line. The template decides how they are probed.",
+    "sampleComment": "one monitor per line: name,target",
+    "template": "Template",
+    "templateRequired": "Choose a template first.",
+    "text": "Monitors",
+    "formatHelp": "Columns: name,target[,type,keyword,tags,interval]. A header row like name,url is ignored, # starts a comment and comma, semicolon or tab all work.",
+    "placeholder": "API,https://api.example.com/health\nSite,https://example.com\nDatabase,db.internal:5432,tcp",
+    "groups": "Add them to these groups too",
+    "active": "Create them enabled",
+    "parsed": "Parsed",
+    "ready": "Ready",
+    "duplicates": "Duplicates",
+    "invalid": "Invalid",
+    "line": "Line",
+    "reason": "Reason",
+    "preview": "Preview",
+    "create": "Create",
+    "created": "{created} created, {skipped} skipped, {failed} invalid",
+    "status": {
+      "dry_run": "ready",
+      "created": "created",
+      "duplicate": "duplicate",
+      "invalid": "invalid",
+      "failed": "failed"
+    }
+  },
+  "apply": {
+    "button": "Apply template",
+    "title": "Apply a template to monitors",
+    "help": "Overwrite the selected fields of many monitors at once.",
+    "template": "Template",
+    "templateRequired": "Choose a template first.",
+    "fields": "Fields to apply",
+    "fieldsHelp": "Only the checked fields are overwritten.",
+    "configNotice": "The probe options are applied without the target: every monitor keeps its own URL, host or hostname.",
+    "monitors": "Monitors",
+    "monitorsHelp": "Select the monitors that receive the template.",
+    "monitorsRequired": "Select at least one monitor.",
+    "selectAll": "Select all",
+    "selected": "{count} selected",
+    "analysed": "Analysed",
+    "wouldChange": "Would change",
+    "noChange": "no change",
+    "appliedBadge": "applied",
+    "preview": "Preview",
+    "apply": "Apply",
+    "applied": "{count} monitors updated"
   },
   "notifications": {
     "title": "Notification channels",
@@ -469,6 +535,9 @@
     "ERR_STATUS_PAGE_NOT_PUBLIC": "This status page is not public",
     "ERR_STATUS_PAGE_SLUG_TAKEN": "This identifier is already in use",
     "ERR_MONITOR_GROUP_NOT_FOUND": "Monitor group not found",
-    "ERR_MONITOR_GROUP_INVALID": "Invalid monitor group"
+    "ERR_MONITOR_GROUP_INVALID": "Invalid monitor group",
+    "ERR_MONITOR_TEMPLATE_NOT_FOUND": "Monitor template not found",
+    "ERR_MONITOR_TEMPLATE_INVALID": "Invalid monitor template",
+    "ERR_MONITOR_BULK_INVALID": "Invalid bulk request"
   }
 }
