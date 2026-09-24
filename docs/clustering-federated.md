@@ -1,6 +1,6 @@
 # Up - Federated clustering (one database per node)
 
-> **Status: phases 0, 1, 2 and 3 implemented; 4, 5 and 6 are design.** The
+> **Status: phases 0, 0.5, 1, 2 and 3 implemented; 4, 5 and 6 are design.** The
 > synchronisation identity (`uuid`, `origin_node_id`, `revision`), the idempotent
 > backfill, the `CLUSTER_MODE` skeleton, the signed peer API with the settle time,
 > the outbox/pull/apply protocol with the LWW merge, and the manifest/snapshot
@@ -14,6 +14,7 @@
 > | Phase | Deliverable | Status |
 > |---|---|---|
 > | 0 | sync identity, backfill, `CLUSTER_MODE` skeleton | **done** |
+> | 0.5 | `run_on=some` + `run_on_nodes` (probe + vote membership) | **done** |
 > | 1 | peer registry, signed ping, settle time | **done** |
 > | 2 | outbox, pull/apply, LWW, manifest/snapshot, monitors + groups | **done** (all seven entities) |
 > | 3 | status pages (+ items/groups) and templates | **done** |
@@ -492,7 +493,9 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | `CLUSTER_NOTIFY_ELECTION` | `leader` | which node alerts in federated mode: `leader` (the derived leader), `hash` (rendezvous over the monitor uuid) or `origin` (the node that created the monitor) |
 | `CLUSTER_LEADER_SETTLE_SECONDS` | `60` | how long a node must be continuously online before it may take the leader role (and the notification duty) instead of the current one |
 | `CLUSTER_SYNC_NOTIFICATIONS` | `false` | sync the notification channels (secret-bearing) |
-| `CLUSTER_SYNC_SETTINGS` | `false` | sync the non-secret settings whitelist |
+| `CLUSTER_SYNC_SETTINGS` | `false` | sync the non-secret settings whitelist (app name, default locale, default theme). API tokens, IP rules and the per-node rate limits are never synchronised |
+| `CLUSTER_SYNC_SESSION_SECRET` | `false` | sync the session secret (decision **D4**), so one login works on every dashboard. It is a separate switch because the secret signs session cookies. **Consequence to expect:** a node that has just generated its own secret adopts the cluster's rather than replacing it, so joining does not log anyone out (seeded defaults are the oldest value there is, §22.16) |
+| `CLUSTER_SYNC_PUSH` | `false` | ask the peers to pull as soon as this node publishes something, instead of waiting a full interval. Best effort by design: a push that fails costs nothing, because the periodic pull still delivers. Pull stays the default so a node behind NAT needs no inbound access |
 | `CLUSTER_INSECURE_SKIP_VERIFY` | `false` | explicit opt-in for a self-signed peer TLS certificate (logged loudly) |
 
 `CLUSTER_PEER_API=true` requires `CLUSTER_ENABLED=true` and a `NODE_ID` (the
@@ -538,7 +541,7 @@ dependency in phase 0).
 | Phase | Deliverable | Exit criteria |
 |---|---|---|
 | 0 | uuids, `origin_node_id`, `revision`, backfill, `CLUSTER_MODE` skeleton — **done** | `go test ./...` unchanged, migration idempotent (verified against MariaDB 11), `CLUSTER_MODE=shared` behaviour identical |
-| 0.5 | **`run_on=some`** (decision **D11**): `run_on_nodes`, membership tests in the three decision points, UI + templates | independent of federated mode and shippable in shared mode |
+| 0.5 | **`run_on=some`** (decision **D11**): `run_on_nodes`, the shared membership rule in the probe and vote paths, UI + templates | **done** (independent of federated mode, and it works in shared mode too) |
 | 1 | peer registry, HTTP liveness, signed request middleware, `ping`, **ownership settle time** | a two-node pair reports each other online; unsigned/replayed calls rejected — **done** |
 | 2 | outbox, pull/apply, LWW merge, tombstones, manifest/snapshot, **monitors + groups** | a monitor created on node A is scheduled by node B after one interval |
 | 3 | **status pages** (+ items/groups) and templates | a status page created on A answers publicly on B with the right monitors |
@@ -641,18 +644,42 @@ suite:
 2. The uuid/backfill work of phase 0 has shipped **without** enabling federated
    mode: it is prerequisite plumbing with no behaviour change, and it was
    verified on a populated database (section 18).
-3. `CLUSTER_MODE=federated` is refused at boot with an explicit problem until the
-   mode is real. Accepting the value early would produce a node that claims to be
-   federated and silently behaves like a shared one (its own database, nothing
-   synchronised). The check lives in `internal/config/validate.go` and is removed as
-   the **final step of the migration**, once phases 4-6 have landed and the operator
-   path is documented — not before.
+3. `CLUSTER_MODE=federated` requires `CLUSTER_PEER_API=true`. There is no fallback to a
+   local-only node: a node that claims to be federated without serving the peer API would
+   take part in nothing while its own database silently diverges. The requirement lives in
+   `internal/config/validate.go`.
 4. A cluster cannot be half-shared/half-federated: a `shared` node and a
    `federated` node exchange nothing (the protocol version is rejected), which
    keeps the two modes from silently mixing.
 5. Moving from shared to federated is a deliberate migration: provision one
    database per node, point every node at its own, restart, and let the phase 2/3
    sync converge the configuration. Heartbeats start fresh per node.
+6. **The order of operations.** Start from the shared deployment, then per node:
+   provision the new database, create the tables (`migrations` run at boot), set
+   `CLUSTER_MODE=federated`, `CLUSTER_PEER_API=true`, `CLUSTER_KEY` (the same value
+   on every node), `NODE_ID` (unique and **never reused**, it is the identity the
+   merge rules key on), join the cluster with the primary's key (section 9 of
+   docs/development.md), then restart that one node. Converge one
+   node at a time: a node that has just switched is still empty and will pull a
+   full first sync from any peer that already holds the configuration, so it is
+   safe to bring up, and a node that fails validates is still a working
+   single-node install with its own database.
+7. **The empty node bootstraps itself.** There is no separate seed step. A fresh
+   node joins, its manifest disagrees with the peer's (0 rows against N), and the
+   snapshot pull transfers the configuration in one round. That path is deliberately
+   the same one used after a long disconnect, which is why it needs no special case.
+8. **What is not migrated.** `nodes`, `heartbeats`, `check_results`,
+   `notification_locks` and the incident timeline are per node and start empty: they
+   describe what *this* node observed, and copying them would invent history. The
+   monitoring state (`monitor_status`) is recomputed from the local heartbeats within
+   one interval. The session secret is only synchronised with the explicit
+   `CLUSTER_SYNC_SESSION_SECRET` opt-in, and a node that generated its own adopts the
+   cluster's instead of replacing it, so a join invalidates nobody's session (§22.16).
+9. **Rolling back** means pointing a node back at the shared database with
+   `CLUSTER_MODE=shared`. That is a *replacement*, not a merge: the federated node's
+   own database is not imported back, so configuration created on it after the switch
+   is lost unless it was synchronised to a peer first. The two modes cannot be mixed
+   in a running cluster (item 4).
 
 
 
@@ -786,6 +813,29 @@ nodes ran with two databases throughout.
     revision from different producers — one adopted a concurrent edit, the other kept
     its own — and that state is a real divergence which a two-component checksum
     reports as agreement.
+16. **A seeded default carries an epoch timestamp, not the boot time.** Found in the
+    lab, not in review: a node joining with a fresh database wrote its own
+    `app_name`/`default_locale`/`default_theme` at boot, that write was newer than the
+    cluster's real value, and last-write-wins then reverted the setting on EVERY node.
+    It is worse for the session secret: a node that generated its own would log the
+    others out. Seeding with `1970-01-01` (`database.seededAt`) makes a value nobody
+    chose the oldest there is, so it loses to any value an operator actually set and
+    the cluster's value flows in instead. Verified by joining a fourth node: it booted
+    at the epoch, then showed the cluster's value on all four nodes.
+17. **The apply transaction advances the cursor FIRST.** MariaDB raises error 1020
+    ("record has changed since last read") when a transaction writes a row that another
+    transaction changed after this one's read view was created, and `sync_peers` is
+    exactly that row — the ping loop and the manifest pass write it every few seconds.
+    Read after the apply has already read `sync_objects`, the cursor write is refused,
+    the batch rolls back and is replayed change by change: correct but slow, and it logs
+    a warning on every busy batch (0 in a six-change burst after the fix). The cursor
+    stays inside the transaction, so a crash mid-batch still re-pulls instead of losing
+    rows — a rollback takes the cursor with it. A row lock (`FOR UPDATE`) does NOT help:
+    it becomes the victim of the same error.
+18. **A peer is registered by joining, not by configuration.** There is no peer-URL
+    environment variable: the registry and `sync_peers` are filled by
+    `POST /api/cluster/join` with the primary's key (docs/development.md §9). This is
+    what makes the cluster key the only per-node secret the operator must repeat.
 
 ## 23. Exit criteria: what has been verified
 

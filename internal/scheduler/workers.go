@@ -64,15 +64,12 @@ func (s *Scheduler) worker(monitorID uint) (*worker, bool) {
 }
 
 // handles tells whether this node executes the monitor (run_on).
+//
+// The rule itself lives in models.MonitorRunsOn, shared with the voter middleware: a
+// node that probes a monitor nobody counts, or one asked to vote on a monitor it never
+// saw, would each look like a monitor going silently unknown.
 func (s *Scheduler) handles(monitor *models.Monitor, isPrimary bool) bool {
-	switch monitor.RunOn {
-	case "primary":
-		return isPrimary
-	case "node":
-		return monitor.NodeID == s.cfg.NodeID
-	default:
-		return true
-	}
+	return models.MonitorRunsOn(monitor, s.cfg.NodeID, isPrimary)
 }
 
 func (s *Scheduler) startWorker(ctx context.Context, monitor *models.Monitor) {

@@ -152,6 +152,7 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		TimeoutSeconds:         template.Defaults.TimeoutSeconds,
 		ResendIntervalSeconds:  template.Defaults.ResendIntervalSeconds,
 		RunOn:                  template.Defaults.RunOn,
+		RunOnNodes:             template.Defaults.RunOnNodes,
 		NodeID:                 template.Defaults.NodeID,
 		Tags:                   template.Defaults.Tags,
 		CertWatch:              template.Defaults.CertWatch,

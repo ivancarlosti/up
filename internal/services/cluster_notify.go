@@ -49,10 +49,27 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 	transition := previous != "" && previous != models.AggregateUnknown && previous != status
 
 	notify := transition
-	if !notify && monitor.ResendIntervalSeconds > 0 && state.NotifiedAt != nil &&
-		(status == models.AggregateDown || status == models.AggregateDegraded) &&
-		now.Sub(*state.NotifiedAt) >= time.Duration(monitor.ResendIntervalSeconds)*time.Second {
-		notify = true
+	if !notify && (status == models.AggregateDown || status == models.AggregateDegraded) &&
+		previous != "" && previous != models.AggregateUnknown {
+		// The incident is already established and this node is not reporting a change:
+		// it may still owe an alert, in two different ways.
+		switch {
+		case state.NotifiedAt == nil:
+			// THIS node has never reported this incident. That is what happens when the
+			// duty moves: the previous owner alerted, this one never did, and without this
+			// branch the new owner would stay silent for the whole outage — measured in the
+			// lab, where the survivor logged nothing after the owner was killed. It also
+			// covers a monitor created while it was already failing, which used to stay
+			// silent until it recovered and failed again.
+			//
+			// It cannot become a storm: dispatching sets NotifiedAt, after which the resend
+			// rule below takes over.
+			notify = true
+		case monitor.ResendIntervalSeconds > 0 &&
+			now.Sub(*state.NotifiedAt) >= time.Duration(monitor.ResendIntervalSeconds)*time.Second:
+			// The owner re-notifies while the monitor keeps the same status.
+			notify = true
+		}
 	}
 
 	// dispatched is true only on the node that actually sent the notification:

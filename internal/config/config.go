@@ -24,13 +24,13 @@ const (
 
 // Cluster modes (CLUSTER_MODE).
 const (
-	// ClusterModeShared is the only mode implemented today: every node of the
-	// cluster points at the SAME external MariaDB/MySQL database, which is what
-	// keeps monitors, heartbeats, the aggregated state and the notification
-	// lock synchronised without any message broker.
+	// ClusterModeShared is the default: every node of the cluster points at the
+	// SAME external MariaDB/MySQL database, which is what keeps monitors,
+	// heartbeats, the aggregated state and the notification lock synchronised
+	// without any message broker.
 	ClusterModeShared = "shared"
 	// ClusterModeFederated gives every node its own database and synchronises
-	// the configuration over the peer API. It is specified, not implemented:
+	// the configuration over the peer API. It still needs CLUSTER_PEER_API=true:
 	// see docs/clustering-federated.md.
 	ClusterModeFederated = "federated"
 )
@@ -154,9 +154,28 @@ type Config struct {
 	// (the derived leader), hash (rendezvous over the monitor uuid) or origin (the
 	// node that created the monitor). See docs/clustering-federated.md, section 8.
 	ClusterNotifyElection string
-	NodeID                string
-	NodeName              string
-	ClusterPrivateKey     string
+	// ClusterSyncSettings synchronises the non-secret settings whitelist (app name,
+	// default locale, default theme). Off by default: an operator may want each
+	// dashboard to keep its own presentation.
+	ClusterSyncSettings bool
+	// ClusterSyncSessionSecret synchronises the session secret, so a login survives on
+	// every dashboard (decision D4). It is a SEPARATE switch from the settings
+	// whitelist on purpose: the secret signs session cookies, so syncing it shares the
+	// ability to forge a session, and an operator who does not want that keeps logging
+	// in once per node.
+	ClusterSyncSessionSecret bool
+	// ClusterSyncPush turns on low-latency push: after publishing changes this node asks
+	// its peers to pull immediately. Off by default, because the pull model is what lets
+	// a node behind NAT take part without inbound access; a push that fails is harmless.
+	ClusterSyncPush bool
+	// ClusterInsecureSkipVerify is the explicit opt-in for a peer TLS certificate this
+	// node cannot verify (a self-signed one on a private network). It weakens the
+	// transport that the cluster key and the channel credentials cross, so it is off by
+	// default and logged loudly at boot when on (docs/clustering-federated.md, §17).
+	ClusterInsecureSkipVerify bool
+	NodeID                    string
+	NodeName                  string
+	ClusterPrivateKey         string
 
 	// --- Optional tuning --------------------------------------------------
 	LogLevel string
@@ -223,6 +242,10 @@ func Load() (*Config, error) {
 		ClusterSyncManifestSeconds:    envInt("CLUSTER_SYNC_MANIFEST_SECONDS", 600),
 		ClusterSyncTombstoneDays:      envInt("CLUSTER_SYNC_TOMBSTONE_DAYS", 30),
 		ClusterSyncNotifications:      mustBool("CLUSTER_SYNC_NOTIFICATIONS", false),
+		ClusterSyncPush:               mustBool("CLUSTER_SYNC_PUSH", false),
+		ClusterSyncSettings:           mustBool("CLUSTER_SYNC_SETTINGS", false),
+		ClusterSyncSessionSecret:      mustBool("CLUSTER_SYNC_SESSION_SECRET", false),
+		ClusterInsecureSkipVerify:     mustBool("CLUSTER_INSECURE_SKIP_VERIFY", false),
 		NodeID:                        env("NODE_ID", "up-node-1"),
 		NodeName:                      env("NODE_NAME", "Primary Node"),
 		ClusterPrivateKey:             strings.TrimSpace(env("CLUSTER_PRIVATE_KEY", "")),

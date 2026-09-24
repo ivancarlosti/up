@@ -39,14 +39,23 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 	case "", "all":
 		monitor.RunOn = "all"
 		monitor.NodeID = ""
+		monitor.RunOnNodes = ""
 	case "primary":
 		monitor.NodeID = ""
+		monitor.RunOnNodes = ""
 	case "node":
 		if strings.TrimSpace(monitor.NodeID) == "" {
 			return ErrBadRequest(i18n.CodeValidation, "node_id is required when run_on=node")
 		}
+		monitor.RunOnNodes = ""
+	case "some":
+		monitor.NodeID = ""
+		monitor.RunOnNodes = models.NormalizeRunOnNodes(monitor.RunOnNodes)
+		if monitor.RunOnNodes == "" {
+			return ErrBadRequest(i18n.CodeValidation, "run_on_nodes is required when run_on=some")
+		}
 	default:
-		return ErrBadRequest(i18n.CodeValidation, "run_on must be all, primary or node")
+		return ErrBadRequest(i18n.CodeValidation, "run_on must be all, primary, node or some")
 	}
 
 	monitor.Config.Normalize(monitor.Type)

@@ -63,6 +63,7 @@ function blank(): TemplateForm {
       timeout_seconds: 10,
       resend_interval_seconds: 0,
       run_on: 'all',
+      run_on_nodes: '',
       node_id: '',
       tags: '',
       description: '',
@@ -85,6 +86,7 @@ const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
   { value: 'primary', label: t('monitor.runOnPrimary') },
   { value: 'node', label: t('monitor.runOnSpecific') },
+  { value: 'some', label: t('monitor.runOnSome') },
 ])
 
 const type = computed(() => (form.type ?? 'http') as MonitorType)
@@ -296,6 +298,10 @@ onMounted(load)
           <div v-if="form.defaults!.run_on === 'node'" class="grid gap-1">
             <Label for="template-node">{{ t('monitor.targetNode') }}</Label>
             <Input id="template-node" v-model="form.defaults!.node_id" placeholder="up-node-2" />
+          </div>
+          <div v-if="form.defaults!.run_on === 'some'" class="grid gap-1">
+            <Label for="template-nodes" :help="t('monitor.runOnSomeHelp')">{{ t('monitor.targetNodes') }}</Label>
+            <Input id="template-nodes" v-model="form.defaults!.run_on_nodes" placeholder="up-node-1, up-node-2" />
           </div>
           <div class="grid gap-1">
             <Label for="template-tags">{{ t('common.tags') }}</Label>

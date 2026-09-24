@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -75,6 +76,44 @@ func (s *SettingService) Set(ctx context.Context, key, value string) error {
 	s.cache[key] = value
 	s.mu.Unlock()
 	return nil
+}
+
+// SetFromPeer applies a setting that came from another node, keeping the newer value.
+//
+// It is last-write-wins on `updated_at`, and it keeps the SENDER's timestamp: a plain Set
+// would stamp the local clock, so the two nodes would then overwrite each other on every
+// pass — each one always looking newer than the other. It reports whether the value was
+// applied, and refreshes the cache the readers actually use (DefaultLocale, SessionSecret
+// and the settings page all read it instead of the database).
+func (s *SettingService) SetFromPeer(ctx context.Context, key, value string, updatedAt time.Time) (bool, error) {
+	if strings.TrimSpace(key) == "" || updatedAt.IsZero() {
+		return false, nil
+	}
+
+	var current models.Setting
+	err := s.db.WithContext(ctx).Where("setting_key = ?", key).First(&current).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// Never seen here: apply it.
+	case err != nil:
+		return false, ErrInternal(err)
+	case !updatedAt.After(current.UpdatedAt):
+		// Older or equal: this node already has the newer value.
+		return false, nil
+	}
+
+	row := models.Setting{Key: key, Value: value, UpdatedAt: updatedAt}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "setting_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&row).Error; err != nil {
+		return false, ErrInternal(err)
+	}
+
+	s.mu.Lock()
+	s.cache[key] = value
+	s.mu.Unlock()
+	return true, nil
 }
 
 // All returns a copy of the settings map.

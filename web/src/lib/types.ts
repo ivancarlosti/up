@@ -94,7 +94,9 @@ export interface Monitor {
   timeout_seconds: number
   resend_interval_seconds: number
   upside_down: boolean
-  run_on: 'all' | 'primary' | 'node'
+  run_on: 'all' | 'primary' | 'node' | 'some'
+  /** The subset used by run_on=some: comma separated node ids. */
+  run_on_nodes: string
   node_id: string
   tags: string
   config: MonitorConfig
@@ -167,7 +169,9 @@ export interface TemplateDefaults {
   retries_interval_seconds: number
   timeout_seconds: number
   resend_interval_seconds: number
-  run_on: 'all' | 'primary' | 'node'
+  run_on: 'all' | 'primary' | 'node' | 'some'
+  /** The subset used by run_on=some: comma separated node ids. */
+  run_on_nodes: string
   node_id: string
   tags: string
   description: string

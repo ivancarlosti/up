@@ -115,6 +115,8 @@ func planApply(monitor *models.Monitor, template *models.MonitorTemplate, fields
 			addChange(&changes, field, strconv.Itoa(monitor.ResendIntervalSeconds), strconv.Itoa(template.Defaults.ResendIntervalSeconds))
 		case "run_on":
 			addChange(&changes, field, monitor.RunOn, template.Defaults.RunOn)
+		case "run_on_nodes":
+			addChange(&changes, field, monitor.RunOnNodes, template.Defaults.RunOnNodes)
 		case "node_id":
 			addChange(&changes, field, monitor.NodeID, template.Defaults.NodeID)
 		case "tags":

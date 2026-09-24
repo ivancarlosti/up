@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -138,6 +140,26 @@ func (s *ClusterService) PingPeers(ctx context.Context) {
 }
 
 // peerTargets lists the nodes this node should ping.
+// peerByID returns the peer with this node id, reporting whether it is registered.
+//
+// The outbound request uses the peer's OWN published API URL from the registry, never a
+// URL taken from the incoming request: a caller that could name the target could make this
+// node fetch from an arbitrary host with the cluster key attached.
+func (s *ClusterService) peerByID(ctx context.Context, nodeID string) (models.Node, bool, error) {
+	var node models.Node
+	err := s.db.WithContext(ctx).
+		Where("node_id = ?", nodeID).
+		Where("api_url IS NOT NULL AND api_url <> ''").
+		First(&node).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return models.Node{}, false, nil
+	case err != nil:
+		return models.Node{}, false, ErrInternal(err)
+	}
+	return node, true, nil
+}
+
 func (s *ClusterService) peerTargets(ctx context.Context) ([]models.Node, error) {
 	var nodes []models.Node
 	err := s.db.WithContext(ctx).
@@ -160,6 +182,28 @@ func (s *ClusterService) pingPeer(ctx context.Context, node models.Node) {
 	s.recordPeerSuccess(ctx, node, response)
 }
 
+// touchPeerRegistry refreshes what the local registry knows about a peer's liveness.
+//
+// It only ever marks a peer ONLINE: an unreachable peer is left to the sweep, whose grace
+// and degraded thresholds are the cluster's single definition of "offline". Marking a peer
+// offline here would let one failed request shrink the vote denominator immediately, and
+// the failure would then be indistinguishable from a real removal.
+func (s *ClusterService) touchPeerRegistry(ctx context.Context, nodeID string, now time.Time) {
+	if strings.TrimSpace(nodeID) == "" {
+		return
+	}
+	result := s.db.WithContext(ctx).Model(&models.Node{}).
+		Where("node_id = ?", nodeID).
+		Updates(map[string]any{
+			"status":         models.NodeStatusOnline,
+			"last_heartbeat": now,
+			"updated_at":     now,
+		})
+	if result.Error != nil {
+		s.log.Debug("could not refresh the registry liveness of a peer", "peer", nodeID, "error", result.Error)
+	}
+}
+
 // peerRequest signs and sends a GET to one peer, decoding the JSON answer into
 // out (pass nil to ignore the body).
 //
@@ -167,7 +211,19 @@ func (s *ClusterService) pingPeer(ctx context.Context, node models.Node) {
 // guard, the redirect refusal and the response cap exist once. Two hand rolled
 // clients would eventually diverge, and the divergence would be a security hole
 // rather than a bug report.
+// peerRequest performs a signed GET against a peer.
 func (s *ClusterService) peerRequest(ctx context.Context, node models.Node, path, query string, out any) error {
+	return s.peerCall(ctx, http.MethodGet, node, path, query, out)
+}
+
+// peerPost performs a signed POST with an empty body, for a request that carries nothing
+// but itself (POST /api/cluster/sync/now).
+func (s *ClusterService) peerPost(ctx context.Context, node models.Node, path string) error {
+	return s.peerCall(ctx, http.MethodPost, node, path, "", nil)
+}
+
+// peerCall signs and performs one request against a peer.
+func (s *ClusterService) peerCall(ctx context.Context, method string, node models.Node, path, query string, out any) error {
 	key, err := s.PrivateKey(ctx)
 	if err != nil {
 		return err
@@ -182,7 +238,7 @@ func (s *ClusterService) peerRequest(ctx context.Context, node models.Node, path
 
 	requestCtx, cancel := context.WithTimeout(ctx, peerRequestTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(requestCtx, method, target, nil)
 	if err != nil {
 		return fmt.Errorf("invalid peer url %q: %w", node.APIURL, err)
 	}
@@ -195,7 +251,7 @@ func (s *ClusterService) peerRequest(ctx context.Context, node models.Node, path
 	// peer published behind a path prefix (http://host/up) sees the prefixed path,
 	// and the signature has to match what it computes.
 	signed := PeerSignatureInput{
-		Method:    http.MethodGet,
+		Method:    method,
 		Target:    req.URL.RequestURI(),
 		Timestamp: strconv.FormatInt(time.Now().UTC().Unix(), 10),
 		Nonce:     nonce,
@@ -211,6 +267,15 @@ func (s *ClusterService) peerRequest(ctx context.Context, node models.Node, path
 	client := &http.Client{
 		Timeout:       peerRequestTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	if s.cfg.ClusterInsecureSkipVerify {
+		// Explicit operator opt-in (CLUSTER_INSECURE_SKIP_VERIFY), for a self-signed
+		// certificate on a private network. It weakens the transport that carries the
+		// cluster key and the channel credentials, which is why the boot logs it loudly
+		// and why it is off by default.
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // explicit opt-in
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -251,6 +316,15 @@ func (s *ClusterService) fetchPing(ctx context.Context, node models.Node) (*Ping
 func (s *ClusterService) recordPeerSuccess(ctx context.Context, node models.Node, response *PingResponse) {
 	now := time.Now().UTC()
 	previous := s.loadPeerRow(ctx, node.NodeID)
+
+	// The registry entry of the peer is refreshed here, from the liveness this node just
+	// observed. In federated mode there is no shared table feeding `nodes.last_heartbeat`,
+	// and the registry is otherwise only written by the join: without this the sweep would
+	// mark every peer offline after NodeOfflineSeconds, and the vote aggregation, the
+	// QUORUM denominator and the admin view would all treat a healthy cluster as
+	// partitioned. With it, the existing grace/degraded logic works exactly as it does in
+	// shared mode.
+	s.touchPeerRegistry(ctx, node.NodeID, now)
 
 	status := models.PeerStatusOnline
 	note := ""

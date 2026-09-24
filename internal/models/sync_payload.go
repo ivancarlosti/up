@@ -23,23 +23,25 @@ type MonitorPayload struct {
 	Revision     int64     `json:"revision"`
 	UpdatedAt    time.Time `json:"updated_at"`
 
-	Name                   string        `json:"name"`
-	Type                   MonitorType   `json:"type"`
-	Active                 bool          `json:"active"`
-	Description            string        `json:"description"`
-	IntervalSeconds        int           `json:"interval_seconds"`
-	Retries                int           `json:"retries"`
-	RetriesIntervalSeconds int           `json:"retries_interval_seconds"`
-	TimeoutSeconds         int           `json:"timeout_seconds"`
-	ResendIntervalSeconds  int           `json:"resend_interval_seconds"`
-	UpsideDown             bool          `json:"upside_down"`
-	RunOn                  string        `json:"run_on"`
-	NodeID                 string        `json:"node_id"`
-	Tags                   string        `json:"tags"`
-	CertWatch              bool          `json:"cert_watch"`
-	CertNotify             bool          `json:"cert_notify"`
-	CertWarnDays           string        `json:"cert_warn_days"`
-	Config                 MonitorConfig `json:"config"`
+	Name                   string      `json:"name"`
+	Type                   MonitorType `json:"type"`
+	Active                 bool        `json:"active"`
+	Description            string      `json:"description"`
+	IntervalSeconds        int         `json:"interval_seconds"`
+	Retries                int         `json:"retries"`
+	RetriesIntervalSeconds int         `json:"retries_interval_seconds"`
+	TimeoutSeconds         int         `json:"timeout_seconds"`
+	ResendIntervalSeconds  int         `json:"resend_interval_seconds"`
+	UpsideDown             bool        `json:"upside_down"`
+	RunOn                  string      `json:"run_on"`
+	NodeID                 string      `json:"node_id"`
+	// RunOnNodes is the subset used by run_on=some, comma separated (see models.Monitor).
+	RunOnNodes   string        `json:"run_on_nodes"`
+	Tags         string        `json:"tags"`
+	CertWatch    bool          `json:"cert_watch"`
+	CertNotify   bool          `json:"cert_notify"`
+	CertWarnDays string        `json:"cert_warn_days"`
+	Config       MonitorConfig `json:"config"`
 }
 
 // MonitorGroupPayload is a group. Its members are a separate entity, for the same
@@ -176,6 +178,26 @@ type SyncVotesResponse struct {
 	ProtocolVersion int               `json:"protocol_version"`
 	ServerTime      time.Time         `json:"server_time"`
 	Votes           []PeerVotePayload `json:"votes"`
+}
+
+// SettingPayload is one whitelisted setting as it travels between nodes.
+type SettingPayload struct {
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SyncSettingsResponse answers GET /api/cluster/sync/settings.
+//
+// It carries the presentation settings and, when its own opt-in is on, the session secret.
+// Nothing else: API tokens, IP rules and per-node rate limits are deliberately never
+// synchronised (docs/clustering-federated.md, section 10), because security configuration
+// stays a per-node concern.
+type SyncSettingsResponse struct {
+	NodeID          string           `json:"node_id"`
+	ProtocolVersion int              `json:"protocol_version"`
+	ServerTime      time.Time        `json:"server_time"`
+	Settings        []SettingPayload `json:"settings"`
 }
 
 // SyncChangePayload is one entry of a changes or snapshot batch.

@@ -83,9 +83,21 @@ func Seed(ctx context.Context, db *gorm.DB, cfg *config.Config, log *slog.Logger
 	return err
 }
 
+// seededAt is the timestamp given to every value the operator never chose.
+//
+// The settings table is synchronised between federated nodes last-write-wins on
+// `updated_at`, so a default stamped with the current time outranks a real change: a
+// node that joins with a fresh database reverts the cluster's app name, locale and theme
+// to its own defaults, and a node that just generated its own session secret logs the
+// others out. Seeding with an epoch makes a default the oldest possible value there is:
+// it is still what this node serves locally, and it loses to any value somebody actually
+// set — after which the cluster's value flows in instead. It is 1970 rather than the zero
+// time because MySQL's DATETIME cannot hold year 1.
+var seededAt = time.Unix(0, 0).UTC()
+
 // ensureSetting creates the setting when it does not exist yet.
 func ensureSetting(ctx context.Context, db *gorm.DB, key, value string) error {
-	row := models.Setting{Key: key, Value: value, UpdatedAt: time.Now().UTC()}
+	row := models.Setting{Key: key, Value: value, UpdatedAt: seededAt}
 	return db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error
 }
 

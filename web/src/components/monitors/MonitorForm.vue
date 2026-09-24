@@ -36,6 +36,7 @@ function emptyForm(): MonitorPayload {
     resend_interval_seconds: 0,
     upside_down: false,
     run_on: 'all',
+    run_on_nodes: '',
     node_id: '',
     tags: '',
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', headers: [] },
@@ -78,6 +79,7 @@ const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
   { value: 'primary', label: t('monitor.runOnPrimary') },
   { value: 'node', label: t('monitor.runOnSpecific') },
+  { value: 'some', label: t('monitor.runOnSome') },
 ])
 
 const isHttpLike = computed(() => type.value === 'http' || type.value === 'keyword')
@@ -199,6 +201,10 @@ function submit(): void {
         <div v-if="form.run_on === 'node'" class="grid gap-1">
           <Label for="monitor-node">{{ t('monitor.targetNode') }}</Label>
           <Input id="monitor-node" v-model="form.node_id" placeholder="up-node-2" />
+        </div>
+        <div v-if="form.run_on === 'some'" class="grid gap-1">
+          <Label for="monitor-nodes" :help="t('monitor.runOnSomeHelp')">{{ t('monitor.targetNodes') }}</Label>
+          <Input id="monitor-nodes" v-model="form.run_on_nodes as string" placeholder="up-node-1, up-node-2" />
         </div>
       </section>
 

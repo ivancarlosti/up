@@ -33,16 +33,13 @@ func voteWindow(monitor *models.Monitor) time.Duration {
 }
 
 // participatesInVoting tells whether a given node is expected to vote for a
-// monitor (run_on: all | primary | node).
+// monitor (run_on: all | primary | node | some).
+//
+// It is the SAME rule the scheduler uses to decide who probes (models.MonitorRunsOn),
+// asked about another node: if the two answers could differ, a node would probe a monitor
+// whose verdict it is not allowed to publish.
 func participatesInVoting(monitor *models.Monitor, node models.Node) bool {
-	switch monitor.RunOn {
-	case "primary":
-		return node.IsPrimary
-	case "node":
-		return node.NodeID == monitor.NodeID
-	default:
-		return true
-	}
+	return models.MonitorRunsOn(monitor, node.NodeID, node.IsPrimary)
 }
 
 // EvaluateAll implements VoteProvider: it merges the latest heartbeat of every

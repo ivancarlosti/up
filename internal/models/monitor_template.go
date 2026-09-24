@@ -54,8 +54,10 @@ type TemplateDefaults struct {
 	ResendIntervalSeconds  int    `json:"resend_interval_seconds"`
 	RunOn                  string `json:"run_on"`
 	NodeID                 string `json:"node_id"`
-	Tags                   string `json:"tags"`
-	Description            string `json:"description"`
+	// RunOnNodes is the subset used by run_on=some, comma separated.
+	RunOnNodes  string `json:"run_on_nodes"`
+	Tags        string `json:"tags"`
+	Description string `json:"description"`
 	// Active is a pointer so an omitted value keeps the monitor default (true).
 	Active *bool `json:"active,omitempty"`
 	// Certificate watching applied to the monitors created from the template (or
@@ -74,7 +76,7 @@ type TemplateDefaults struct {
 func TemplateDefaultFields() []string {
 	return []string{
 		"description", "interval_seconds", "retries", "retries_interval_seconds",
-		"timeout_seconds", "resend_interval_seconds", "run_on", "node_id", "tags",
+		"timeout_seconds", "resend_interval_seconds", "run_on", "run_on_nodes", "node_id", "tags",
 		"active", "notification_ids", "group_ids", "config",
 		"cert_watch", "cert_notify", "cert_warn_days",
 	}
@@ -114,8 +116,15 @@ func (t *MonitorTemplate) Validate() string {
 		}
 		return "type must be " + strings.Join(types, ", ")
 	}
-	if t.Defaults.RunOn != "all" && t.Defaults.RunOn != "primary" && t.Defaults.RunOn != "node" {
-		return "run_on must be all, primary or node"
+	switch t.Defaults.RunOn {
+	case "all", "primary", "node":
+	case "some":
+		t.Defaults.RunOnNodes = NormalizeRunOnNodes(t.Defaults.RunOnNodes)
+		if t.Defaults.RunOnNodes == "" {
+			return "run_on_nodes is required when run_on=some"
+		}
+	default:
+		return "run_on must be all, primary, node or some"
 	}
 	if t.Defaults.IntervalSeconds < 5 {
 		return "interval_seconds must be at least 5"

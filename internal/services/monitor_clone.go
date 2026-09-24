@@ -52,6 +52,7 @@ func (s *MonitorService) Clone(ctx context.Context, id uint, opts MonitorCloneOp
 		ResendIntervalSeconds:  source.ResendIntervalSeconds,
 		UpsideDown:             source.UpsideDown,
 		RunOn:                  source.RunOn,
+		RunOnNodes:             source.RunOnNodes,
 		NodeID:                 source.NodeID,
 		Tags:                   source.Tags,
 		Config:                 source.Config,

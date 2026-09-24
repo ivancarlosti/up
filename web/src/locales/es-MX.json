@@ -203,7 +203,10 @@
     "cloneHelp": "La copia empieza con historial limpio: los heartbeats no se copian.",
     "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
     "copyNotifications": "Copiar los canales de notificación",
-    "copyGroups": "Copiar los grupos"
+    "copyGroups": "Copiar los grupos",
+    "runOnSome": "Un conjunto de nodos",
+    "targetNodes": "Nodos",
+    "runOnSomeHelp": "Ids de nodo separados por comas. Solo estos nodos sondean el monitor y solo ellos votan por su estado."
   },
   "monitorDetail": {
     "responseTime": "Tiempo de respuesta",

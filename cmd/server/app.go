@@ -83,6 +83,9 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	notifications.SetSyncEmitter(syncEmitter)
 	syncService := services.NewSyncService(db, cfg, log, cluster, syncEmitter)
 	syncService.SetPublisher(hub)
+	// The opt-in settings sync needs the local store, so an applied setting refreshes the
+	// cache the readers use instead of only the row.
+	syncService.SetSettingsService(settings)
 
 	if err := cluster.EnsureSelf(ctx); err != nil {
 		return nil, err

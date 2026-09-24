@@ -30,14 +30,25 @@ func (s *SyncService) ApplyBatch(ctx context.Context, peerNodeID string, changes
 	applying := WithApply(ctx)
 
 	err := s.db.WithContext(applying).Transaction(func(tx *gorm.DB) error {
-		applied, skipped, err := s.applyChanges(applying, tx, changes)
-		if err != nil {
-			return err
-		}
+		// The cursor is advanced first, and the order inside the transaction is load
+		// bearing. `sync_peers` is the one row a peer's transaction and this node's ping
+		// loop and manifest pass write concurrently, while everything the apply itself
+		// touches (sync_objects, monitors, the relations) is written by this node alone.
+		// Writing the cursor first is what makes the transaction's read view include the
+		// ping loop's last commit; writing it after the apply has read other tables makes
+		// MariaDB refuse it with 1020 ("record has changed since last read") and the batch
+		// is thrown away and replayed change by change. It stays inside the transaction,
+		// so a crash mid-batch still re-pulls instead of losing rows: a rollback takes the
+		// cursor with it.
+		//
 		// The cursor is the id of the last change of the batch, applied or not: the
 		// ones that were skipped were skipped for good (they are older than what
 		// this node already has), so re-pulling them would never help.
 		if err := s.advanceCursor(applying, tx, peerNodeID, int64(changes[len(changes)-1].ID)); err != nil {
+			return err
+		}
+		applied, skipped, err := s.applyChanges(applying, tx, changes)
+		if err != nil {
 			return err
 		}
 		s.log.Debug("applied a batch from a peer",
@@ -232,6 +243,12 @@ func (s *SyncService) applyEntity(ctx context.Context, tx *gorm.DB, change model
 }
 
 // advanceCursor records how far this node has consumed a peer's outbox.
+//
+// It must be the FIRST write of the apply transaction (see ApplyBatch): it touches the
+// one row the ping loop and the manifest pass also update, and reading it after the
+// apply has already read other tables means the transaction's read view predates their
+// commit — MariaDB then answers 1020 "record has changed since last read" and the whole
+// batch is thrown away.
 func (s *SyncService) advanceCursor(ctx context.Context, tx *gorm.DB, peerNodeID string, cursor int64) error {
 	if cursor <= 0 {
 		return nil
@@ -406,6 +423,7 @@ func (s *SyncService) writeMonitor(ctx context.Context, tx *gorm.DB, payload mod
 		"resend_interval_seconds":  payload.ResendIntervalSeconds,
 		"upside_down":              payload.UpsideDown,
 		"run_on":                   payload.RunOn,
+		"run_on_nodes":             payload.RunOnNodes,
 		"node_id":                  payload.NodeID,
 		"tags":                     payload.Tags,
 		"cert_watch":               payload.CertWatch,

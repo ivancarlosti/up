@@ -149,6 +149,20 @@ func (c *Config) SyncsNotifications() bool {
 	return c.SyncEnabled() && c.ClusterSyncNotifications
 }
 
+// SyncsSettings reports whether the non-secret settings whitelist is part of the
+// synchronised configuration (app name, default locale, default theme).
+func (c *Config) SyncsSettings() bool {
+	return c.SyncEnabled() && c.ClusterSyncSettings
+}
+
+// SyncsSessionSecret reports whether the session secret travels between the nodes
+// (decision D4). It is its own switch: the secret signs session cookies, so syncing it
+// shares the ability to forge a session, while not syncing it only means logging in once
+// per dashboard.
+func (c *Config) SyncsSessionSecret() bool {
+	return c.SyncEnabled() && c.ClusterSyncSessionSecret
+}
+
 // SyncPeersReportsChannels is the same question asked of the peer API: whether the
 // sync endpoints should serve the channel entity at all.
 func (c *Config) SyncEntityEnabled(entity string) bool {

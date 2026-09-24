@@ -127,21 +127,23 @@ func (c *Config) validate() []string {
 	// --- Clustering --------------------------------------------------------
 	switch c.ClusterMode {
 	case ClusterModeShared:
-		// The implemented mode: every node points at the same database.
+		// The shared database does the synchronising for us.
 	case ClusterModeFederated:
 		if !c.ClusterEnabled {
 			problems = append(problems, "CLUSTER_MODE=federated requires CLUSTER_ENABLED=true")
 		}
+		// The peer API is what makes the mode real: it is how a node publishes what it
+		// changed and how it pulls what the others changed. A federated node without it
+		// would claim to be part of a cluster, take part in nothing, and diverge in
+		// silence — which is the failure this mode exists to avoid, so it is refused at
+		// boot rather than warned about (docs/clustering-federated.md, section 20).
+		if !c.ClusterPeerAPI {
+			problems = append(problems,
+				"CLUSTER_MODE=federated requires CLUSTER_PEER_API=true")
+		}
 		// NODE_ID is not checked here: it is already required by
 		// CLUSTER_ENABLED=true just below, and federated mode requires the
 		// clustering to be enabled. Reporting it twice would only add noise.
-		//
-		// Refusing to boot is deliberate. Accepting the value would give a node
-		// that claims to be federated and silently behaves like a shared one
-		// (one database per node, nothing synchronised). Remove this line when
-		// the mode is implemented (docs/clustering-federated.md, phase 4).
-		problems = append(problems,
-			"CLUSTER_MODE=federated is not implemented yet: use CLUSTER_MODE=shared")
 	default:
 		problems = append(problems, fmt.Sprintf("CLUSTER_MODE must be %s or %s, got %q",
 			ClusterModeShared, ClusterModeFederated, c.ClusterMode))

@@ -13,7 +13,8 @@ import (
 func (s *ClusterService) Enabled() bool { return s.cfg.ClusterEnabled }
 
 // Mode is the CLUSTER_MODE this node runs in (config.ClusterModeShared or
-// config.ClusterModeFederated). "shared" is the only implemented mode.
+// config.ClusterModeFederated). Both are implemented; federated stays refused at
+// boot until the operator migration path is documented (section 20).
 func (s *ClusterService) Mode() string { return s.cfg.ClusterMode }
 
 // Federated reports whether this node runs with its own database and

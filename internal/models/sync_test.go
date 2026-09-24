@@ -234,6 +234,82 @@ func TestNotificationCandidates(t *testing.T) {
 	}
 }
 
+// TestMonitorRunsOnPinsTheFourRules is the single place the "who takes part" rule is
+// checked.
+//
+// The scheduler asks it to decide who PROBES, and the evaluator to decide who VOTES. If
+// those two answers could differ, a node would probe a monitor whose verdict it is not
+// allowed to publish (or the reverse), which shows up as a monitor flapping between
+// unknown and its real status.
+func TestMonitorRunsOnPinsTheFourRules(t *testing.T) {
+	cases := []struct {
+		name      string
+		monitor   Monitor
+		nodeID    string
+		isPrimary bool
+		want      bool
+	}{
+		{name: "all: every node takes part", monitor: Monitor{RunOn: "all"}, nodeID: "up-node-2", want: true},
+		{name: "empty run_on behaves like all", monitor: Monitor{}, nodeID: "up-node-2", want: true},
+		{name: "primary: only the primary", monitor: Monitor{RunOn: "primary"}, nodeID: "up-node-2", isPrimary: true, want: true},
+		{name: "primary: not a secondary", monitor: Monitor{RunOn: "primary"}, nodeID: "up-node-2", isPrimary: false, want: false},
+		{name: "node: the named node", monitor: Monitor{RunOn: "node", NodeID: "up-node-3"}, nodeID: "up-node-3", want: true},
+		{name: "node: another node", monitor: Monitor{RunOn: "node", NodeID: "up-node-3"}, nodeID: "up-node-2", want: false},
+		{name: "some: a listed node", monitor: Monitor{RunOn: "some", RunOnNodes: "up-node-2,up-node-3"}, nodeID: "up-node-3", want: true},
+		{name: "some: an unlisted node", monitor: Monitor{RunOn: "some", RunOnNodes: "up-node-2,up-node-3"}, nodeID: "up-node-4", want: false},
+		{name: "an unknown value takes part (nobody probing is worse)", monitor: Monitor{RunOn: "whatever"}, nodeID: "up-node-2", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			monitor := tc.monitor
+			if got := MonitorRunsOn(&monitor, tc.nodeID, tc.isPrimary); got != tc.want {
+				t.Fatalf("MonitorRunsOn = %t, want %t", got, tc.want)
+			}
+		})
+	}
+	if MonitorRunsOn(nil, "up-node-1", true) {
+		t.Fatal("a nil monitor takes part in nothing")
+	}
+}
+
+// TestMonitorListedOnNodeMatchesWholeIds guards the suffix trap: a substring search would
+// match "up-node-1" inside "up-node-11", so a monitor meant for one node would silently be
+// probed — and alerted on — by another.
+func TestMonitorListedOnNodeMatchesWholeIds(t *testing.T) {
+	list := "up-node-1, up-node-11"
+	if !MonitorListedOnNode(list, "up-node-11") {
+		t.Fatal("a listed id with surrounding spaces must match")
+	}
+	if MonitorListedOnNode("up-node-11", "up-node-1") {
+		t.Fatal("a shorter id must not match a longer one")
+	}
+	if MonitorListedOnNode(list, "") {
+		t.Fatal("an empty node id never matches")
+	}
+	if MonitorListedOnNode("", "up-node-1") {
+		t.Fatal("an empty list matches nothing")
+	}
+}
+
+// TestNormalizeRunOnNodes pins the cleanup the operator's input gets: the stored list is
+// what every node compares against, so it must be deterministic.
+func TestNormalizeRunOnNodes(t *testing.T) {
+	cases := map[string]string{
+		"":                     "",
+		"   ":                  "",
+		" up-node-1 ":          "up-node-1",
+		"up-node-2, up-node-1": "up-node-2,up-node-1",
+		"up-node-1,,up-node-1": "up-node-1",
+		"a,b,a,b,c":            "a,b,c",
+		", ,up-node-3, ,":      "up-node-3",
+	}
+	for input, want := range cases {
+		if got := NormalizeRunOnNodes(input); got != want {
+			t.Fatalf("NormalizeRunOnNodes(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 // TestSyncPeerSettled pins the rule behind the settle time: a peer may not take
 // the leader role (or the notification duty) until it has been continuously
 // reachable for the configured period, which is what stops a flapping node from

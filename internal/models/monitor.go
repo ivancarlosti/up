@@ -2,11 +2,72 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// MonitorRunsOn reports whether a node takes part in a monitor.
+//
+// It answers BOTH questions the cluster asks about `run_on`: which node probes the
+// monitor (the scheduler) and which nodes vote for it (the evaluator). One function, so
+// the two cannot drift — a node that probes a monitor nobody counts, or a node asked to
+// vote on a monitor it never saw, would each look like a monitor going silently unknown.
+//
+// `isPrimary` is the caller's answer to "is this node the primary?", which is a shared row
+// in shared mode and a derived role in federated mode: the rule does not care which.
+func MonitorRunsOn(monitor *Monitor, nodeID string, isPrimary bool) bool {
+	if monitor == nil {
+		return false
+	}
+	switch monitor.RunOn {
+	case "primary":
+		return isPrimary
+	case "node":
+		return monitor.NodeID == nodeID
+	case "some":
+		return MonitorListedOnNode(monitor.RunOnNodes, nodeID)
+	default:
+		// "all", and anything a future build writes that this one does not know: taking
+		// part is the safe default, because a monitor nobody probes is a monitor that
+		// never alerts.
+		return true
+	}
+}
+
+// MonitorListedOnNode reports whether a node id appears in a comma separated list.
+//
+// The comparison is exact per element: a substring search would match "up-node-1" inside
+// "up-node-11" and quietly start probing — and alerting — from the wrong node.
+func MonitorListedOnNode(list, nodeID string) bool {
+	if strings.TrimSpace(nodeID) == "" {
+		return false
+	}
+	for _, candidate := range strings.Split(list, ",") {
+		if strings.TrimSpace(candidate) == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeRunOnNodes cleans a node list: trimmed, deduplicated, empty entries dropped,
+// in the order the operator wrote them.
+func NormalizeRunOnNodes(list string) string {
+	seen := map[string]bool{}
+	out := make([]string, 0, 4)
+	for _, candidate := range strings.Split(list, ",") {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return strings.Join(out, ",")
+}
 
 // Monitor is a probe definition. All the type specific options live inside the
 // Config JSON column; the columns kept here are the ones the scheduler, the
@@ -53,10 +114,16 @@ type Monitor struct {
 	// considered up, e.g. a firewall rule that must keep blocking).
 	UpsideDown bool `gorm:"not null;default:false" json:"upside_down"`
 
-	// RunOn: all | primary | node. It decides which cluster node executes the
-	// heartbeat (a "node" value is paired with NodeID).
+	// RunOn: all | primary | node | some. It decides which cluster nodes take part in
+	// the monitor: every node, the current primary, one named node ("node" is paired
+	// with NodeID), or the subset listed in RunOnNodes.
 	RunOn  string `gorm:"size:20;not null;default:all" json:"run_on"`
 	NodeID string `gorm:"size:64" json:"node_id"`
+	// RunOnNodes is the subset used by run_on=some: a comma separated list of node ids,
+	// like Tags. It is deliberately a string and not a join table: the list is small,
+	// it travels as one field on the wire, and a node computes membership with a
+	// substring-free comparison (see MonitorRunsOn).
+	RunOnNodes string `gorm:"size:500" json:"run_on_nodes"`
 
 	// Free form tags, comma separated (used for grouping and filters).
 	Tags string `gorm:"size:255" json:"tags"`

@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ivancarlosti/up/internal/api"
+	"github.com/ivancarlosti/up/internal/middleware"
 	"github.com/ivancarlosti/up/internal/models"
 	"github.com/ivancarlosti/up/internal/services"
 	"github.com/ivancarlosti/up/internal/version"
@@ -17,6 +18,22 @@ import (
 // that just restarted is a peer whose view of the world is fresh, which is worth
 // knowing when a sync looks odd.
 var processStartedAt = time.Now().UTC()
+
+// syncNow answers a signed peer request (POST /api/cluster/sync/now): a peer is telling
+// this node that it has published changes, so this node pulls from it right away instead
+// of waiting for the next cycle.
+//
+// Only a peer this node already knows is accepted, and the pull targets that peer's own
+// registered URL — never one taken from the request.
+func (h *Container) syncNow(c *gin.Context) {
+	caller, _ := c.Get(middleware.CtxPeerNode)
+	nodeID, _ := caller.(string)
+	if err := h.Sync.RequestPull(c.Request.Context(), nodeID); err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, gin.H{"accepted": true, "node_id": h.Cfg.NodeID})
+}
 
 // syncPing answers a signed peer request (GET /api/cluster/sync/ping).
 //
@@ -36,6 +53,17 @@ func (h *Container) syncPing(c *gin.Context) {
 		UptimeSeconds:   int64(time.Since(processStartedAt).Seconds()),
 		ServerTime:      time.Now().UTC(),
 	})
+}
+
+// syncSettings answers a signed peer request with the whitelisted settings (and the
+// session secret when its own opt-in is on).
+func (h *Container) syncSettings(c *gin.Context) {
+	response, err := h.Sync.ServeSettings(c.Request.Context())
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, response)
 }
 
 // syncVotes answers a signed peer request (GET /api/cluster/sync/votes) with THIS

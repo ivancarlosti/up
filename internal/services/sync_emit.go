@@ -67,6 +67,7 @@ func BuildMonitorPayload(m *models.Monitor) ([]byte, error) {
 		ResendIntervalSeconds:  m.ResendIntervalSeconds,
 		UpsideDown:             m.UpsideDown,
 		RunOn:                  m.RunOn,
+		RunOnNodes:             m.RunOnNodes,
 		NodeID:                 m.NodeID,
 		Tags:                   m.Tags,
 		CertWatch:              m.CertWatch,
