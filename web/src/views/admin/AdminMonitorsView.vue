@@ -19,11 +19,20 @@ import BulkAddDialog from '@/components/monitors/BulkAddDialog.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
-import { formatInterval, formatUptime } from '@/lib/format'
+import { formatDateTime, formatInterval, formatUptime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorCloneOptions, MonitorGroup, MonitorPayload, MonitorTemplate, Notification } from '@/lib/types'
+import type {
+  CertificateInfo,
+  DomainInfo,
+  Monitor,
+  MonitorCloneOptions,
+  MonitorGroup,
+  MonitorPayload,
+  MonitorTemplate,
+  Notification,
+} from '@/lib/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toasts = useToastStore()
 const router = useRouter()
 
@@ -51,6 +60,9 @@ const groupNames = computed(() => new Map(groups.value.map((group) => [group.id,
 /** hasCertificates reveals the validity column only when it says something. */
 const hasCertificates = computed(() => monitors.value.some((monitor) => monitor.cert_watch || monitor.certificate))
 
+/** hasDomains reveals the domain expiration column on the same rule. */
+const hasDomains = computed(() => monitors.value.some((monitor) => monitor.domain_watch || monitor.domain))
+
 /**
  * counts feeds the header subtitle. It applies the same rule as the server
  * (internal/handlers/public.go): a paused monitor is counted as paused, never
@@ -69,11 +81,23 @@ const counts = computed(() => {
   return counters
 })
 
-/** certificateVariant colours the validity badge by urgency. */
-function certificateVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
+/** expiryVariant colours an expiry badge (certificate or domain) by urgency. */
+function expiryVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
   if (daysLeft <= 7) return 'danger'
   if (daysLeft <= 30) return 'warning'
   return 'success'
+}
+
+/** certificateTitle is the tooltip of the certificate badge (issuer + expiry). */
+function certificateTitle(certificate: CertificateInfo): string {
+  const parts = [certificate.issuer, certificate.subject].filter(Boolean)
+  return `${parts.join(' — ')} (${formatDateTime(certificate.not_after, locale.value)})`
+}
+
+/** domainTitle is the tooltip of the domain badge (registrar + expiry). */
+function domainTitle(domain: DomainInfo): string {
+  const parts = [domain.registrar, domain.domain].filter(Boolean)
+  return `${parts.join(' — ')} (${formatDateTime(domain.expires_at, locale.value)})`
 }
 
 /** groupFilterOptions adds the "all groups" entry to the real groups. */
@@ -218,6 +242,7 @@ onMounted(load)
             <th>{{ t('common.type') }}</th>
             <th>{{ t('monitor.groupsSection') }}</th>
             <th v-if="hasCertificates">{{ t('certificate.column') }}</th>
+            <th v-if="hasDomains">{{ t('domain.column') }}</th>
             <th>{{ t('common.status') }}</th>
             <th>{{ t('common.interval') }}</th>
             <th>{{ t('common.uptime') }}</th>
@@ -240,14 +265,44 @@ onMounted(load)
                 <span v-if="!(monitor.group_ids ?? []).length" class="text-muted-foreground">—</span>
               </div>
             </td>
-            <td><StatusBadge :status="monitor.status" /></td>
             <td v-if="hasCertificates">
-              <Badge v-if="monitor.certificate" :variant="certificateVariant(monitor.certificate.days_left)">
+              <Badge
+                v-if="monitor.certificate"
+                :variant="expiryVariant(monitor.certificate.days_left)"
+                :title="certificateTitle(monitor.certificate)"
+              >
                 {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
               </Badge>
               <span v-else-if="monitor.cert_watch" class="text-muted-foreground">{{ t('certificate.pending') }}</span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
+            <td v-if="hasDomains">
+              <Badge
+                v-if="monitor.domain && monitor.domain.status === 'ok'"
+                :variant="expiryVariant(monitor.domain.days_left)"
+                :title="domainTitle(monitor.domain)"
+              >
+                {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
+              </Badge>
+              <Badge
+                v-else-if="monitor.domain && monitor.domain.status === 'not_found'"
+                variant="secondary"
+              >
+                {{ t('domain.notFound') }}
+              </Badge>
+              <Badge
+                v-else-if="monitor.domain && monitor.domain.status === 'unsupported'"
+                variant="secondary"
+              >
+                {{ t('domain.unsupported') }}
+              </Badge>
+              <Badge v-else-if="monitor.domain" variant="secondary" :title="monitor.domain.error || ''">
+                {{ t('domain.unavailable') }}
+              </Badge>
+              <span v-else-if="monitor.domain_watch" class="text-muted-foreground">{{ t('domain.pending') }}</span>
+              <span v-else class="text-muted-foreground">—</span>
+            </td>
+            <td><StatusBadge :status="monitor.status" /></td>
             <td>{{ formatInterval(monitor.interval_seconds) }}</td>
             <td>{{ formatUptime(monitor.uptime_24h) }}</td>
             <td>
