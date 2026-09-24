@@ -239,9 +239,13 @@ type SyncConflict struct {
 func (SyncConflict) TableName() string { return "sync_conflicts" }
 
 // SyncPendingLink records a reference that arrived before its target. It is a
-// marker, not a queue: the healing pass (manifest mismatch, or the forced
-// reconcile it triggers) re-delivers the container with its full link list, and
-// by then the target exists.
+// marker, not a queue: the healing pass re-delivers the container with its full
+// link list, and by then the target exists.
+//
+// It is also bounded. A marker is CLEARED as soon as the container applies with
+// every reference resolved, and it stops triggering retries once Attempts passes
+// the cap — otherwise a reference whose target never arrives would re-pull that
+// entity's snapshot on every cycle for ever.
 type SyncPendingLink struct {
 	ID uint `gorm:"primaryKey" json:"id"`
 	// Entity and UUID identify the container (the monitor, the group, ...).
@@ -250,12 +254,44 @@ type SyncPendingLink struct {
 	// Kind is which link list the reference came from (group_uuids, ...).
 	Kind string `gorm:"size:32;not null;uniqueIndex:idx_sync_pending_link,priority:3" json:"kind"`
 	// MissingUUID is the reference that could not be resolved yet.
-	MissingUUID string    `gorm:"size:36;not null;uniqueIndex:idx_sync_pending_link,priority:4" json:"missing_uuid"`
-	CreatedAt   time.Time `json:"created_at"`
+	MissingUUID string `gorm:"size:36;not null;uniqueIndex:idx_sync_pending_link,priority:4" json:"missing_uuid"`
+	// Attempts counts how many times the container was re-applied while this
+	// reference stayed missing. Past maxPendingLinkAttempts the marker stops
+	// triggering retries and stays visible for the operator instead.
+	Attempts      int       `gorm:"not null;default:0" json:"attempts"`
+	LastAttemptAt time.Time `json:"last_attempt_at"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // TableName keeps the table name stable.
 func (SyncPendingLink) TableName() string { return "sync_pending_links" }
+
+// SyncDeadLetter is a change this node could not apply.
+//
+// It exists so that ONE bad change cannot stop a peer's synchronisation for ever:
+// without it the apply transaction rolls back, the cursor never moves past the
+// offending change, and every later change queues behind it. Past the attempt cap
+// the change is skipped and recorded here, which turns a silent stall into a
+// visible, bounded problem.
+type SyncDeadLetter struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+	// One row per (peer, change) so the attempts accumulate instead of piling up.
+	PeerNodeID  string `gorm:"size:64;not null;uniqueIndex:idx_sync_dead_letter,priority:1" json:"peer_node_id"`
+	ChangeID    int64  `gorm:"not null;uniqueIndex:idx_sync_dead_letter,priority:2" json:"change_id"`
+	Entity      string `gorm:"size:32" json:"entity"`
+	UUID        string `gorm:"size:36" json:"uuid"`
+	PayloadHash string `gorm:"size:64" json:"payload_hash"`
+	Attempts    int    `gorm:"not null;default:1" json:"attempts"`
+	// Skipped is set when the change was finally passed over. A row that is not
+	// skipped is still being retried, so the two states are distinguishable.
+	Skipped   bool      `gorm:"not null;default:false" json:"skipped"`
+	LastError string    `gorm:"size:500" json:"last_error"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TableName keeps the table name stable.
+func (SyncDeadLetter) TableName() string { return "sync_dead_letters" }
 
 func SettledPeers(peers []SyncPeer, now time.Time, settle time.Duration) []SyncPeer {
 	out := make([]SyncPeer, 0, len(peers))

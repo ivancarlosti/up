@@ -250,6 +250,11 @@ func (s *SyncService) applyTemplate(ctx context.Context, tx *gorm.DB, change mod
 	if err := s.trackApplied(ctx, tx, change, localID, false); err != nil {
 		return decision, err
 	}
+	// The template is written, so whatever reference it was waiting for has either
+	// arrived (the marker goes) or is still missing (the marker stays and counts).
+	if err := s.clearResolvedPendingLinks(ctx, tx, change.Entity, change.UUID); err != nil {
+		return decision, err
+	}
 	event := "monitor.template.updated"
 	if created {
 		event = "monitor.template.created"
@@ -467,6 +472,11 @@ func (s *SyncService) applyStatusPage(ctx context.Context, tx *gorm.DB, change m
 	if err := s.trackApplied(ctx, tx, change, localID, false); err != nil {
 		return decision, err
 	}
+	// The page and its selection are written, so a reference the page was waiting for
+	// has either arrived (the marker goes) or is still missing (it stays and counts).
+	if err := s.clearResolvedPendingLinks(ctx, tx, change.Entity, change.UUID); err != nil {
+		return decision, err
+	}
 	// A public page is rendered from the database on every request and this service
 	// has no event hub, so unlike a monitor there is nothing to broadcast here.
 	return decision, nil
@@ -584,4 +594,102 @@ func (s *SyncService) writeStatusPageSelection(ctx context.Context, tx *gorm.DB,
 		}
 	}
 	return nil
+}
+
+// resolvePendingLinks materialises the references that were missing when their
+// container was last applied.
+//
+// Re-applying the container is NOT an option, which is what the first design got
+// wrong: the container arrives at the revision this node already holds, so the merge
+// rule skips it — as it must, otherwise every re-delivery would look like a new
+// version. The reference is therefore resolved as LOCAL work: the container's stored
+// payload is written again, without touching its identity, so the join rows appear as
+// soon as their target exists.
+//
+// The payload used is the one stored beside the identity (models.SyncObject.Payload),
+// so this works for a container that arrived through a change or through a snapshot,
+// and it needs no collaboration from the peer.
+func (s *SyncService) resolvePendingLinks(ctx context.Context, tx *gorm.DB) error {
+	var markers []models.SyncPendingLink
+	if err := tx.WithContext(ctx).Where("attempts < ?", maxPendingLinkAttempts).
+		Find(&markers).Error; err != nil {
+		return ErrInternal(err)
+	}
+	if len(markers) == 0 {
+		return nil
+	}
+
+	// A container can have several missing references: it is written once, after the
+	// last of its markers has been looked at.
+	containers := map[string]models.SyncPendingLink{}
+	for _, marker := range markers {
+		target := pendingLinkTarget(marker.Entity, marker.Kind)
+		if target == "" {
+			continue
+		}
+		_, resolved, err := s.localID(ctx, tx, target, marker.MissingUUID)
+		if err != nil {
+			return err
+		}
+		if resolved {
+			containers[marker.Entity+"|"+marker.UUID] = marker
+		}
+	}
+	for _, marker := range containers {
+		if err := s.resolveContainerReferences(ctx, tx, marker); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolveContainerReferences writes a container's payload again, so the references
+// that have arrived since the last attempt become real rows.
+func (s *SyncService) resolveContainerReferences(ctx context.Context, tx *gorm.DB, marker models.SyncPendingLink) error {
+	container, err := s.loadSyncObject(ctx, tx, marker.UUID)
+	if err != nil {
+		return err
+	}
+	if container == nil || container.Payload == "" || container.LocalID == 0 {
+		// The container itself is not here (or is a tombstone): there is nothing to
+		// resolve against, so the marker stays until the attempt cap.
+		return nil
+	}
+
+	switch marker.Entity {
+	case models.EntityStatusPage:
+		var payload models.StatusPagePayload
+		if err := json.Unmarshal([]byte(container.Payload), &payload); err != nil {
+			return fmt.Errorf("unreadable stored status page payload for %s: %w", marker.UUID, err)
+		}
+		if err := s.writeStatusPageSelection(ctx, tx, payload, container.LocalID); err != nil {
+			return err
+		}
+	case models.EntityMonitorTemplate:
+		var payload models.MonitorTemplatePayload
+		if err := json.Unmarshal([]byte(container.Payload), &payload); err != nil {
+			return fmt.Errorf("unreadable stored template payload for %s: %w", marker.UUID, err)
+		}
+		if _, _, err := s.writeTemplate(ctx, tx, payload, container.LocalID); err != nil {
+			return err
+		}
+	case models.EntityMonitorGroupMember, models.EntityMonitorNotification:
+		// A relation carries its two ends in its own stored payload: the uuid is a
+		// hash of them, so the payload is the only way back to the pair.
+		change := models.SyncChangePayload{
+			Entity:  marker.Entity,
+			UUID:    marker.UUID,
+			Payload: json.RawMessage(container.Payload),
+		}
+		monitorUUID, targetUUID, err := s.relationEnds(ctx, tx, change)
+		if err != nil {
+			return err
+		}
+		if _, err := s.linkRelation(ctx, tx, marker.Entity, monitorUUID, targetUUID); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+	return s.clearResolvedPendingLinks(ctx, tx, marker.Entity, marker.UUID)
 }

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -56,6 +57,40 @@ func TestOutboxToChangeFallsBackToInsertTime(t *testing.T) {
 	})
 	if !change.UpdatedAt.Equal(inserted) {
 		t.Fatalf("UpdatedAt = %s, want the insert time %s", change.UpdatedAt, inserted)
+	}
+}
+
+// TestOutboxToChangeDropsAnInvalidPayload is the sender-side half of the poison-pill
+// guard.
+//
+// A json.RawMessage that cannot be marshalled fails the WHOLE response, so one corrupt
+// outbox row would make the node unservable to every peer. Handing it over as absent
+// instead keeps the batch flowing, and the receiver contains that single change as a
+// dead letter.
+func TestOutboxToChangeDropsAnInvalidPayload(t *testing.T) {
+	change := OutboxToChange(SyncOutbox{
+		ID: 3, Entity: EntityMonitor, UUID: "u", Action: ActionUpsert,
+		Payload: `{"uuid": `, CreatedAt: time.Now().UTC(),
+	})
+	if change.Payload != nil {
+		t.Fatalf("an invalid payload must not be forwarded, got %s", change.Payload)
+	}
+	// The whole batch has to stay marshallable, which is the point of the guard.
+	if _, err := json.Marshal([]SyncChangePayload{change}); err != nil {
+		t.Fatalf("a batch carrying the change must still marshal: %v", err)
+	}
+}
+
+// TestOutboxToChangeKeepsAValidPayload is its counterpart: the guard must not throw
+// away well-formed payloads.
+func TestOutboxToChangeKeepsAValidPayload(t *testing.T) {
+	body := `{"uuid":"u","name":"api"}`
+	change := OutboxToChange(SyncOutbox{
+		ID: 4, Entity: EntityMonitor, UUID: "u", Action: ActionUpsert,
+		Payload: body, CreatedAt: time.Now().UTC(),
+	})
+	if string(change.Payload) != body {
+		t.Fatalf("Payload = %s, want %s", change.Payload, body)
 	}
 }
 

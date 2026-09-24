@@ -107,6 +107,7 @@ func MigrationModels() []any {
 		&models.SyncObject{},
 		&models.SyncConflict{},
 		&models.SyncPendingLink{},
+		&models.SyncDeadLetter{},
 		&models.StatusPage{},
 		&models.StatusPageMonitor{},
 		&models.StatusPageGroupLink{},

@@ -145,7 +145,7 @@ func SnapshotChange(row models.SyncObject) (models.SyncChangePayload, bool) {
 		Revision:     row.Revision,
 		UpdatedAt:    row.UpdatedAt,
 	}
-	if row.Payload != "" {
+	if row.Payload != "" && json.Valid([]byte(row.Payload)) {
 		change.Payload = json.RawMessage(row.Payload)
 	}
 	return change, true
@@ -247,12 +247,16 @@ func (s *SyncService) pullSnapshot(ctx context.Context, peer models.Node, entity
 	return nil
 }
 
-// retryPendingLinks re-pulls the entities that hold a relation which arrived
-// before its target. The snapshot carries the whole relation set, so the link is
-// materialised by the very next apply.
+// retryPendingLinks re-pulls the entities that hold a reference which arrived
+// before its target. The snapshot carries the whole entity, so the reference is
+// materialised by the very next apply and its marker is then cleared.
+//
+// Markers past the attempt cap are left out: an unresolved reference stays VISIBLE
+// for the operator, but it stops costing a snapshot pull on every cycle for ever.
 func (s *SyncService) retryPendingLinks(ctx context.Context, peer models.Node) error {
 	var entities []string
 	if err := s.db.WithContext(ctx).Model(&models.SyncPendingLink{}).
+		Where("attempts < ?", maxPendingLinkAttempts).
 		Distinct().Pluck("entity", &entities).Error; err != nil {
 		return ErrInternal(err)
 	}
@@ -264,7 +268,7 @@ func (s *SyncService) retryPendingLinks(ctx context.Context, peer models.Node) e
 			return err
 		}
 	}
-	s.log.Info("retried the relations that arrived before their targets",
+	s.log.Info("retried the references that arrived before their targets",
 		"peer", peer.NodeID, "entities", entities)
 	return nil
 }

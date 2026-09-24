@@ -215,9 +215,14 @@ type SyncManifestResponse struct {
 // OutboxToChange renders an outbox row as a wire change.
 func OutboxToChange(row SyncOutbox) SyncChangePayload {
 	var payload json.RawMessage
-	if row.Payload != "" {
+	if row.Payload != "" && json.Valid([]byte(row.Payload)) {
 		payload = json.RawMessage(row.Payload)
 	}
+	// An invalid payload is handed over as ABSENT rather than as broken JSON. A
+	// json.RawMessage that cannot be marshalled fails the WHOLE response, so a single
+	// corrupt row would make this node unservable to every peer — a far worse failure
+	// than one change that cannot be applied, which the receiver contains as a dead
+	// letter.
 	// The version timestamp, not the moment the row entered this outbox: the merge
 	// compares the timestamp of the version, and the local side compares the row's
 	// own updated_at (see SyncOutbox.UpdatedAt). Rows written before the column

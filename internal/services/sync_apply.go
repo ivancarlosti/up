@@ -44,8 +44,111 @@ func (s *SyncService) ApplyBatch(ctx context.Context, peerNodeID string, changes
 			"peer", peerNodeID, "changes", len(changes), "applied", applied, "skipped", skipped)
 		return nil
 	})
+	if err == nil {
+		return nil
+	}
+
+	// The batch is all-or-nothing, so a single unreadable change would otherwise
+	// leave the cursor where it is and queue every later change behind it for ever.
+	// Degrade to one change per transaction: what applies is recorded, what fails is
+	// counted, and what passes the attempt cap is stepped over so the rest can flow.
+	s.log.Warn("a batch from a peer could not be applied: isolating its changes one by one",
+		"peer", peerNodeID, "changes", len(changes), "error", err)
+	return s.applyOneByOne(applying, peerNodeID, changes)
+}
+
+// applyOneByOne isolates the change a batch could not apply.
+//
+// The order is preserved: the first change that fails without having reached the
+// attempt cap stops the walk, so the next cycle retries the tail in order and
+// nothing is applied out of order. A change that reaches the cap is SKIPPED —
+// recorded as a dead letter and stepped over — because one bad change must never
+// stop a peer's synchronisation. Skipping is recoverable on purpose: the identity
+// the receiver holds then disagrees with the sender's, and the manifest pass heals
+// it with a snapshot.
+func (s *SyncService) applyOneByOne(ctx context.Context, peerNodeID string, changes []models.SyncChangePayload) error {
+	for _, change := range changes {
+		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if _, _, err := s.applyChanges(ctx, tx, []models.SyncChangePayload{change}); err != nil {
+				return err
+			}
+			return s.advanceCursor(ctx, tx, peerNodeID, int64(change.ID))
+		})
+		if err == nil {
+			continue
+		}
+
+		attempts, err := s.recordDeadLetter(ctx, peerNodeID, change, err)
+		if err != nil {
+			return err
+		}
+		if attempts < maxDeadLetterAttempts {
+			return err
+		}
+		s.log.Error("skipping a change this node cannot apply, after the attempt cap",
+			"peer", peerNodeID, "change_id", change.ID, "entity", change.Entity,
+			"uuid", change.UUID, "attempts", attempts)
+		if err := s.markDeadLetterSkipped(ctx, peerNodeID, change.ID); err != nil {
+			return err
+		}
+		if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return s.advanceCursor(ctx, tx, peerNodeID, int64(change.ID))
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordDeadLetter counts a change this node could not apply and returns the number
+// of attempts it has now had.
+func (s *SyncService) recordDeadLetter(ctx context.Context, peerNodeID string, change models.SyncChangePayload, cause error) (int, error) {
+	now := time.Now().UTC()
+	entry := models.SyncDeadLetter{
+		PeerNodeID:  peerNodeID,
+		ChangeID:    change.ID,
+		Entity:      change.Entity,
+		UUID:        change.UUID,
+		PayloadHash: change.PayloadHash,
+		Attempts:    1,
+		LastError:   truncateForLog(cause.Error(), 500),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		DoUpdates: clause.Assignments(map[string]any{
+			"attempts":     gorm.Expr("attempts + 1"),
+			"entity":       entry.Entity,
+			"uuid":         entry.UUID,
+			"payload_hash": entry.PayloadHash,
+			"last_error":   entry.LastError,
+			"updated_at":   now,
+		}),
+	}).Create(&entry).Error
 	if err != nil {
-		return err
+		return 0, ErrInternal(err)
+	}
+
+	var current models.SyncDeadLetter
+	if err := s.db.WithContext(ctx).
+		Where("peer_node_id = ? AND change_id = ?", peerNodeID, change.ID).
+		First(&current).Error; err != nil {
+		return 0, ErrInternal(err)
+	}
+	if current.Attempts <= maxDeadLetterAttempts {
+		s.log.Warn("a change from a peer keeps failing to apply",
+			"peer", peerNodeID, "change_id", change.ID, "entity", change.Entity,
+			"uuid", change.UUID, "attempts", current.Attempts, "error", cause)
+	}
+	return current.Attempts, nil
+}
+
+// markDeadLetterSkipped records that a change was stepped over rather than applied.
+func (s *SyncService) markDeadLetterSkipped(ctx context.Context, peerNodeID string, changeID int64) error {
+	if err := s.db.WithContext(ctx).Model(&models.SyncDeadLetter{}).
+		Where("peer_node_id = ? AND change_id = ?", peerNodeID, changeID).
+		Updates(map[string]any{"skipped": true, "updated_at": time.Now().UTC()}).Error; err != nil {
+		return ErrInternal(err)
 	}
 	return nil
 }
@@ -85,6 +188,14 @@ func (s *SyncService) applyChanges(ctx context.Context, tx *gorm.DB, changes []m
 		} else {
 			applied++
 		}
+	}
+
+	// A target that just arrived unblocks the references that were waiting for it.
+	// That is LOCAL work, not a version: the container is not re-applied as a change
+	// (the merge rule would — correctly — skip it at the revision already held), its
+	// stored payload is only written again (see resolvePendingLinks).
+	if err := s.resolvePendingLinks(ctx, tx); err != nil {
+		return applied, skipped, err
 	}
 	return applied, skipped, nil
 }
@@ -422,6 +533,8 @@ func (s *SyncService) applyRelation(ctx context.Context, tx *gorm.DB, change mod
 		if err := s.recordPendingLink(ctx, tx, change.Entity, change.UUID, "target", targetUUID); err != nil {
 			return models.ApplySkip, err
 		}
+	} else if err := s.clearResolvedPendingLinks(ctx, tx, change.Entity, change.UUID); err != nil {
+		return models.ApplySkip, err
 	}
 	return decision, s.trackApplied(ctx, tx, change, 0, false)
 }
@@ -540,19 +653,98 @@ func (s *SyncService) localID(ctx context.Context, tx *gorm.DB, entity, uuid str
 // It is a marker rather than a queue: the healing pass re-delivers the container
 // with its full relation set, and by then the target exists. That keeps the retry
 // bounded and visible instead of silently dropping the link.
+// maxDeadLetterAttempts is how many times one change may fail before it is stepped
+// over. It is deliberately small: a change that has failed this many times is not
+// transiently unlucky, and the peer's later changes must not queue behind it. The
+// skip is recoverable, because the manifest pass re-delivers the state.
+const maxDeadLetterAttempts = 10
+
+// maxPendingLinkAttempts bounds how many times a missing reference makes its
+// container be re-applied. Past it the marker stops triggering retries and stays
+// visible for the operator: an unresolved reference is a fact worth keeping, but it
+// is not worth a snapshot pull every cycle for ever.
+const maxPendingLinkAttempts = 20
+
 func (s *SyncService) recordPendingLink(ctx context.Context, tx *gorm.DB, entity, uuid, kind, missingUUID string) error {
+	now := time.Now().UTC()
 	pending := models.SyncPendingLink{
-		Entity:      entity,
-		UUID:        uuid,
-		Kind:        kind,
-		MissingUUID: missingUUID,
-		CreatedAt:   time.Now().UTC(),
+		Entity:        entity,
+		UUID:          uuid,
+		Kind:          kind,
+		MissingUUID:   missingUUID,
+		Attempts:      1,
+		LastAttemptAt: now,
+		CreatedAt:     now,
 	}
-	if err := tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&pending).Error; err != nil {
+	// The same reference is reported again on every retry, so the marker counts the
+	// attempts instead of piling up rows.
+	err := tx.WithContext(ctx).Clauses(clause.OnConflict{
+		DoUpdates: clause.Assignments(map[string]any{
+			"attempts":        gorm.Expr("attempts + 1"),
+			"last_attempt_at": now,
+		}),
+	}).Create(&pending).Error
+	if err != nil {
 		return fmt.Errorf("recording a pending link for %s: %w", uuid, err)
 	}
-	s.log.Info("a reference arrived before its target: it will be linked after the next reconciliation",
-		"entity", entity, "uuid", uuid, "kind", kind, "missing", missingUUID)
+	if pending.Attempts == maxPendingLinkAttempts {
+		s.log.Warn("a reference is still missing after many retries: it will stop being retried and stay listed",
+			"entity", entity, "uuid", uuid, "kind", kind, "missing", missingUUID,
+			"attempts", maxPendingLinkAttempts)
+	}
+	return nil
+}
+
+// pendingLinkTarget maps the kind of a reference list to the entity it points at.
+func pendingLinkTarget(entity, kind string) string {
+	switch kind {
+	case "monitor_uuids":
+		return models.EntityMonitor
+	case "group_uuids":
+		return models.EntityMonitorGroup
+	case "notification_uuids":
+		return models.EntityNotification
+	case "target":
+		if entity == models.EntityMonitorGroupMember {
+			return models.EntityMonitorGroup
+		}
+		return models.EntityNotification
+	}
+	return ""
+}
+
+// clearResolvedPendingLinks drops the markers of a container (or of one relation)
+// whose missing reference has arrived since the last attempt.
+//
+// Without this the markers outlive the problem: they would keep naming an entity
+// whose references are all present, and the retry would re-pull its snapshot on
+// every cycle for ever. It is safe to call after any successful apply — markers
+// whose reference is still missing are simply left alone.
+func (s *SyncService) clearResolvedPendingLinks(ctx context.Context, tx *gorm.DB, entity, uuid string) error {
+	if uuid == "" {
+		return nil
+	}
+	var markers []models.SyncPendingLink
+	if err := tx.WithContext(ctx).Where("entity = ? AND uuid = ?", entity, uuid).
+		Find(&markers).Error; err != nil {
+		return ErrInternal(err)
+	}
+	for _, marker := range markers {
+		target := pendingLinkTarget(marker.Entity, marker.Kind)
+		if target == "" {
+			continue
+		}
+		_, resolved, err := s.localID(ctx, tx, target, marker.MissingUUID)
+		if err != nil {
+			return err
+		}
+		if !resolved {
+			continue
+		}
+		if err := tx.WithContext(ctx).Delete(&models.SyncPendingLink{}, marker.ID).Error; err != nil {
+			return ErrInternal(err)
+		}
+	}
 	return nil
 }
 
