@@ -30,7 +30,7 @@ type PeerAuthenticator interface {
 
 // RequirePeerKey authenticates an inbound node to node request: the HMAC
 // signature over the canonical request, a timestamp inside the window and a nonce
-// that has not been used before (docs/clustering-federated.md, section 11).
+// that has not been used before (docs/clustering-modes.md, section 11).
 //
 // The routes it protects are deliberately not covered by the IP rules: a peer is
 // not a dashboard visitor, and the signature is the control.

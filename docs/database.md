@@ -59,7 +59,13 @@ FLUSH PRIVILEGES;
 | `notification_locks` | de-duplication lock for ANY_WITH_LOCK; pruned after 24 h | thousands (60 s window) |
 | `nodes` | cluster members, liveness and role | few |
 | `cluster_settings` | failure / node-unavailable / sender strategies (single row) | 1 |
-| `sync_peers` | this node's own view of its peers: liveness, `online_since` (the settle input) and last error | few |
+| `sync_peers` | this node's own view of its peers: liveness, `online_since` (the settle input), the outbox cursor and the last manifest result | few |
+| `sync_outbox` | the change log of this node (one row per local write to a synchronised entity) | thousands, pruned after `CLUSTER_SYNC_TOMBSTONE_DAYS` |
+| `sync_objects` | uuid -> local row mapping, the applied revision and the tombstones | one per synchronised row |
+| `sync_conflicts` | a concurrent edit that lost the last-writer-wins merge | few |
+| `sync_pending_links` | a reference that arrived before its target (retried, never pruned) | few |
+| `sync_dead_letters` | a change that could not be applied, past the attempt cap it is skipped | few |
+| `peer_votes` | the latest verdict of each peer per monitor uuid (federated voting input) | nodes x monitors |
 | `status_pages` | public status pages | few |
 | `status_page_monitors` | monitor selection and ordering per page | tens |
 | `status_page_groups` | monitor groups included in a page (membership driven) | tens |
@@ -69,12 +75,14 @@ FLUSH PRIVILEGES;
 Every table that federated clustering has to synchronise (`monitors`,
 `status_pages`, `monitor_groups`, `monitor_templates`) carries three extra
 columns: `uuid`, `origin_node_id` and `revision` (see
-[clustering-federated.md](clustering-federated.md)). The `uuid` is the global
+[clustering-modes.md](clustering-modes.md)). The `uuid` is the global
 identity of a row - the auto-increment `id` is only meaningful inside one
 database - and `origin_node_id` / `revision` are the two inputs of the
 last-writer-wins merge. They are filled by the `BeforeCreate` hook of the model
-(`uuid`, `revision`) and by `database.Backfill` (`origin_node_id`), and they
-change nothing until a node runs in federated mode.
+(`uuid`, `revision`) and by `database.Backfill` (`origin_node_id`). The
+synchronisation tables above are created by `AutoMigrate` on **every** install,
+but only a node running `CLUSTER_MODE=federated` writes and reads them; in the
+default `shared` mode they stay empty.
 
 ## 3. Complete DDL (dumped from a live instance running MariaDB 11.8)
 
@@ -353,12 +361,28 @@ Notes on the generated DDL:
   rows, and MySQL/MariaDB reject a unique index over several empty strings. A
   NULL is not compared by a unique index, so `AutoMigrate` can add the column and
   the index in one pass, and `database.Backfill` fills the NULLs right after it
-  (see [clustering-federated.md](clustering-federated.md)). The `BeforeCreate`
+  (see [clustering-modes.md](clustering-modes.md)). The `BeforeCreate`
   hook of both models means a row created by the application is never NULL.
 - `origin_node_id` and `revision` are appended at the **end** of an existing
   table by `AutoMigrate`, while a fresh install creates them right after `id`.
   The column order has no functional meaning; the DDL above is from a fresh
   install.
+
+### 3.1 Synchronisation tables (federated mode)
+
+`AutoMigrate` creates these on **every** instance; only a node running
+`CLUSTER_MODE=federated` writes and reads them (see
+[clustering-modes.md](clustering-modes.md)).
+
+| Table | Columns |
+|---|---|
+| `sync_outbox` | `id`, `entity`, `uuid`, `action` (`upsert`/`delete`), `origin_node_id` (the editor), `revision`, `payload` (JSON, null on delete), `payload_hash`, `created_at`, `updated_at` (the version timestamp the merge compares) |
+| `sync_objects` | `uuid` (PK), `entity`, `local_id`, `origin_node_id`, `revision`, `deleted_at` (tombstone), `payload` (last applied wire body), `updated_at` |
+| `sync_peers` | `peer_node_id` (PK), `peer_name`, `peer_api_url`, `peer_version`, `protocol_version`, `status`, `last_seen_at`, `last_success_at`, `online_since`, `last_change_id`, `last_manifest_at`, `last_manifest_ok`, `last_error`, `last_error_at`, `updated_at` |
+| `sync_conflicts` | `id`, `entity`, `uuid`, `kept_origin`, `kept_revision`, `lost_origin`, `lost_revision`, `detected_at` |
+| `sync_pending_links` | `entity` + `uuid` + `kind` + `missing_uuid` (unique), the reference that arrived before its target, with `attempts`, `last_attempt_at`, `created_at` |
+| `sync_dead_letters` | `peer_node_id` + `change_id` (unique), `entity`, `uuid`, `payload_hash`, `attempts`, `skipped`, `last_error`, `created_at`, `updated_at` |
+| `peer_votes` | `monitor_uuid` + `node_id` (unique), `status`, `latency_ms`, `message`, `important`, `checked_at`, `fetched_at` |
 
 ## 4. `monitors.config` (JSON) fields
 

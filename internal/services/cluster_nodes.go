@@ -13,17 +13,17 @@ import (
 func (s *ClusterService) Enabled() bool { return s.cfg.ClusterEnabled }
 
 // Mode is the CLUSTER_MODE this node runs in (config.ClusterModeShared or
-// config.ClusterModeFederated). Both are implemented; federated stays refused at
-// boot until the operator migration path is documented (section 20).
+// config.ClusterModeFederated). Both are implemented; federated requires
+// CLUSTER_PEER_API=true and is checked at boot (docs/clustering-modes.md).
 func (s *ClusterService) Mode() string { return s.cfg.ClusterMode }
 
 // Federated reports whether this node runs with its own database and
 // synchronises the configuration over the peer API.
 //
-// Nothing branches on it yet: it exists so the phases of
-// docs/clustering-federated.md can switch a behaviour without changing every
-// call site at once. Always false today, because config.validate refuses to
-// boot with CLUSTER_MODE=federated.
+// It switches several behaviours: IsPrimary derives the leader from the local
+// member view instead of reading nodes.is_primary, EvaluateAll merges the peer
+// votes, and the notification sender is elected instead of using the shared
+// lock (docs/clustering-modes.md).
 func (s *ClusterService) Federated() bool { return s.cfg.ClusterMode == config.ClusterModeFederated }
 
 // NodeID is this node identity (NODE_ID).

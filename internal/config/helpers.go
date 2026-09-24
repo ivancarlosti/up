@@ -163,8 +163,9 @@ func (c *Config) SyncsSessionSecret() bool {
 	return c.SyncEnabled() && c.ClusterSyncSessionSecret
 }
 
-// SyncPeersReportsChannels is the same question asked of the peer API: whether the
-// sync endpoints should serve the channel entity at all.
+// SyncEntityEnabled is the same question asked of the peer API: whether the sync
+// endpoints should serve the given entity at all (only the secret-bearing channel
+// entity is gated by an opt-in).
 func (c *Config) SyncEntityEnabled(entity string) bool {
 	if entity == "notification" {
 		return c.SyncsNotifications()

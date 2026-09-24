@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * End to end check of the synchronisation identity (phase 0 of
- * docs/clustering-federated.md).
+ * docs/clustering-modes.md).
  *
  * A row is addressed across databases by its `uuid`, and the last-writer-wins
  * merge is ordered by `(revision, updated_at, origin_node_id)`. Phase 0 only

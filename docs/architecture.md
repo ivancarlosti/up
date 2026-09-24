@@ -13,12 +13,14 @@ Up is a minimalist, cluster-ready uptime monitor:
 - **External database only**: MariaDB/MySQL lives outside the container
   (`DB_HOST`, default `host.docker.internal`). The compose file never declares a
   database service.
-- **Cluster ready**: several Up instances share the same database
-  (`CLUSTER_MODE=shared`, the only mode implemented), each running its own
+- **Cluster ready**: two modes chosen with `CLUSTER_MODE`. `shared` (default)
+  makes several Up instances share the same database, each running its own
   scheduler and writing its own heartbeats (`node_id`), while the dashboard
-  aggregates them. A mode with one database per node is designed in
-  [clustering-federated.md](clustering-federated.md); the synchronisation identity
-  it needs (a global `uuid` per row) is already in the schema.
+  aggregates them ([clustering.md](clustering.md)). `federated` gives every node
+  its own database and synchronises the configuration, the votes and the
+  notification ownership over a signed peer API
+  ([clustering-modes.md](clustering-modes.md)); the synchronisation identity it
+  needs (a global `uuid` per row) is in the schema either way.
 - **Authentication is environment driven**: `none`, `account` (single account)
   or `keycloak` (OIDC + e-mail/domain allow list).
 - **Notifications** use [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) as
@@ -194,7 +196,8 @@ All variables, their defaults and validation rules live in
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |
-| Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared` only), `CLUSTER_PEER_API`, `CLUSTER_LEADER_SETTLE_SECONDS`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
+| Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared`\|`federated`), `CLUSTER_PEER_API`, `CLUSTER_LEADER_SETTLE_SECONDS`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
+| Cluster (federated sync) | `CLUSTER_LEADER_ELECTION`, `CLUSTER_LEADER_NODE_ID`, `CLUSTER_NOTIFY_ELECTION`, `CLUSTER_SYNC_SECONDS`, `CLUSTER_SYNC_BATCH`, `CLUSTER_SYNC_MANIFEST_SECONDS`, `CLUSTER_SYNC_TOMBSTONE_DAYS`, `CLUSTER_SYNC_NOTIFICATIONS`, `CLUSTER_SYNC_SETTINGS`, `CLUSTER_SYNC_SESSION_SECRET`, `CLUSTER_SYNC_PUSH`, `CLUSTER_INSECURE_SKIP_VERIFY` |
 | Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
 
 Validation lives in `internal/config/validate.go`; the aggregated error type is

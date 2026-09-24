@@ -23,7 +23,7 @@ type backfillTarget struct {
 }
 
 // backfillTargets is the ordered list of tables carrying the sync identity of
-// docs/clustering-federated.md.
+// docs/clustering-modes.md.
 var backfillTargets = []backfillTarget{
 	{table: "monitors", needsUUID: true},
 	{table: "status_pages", needsUUID: true},

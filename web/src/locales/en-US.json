@@ -428,7 +428,7 @@
   },
   "cluster": {
     "title": "Cluster",
-    "subtitle": "Several dashboards synchronised through the same database",
+    "subtitle": "Several dashboards synchronised as one cluster",
     "disabled": "Clustering is disabled (CLUSTER_ENABLED=false).",
     "disabledHint": "Set CLUSTER_ENABLED=true on this node to join a cluster.",
     "thisNode": "This node",

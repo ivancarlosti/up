@@ -21,7 +21,7 @@ type MonitorGroup struct {
 	UUID string `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
 	// OriginNodeID and Revision complete the sync identity of the row: the UUID
 	// above is the global id, these two say who wrote it last and how many
-	// times (docs/clustering-federated.md).
+	// times (docs/clustering-modes.md).
 	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
 	Revision     int64  `gorm:"not null;default:1" json:"revision"`
 	Name         string `gorm:"size:150;not null;uniqueIndex" json:"name"`

@@ -79,7 +79,7 @@ type Monitor struct {
 	//
 	// UUID is the global identity of the row: the auto-increment ID is only
 	// meaningful inside one database, while the synchronisation protocol
-	// addresses rows by uuid (docs/clustering-federated.md).
+	// addresses rows by uuid (docs/clustering-modes.md).
 	//
 	// The column is NULLABLE on purpose. AutoMigrate adds it to a table that
 	// already has rows, and MySQL refuses a unique index over several empty

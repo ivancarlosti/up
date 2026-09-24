@@ -102,7 +102,7 @@ func MigrationModels() []any {
 		&models.Node{},
 		&models.ClusterSettings{},
 		&models.SyncPeer{},
-		// Synchronisation (docs/clustering-federated.md, phase 2).
+		// Synchronisation (docs/clustering-modes.md, phase 2).
 		&models.SyncOutbox{},
 		&models.SyncObject{},
 		&models.SyncConflict{},

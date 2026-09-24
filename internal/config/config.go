@@ -31,7 +31,7 @@ const (
 	ClusterModeShared = "shared"
 	// ClusterModeFederated gives every node its own database and synchronises
 	// the configuration over the peer API. It still needs CLUSTER_PEER_API=true:
-	// see docs/clustering-federated.md.
+	// see docs/clustering-modes.md.
 	ClusterModeFederated = "federated"
 )
 
@@ -107,21 +107,20 @@ type Config struct {
 	// --- Clustering -------------------------------------------------------
 	ClusterEnabled bool
 	// ClusterMode is CLUSTER_MODE: "shared" (one database for every node) or
-	// "federated" (one database per node). Only "shared" is implemented; the
-	// variable exists so an operator cannot silently configure a mode that is
-	// not there yet.
+	// "federated" (one database per node, synchronised over the peer API; see
+	// docs/clustering-modes.md).
 	ClusterMode string
 	// ClusterPeerAPI turns on the signed peer API (the /api/cluster/sync/...
 	// endpoints) and the peer ping loop.
 	//
 	// It is deliberately independent of CLUSTER_MODE: the peer API can be
 	// enabled in shared mode, where it cross-checks liveness over HTTP instead of
-	// trusting a shared row. Federated mode will require it.
+	// trusting a shared row. Federated mode requires it.
 	ClusterPeerAPI bool
 	// ClusterLeaderSettleSeconds is how long a peer must be continuously
-	// reachable before it may take the leader role (and, later, the notification
-	// duty) from the current holder. It stops a peer blip or a rejoining node
-	// from taking over mid-incident.
+	// reachable before it may take the leader role (and the notification duty)
+	// from the current holder. It stops a peer blip or a rejoining node from
+	// taking over mid-incident.
 	ClusterLeaderSettleSeconds int
 	// --- Synchronisation (federated mode) ---------------------------------
 	// ClusterSyncSeconds is how often a node pulls the changes of each peer.
@@ -152,7 +151,7 @@ type Config struct {
 	ClusterLeaderNodeID string
 	// ClusterNotifyElection decides which node alerts in federated mode: leader
 	// (the derived leader), hash (rendezvous over the monitor uuid) or origin (the
-	// node that created the monitor). See docs/clustering-federated.md, section 8.
+	// node that created the monitor). See docs/clustering-modes.md, section 8.
 	ClusterNotifyElection string
 	// ClusterSyncSettings synchronises the non-secret settings whitelist (app name,
 	// default locale, default theme). Off by default: an operator may want each
@@ -171,7 +170,7 @@ type Config struct {
 	// ClusterInsecureSkipVerify is the explicit opt-in for a peer TLS certificate this
 	// node cannot verify (a self-signed one on a private network). It weakens the
 	// transport that the cluster key and the channel credentials cross, so it is off by
-	// default and logged loudly at boot when on (docs/clustering-federated.md, §17).
+	// default and logged loudly at boot when on (docs/clustering-modes.md, §17).
 	ClusterInsecureSkipVerify bool
 	NodeID                    string
 	NodeName                  string

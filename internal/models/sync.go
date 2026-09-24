@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// ProtocolVersion is the version of the peer API (docs/clustering-federated.md).
+// ProtocolVersion is the version of the peer API (docs/clustering-modes.md).
 // It is exchanged in every ping so a node talking to an incompatible build says
 // so once, instead of failing in a confusing way later.
 // ProtocolVersion is the version of the peer wire format. A peer that speaks a
@@ -42,7 +42,7 @@ const (
 // why the peer table is local in federated mode. `nodes.last_heartbeat` answers
 // "when did this peer last report itself"; SyncPeer answers "when did *I* last
 // reach it, and for how long has that been working", which is what the settle
-// time needs (docs/clustering-federated.md, sections 7 and 8).
+// time needs (docs/clustering-modes.md, sections 7 and 8).
 type SyncPeer struct {
 	PeerNodeID string `gorm:"primaryKey;size:64" json:"peer_node_id"`
 	// PeerName, PeerAPIURL and PeerVersion mirror what the last successful ping

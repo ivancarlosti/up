@@ -428,7 +428,7 @@
   },
   "cluster": {
     "title": "Cluster",
-    "subtitle": "Vários dashboards sincronizados pelo mesmo banco de dados",
+    "subtitle": "Vários dashboards sincronizados como um único cluster",
     "disabled": "O clustering está desativado (CLUSTER_ENABLED=false).",
     "disabledHint": "Ative CLUSTER_ENABLED=true neste nó para participar de um cluster.",
     "thisNode": "Este nó",

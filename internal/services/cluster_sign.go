@@ -10,7 +10,7 @@ import (
 	"github.com/ivancarlosti/up/internal/utils"
 )
 
-// Peer API signing (docs/clustering-federated.md, section 11).
+// Peer API signing (docs/clustering-modes.md, section 11).
 //
 // Every node to node request is signed with the cluster private key. The key
 // itself is never sent on these endpoints: the signature already proves that the

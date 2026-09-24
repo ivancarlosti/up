@@ -107,7 +107,7 @@ func (h *Container) Register(engine *gin.Engine) {
 	// Always registered, so a node with the peer API disabled answers a clear
 	// 403 instead of a 404 (or worse, the SPA fallback). No IP filter on
 	// purpose: a peer is not a dashboard visitor and the HMAC signature is the
-	// control (docs/clustering-federated.md, section 11).
+	// control (docs/clustering-modes.md, section 11).
 	peers := engine.Group("/api/cluster/sync", middleware.RequirePeerKey(h.Cluster))
 	peers.GET("/ping", h.syncPing)
 	peers.GET("/changes", h.syncChanges)

@@ -142,7 +142,7 @@ marked `Secure` automatically.
 | `KEYCLOAK_CLIENT_SECRET` | environment | rotate in the provider, restart |
 | `RECAPTCHA_CLIENTSECRET` | environment | rotate in the console, restart |
 | `CLUSTER_PRIVATE_KEY` | `settings.cluster_private_key` (or env) | Admin > Cluster > regenerate (nodes must rejoin) |
-| `session_secret` | `settings.session_secret` | delete the row and restart (invalidates sessions) |
+| `session_secret` | `settings.session_secret` | delete the row and restart (invalidates sessions); propagated between nodes only when `CLUSTER_SYNC_SESSION_SECRET=true` |
 | API tokens | `api_tokens.token_hash` | revoke/delete in Admin > Security |
 | SMTP/webhook credentials | `notifications.config` (JSON) | edit the channel in Admin > Notifications |
 
@@ -152,10 +152,10 @@ plaintext unless `DB_SSL=true`.
 
 ## 9. Peer API trust model
 
-Since phase 1 ([clustering-federated.md](clustering-federated.md)) a node can call
-another node over HTTP on `/api/cluster/sync/*`. Those routes are **not** covered
-by the IP rules, the session or a bearer token: they are authenticated by an
-HMAC-SHA256 signature over the request, computed with the cluster private key.
+Since the peer API shipped ([clustering-modes.md](clustering-modes.md) §11) a node
+can call another node over HTTP on `/api/cluster/sync/*`. Those routes are **not**
+covered by the IP rules, the session or a bearer token: they are authenticated by
+an HMAC-SHA256 signature over the request, computed with the cluster private key.
 
 What an operator should know:
 
@@ -174,6 +174,13 @@ What an operator should know:
   is signed, so the key cannot be aimed at a host the operator did not name.
 - **Run the peers over TLS.** `CLUSTER_INSECURE_SKIP_VERIFY` exists only for
   internal labs: without TLS the traffic is authentic but still readable.
+- **Secrets only travel behind explicit switches.** The channel credentials
+  (`CLUSTER_SYNC_NOTIFICATIONS`) and the session secret
+  (`CLUSTER_SYNC_SESSION_SECRET`) are off by default. Enabling either makes the
+  peer traffic secret-bearing, so it must run over TLS (decision **D4** in
+  [clustering-modes.md](clustering-modes.md)). `CLUSTER_SYNC_SETTINGS` only
+  carries the non-secret whitelist (app name, default locale, default theme);
+  API tokens, IP rules and the per-node rate limits never synchronise.
 
 ## 10. Dependency posture (audited on 2026-09-22)
 

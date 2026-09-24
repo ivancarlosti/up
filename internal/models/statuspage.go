@@ -17,7 +17,7 @@ type StatusPage struct {
 	// several empty strings would be rejected by MySQL.
 	UUID string `gorm:"size:36;uniqueIndex" json:"uuid"`
 	// OriginNodeID is the node that created the page, Revision the number of
-	// edits it received (docs/clustering-federated.md).
+	// edits it received (docs/clustering-modes.md).
 	OriginNodeID string `gorm:"size:64" json:"origin_node_id"`
 	Revision     int64  `gorm:"not null;default:1" json:"revision"`
 	Slug         string `gorm:"size:120;uniqueIndex;not null" json:"slug"`

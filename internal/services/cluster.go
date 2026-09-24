@@ -29,7 +29,7 @@ type ClusterService struct {
 	notifications *NotificationService
 	hub           EventPublisher
 	// peerAuth verifies the signature of inbound node to node requests
-	// (docs/clustering-federated.md, section 11).
+	// (docs/clustering-modes.md, section 11).
 	peerAuth *PeerAuth
 	// startedAt is when this process came up. Federated leadership is derived from
 	// "how long have I been continuously online", and this is that answer for the local

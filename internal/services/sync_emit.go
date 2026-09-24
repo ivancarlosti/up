@@ -24,7 +24,7 @@ type syncContextKey struct{}
 
 // WithApply marks a context as "applying a change that came from a peer". The
 // emitter checks it and records nothing: without this, two nodes would publish
-// each other's changes back and forth forever (docs/clustering-federated.md,
+// each other's changes back and forth forever (docs/clustering-modes.md,
 // section 5.1).
 func WithApply(ctx context.Context) context.Context {
 	return context.WithValue(ctx, syncContextKey{}, true)

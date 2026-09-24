@@ -173,11 +173,11 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > payload, and kills the helper at the end.
 >
 > `npm run e2e:backfill` checks the synchronisation identity that federated
-> clustering will need: it creates two monitors and asserts that every monitor,
+> clustering uses: it creates two monitors and asserts that every monitor,
 > status page, group and template carries a well formed and **distinct** `uuid`
 > with `revision >= 1`, that a new row gets its identity from the model's
 > `BeforeCreate` hook, and that `/api/cluster/status` reports `mode: "shared"`
-> (see [clustering-federated.md](clustering-federated.md)). It needs a running
+> (see [clustering-modes.md](clustering-modes.md)). It needs a running
 > instance and writes to the database.
 >
 > `npm run e2e:cluster-federated` checks the federated mode itself, so unlike every
@@ -192,8 +192,7 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > that an unsigned peer call is refused, that a monitor created on one node reaches
 > the other with the same `uuid`, that an edit made on the second node converges
 > back on the first with an advanced `revision`, and that a deletion arrives as a
-> tombstone instead of resurrecting. See the "Two node cluster in three commands"
-> section below for the rig.
+> tombstone instead of resurrecting. See §9.2 below for the federated rig.
 >
 > Every script here drives Chrome over the DevTools Protocol through the
 > `WebSocket` client built into Node 22.12+ (`web/package.json` declares that
@@ -436,7 +435,54 @@ SELECT COUNT(*) AS rows_total, COUNT(DISTINCT uuid) AS uuid_total,
 > holds an empty string. The column is nullable for exactly that reason (MySQL does
 > not compare NULLs in a unique index); the `BeforeCreate` hook fills it for every
 > row the application creates. See [database.md](database.md) and
-> [clustering-federated.md](clustering-federated.md).
+> [clustering-modes.md](clustering-modes.md).
+
+### 9.2 Two node FEDERATED cluster (one database each)
+
+The script `npm run e2e:cluster-federated` needs two nodes with **separate**
+databases, both in federated mode. The shared-database rig of §9 is not enough:
+
+```bash
+docker network create up-federated
+docker run -d --name up-db1 --network up-federated \
+  -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=up \
+  -e MARIADB_USER=up -e MARIADB_PASSWORD=secret mariadb:11
+docker run -d --name up-db2 --network up-federated \
+  -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=up \
+  -e MARIADB_USER=up -e MARIADB_PASSWORD=secret mariadb:11
+
+docker run -d --name up-fed1 --network up-federated -p 3000:3000 --env-file docker/.env \
+  -e DB_HOST=up-db1 -e DB_DATABASE=up -e DB_USERNAME=up -e DB_PASSWORD=secret \
+  -e CLUSTER_ENABLED=true -e CLUSTER_MODE=federated -e CLUSTER_PEER_API=true \
+  -e NODE_ID=up-node-1 -e NODE_NAME='Primary Node' -e APP_URL=http://up-fed1:3000 \
+  ghcr.io/ivancarlosti/up:latest
+
+docker run -d --name up-fed2 --network up-federated -p 3002:3000 --env-file docker/.env \
+  -e DB_HOST=up-db2 -e DB_DATABASE=up -e DB_USERNAME=up -e DB_PASSWORD=secret \
+  -e CLUSTER_ENABLED=true -e CLUSTER_MODE=federated -e CLUSTER_PEER_API=true \
+  -e NODE_ID=up-node-2 -e NODE_NAME='Node 2' -e APP_URL=http://up-fed2:3000 \
+  ghcr.io/ivancarlosti/up:latest
+
+# join node 2 to node 1 (key from GET /api/cluster/private-key on node 1)
+curl -c c2.txt -X POST localhost:3002/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"admin123"}'
+curl -b c2.txt -X POST localhost:3002/api/cluster/join -H 'Content-Type: application/json' \
+  -d '{"primary_url":"http://up-fed1:3000","private_key":"<key>","node_id":"up-node-2","node_name":"Node 2"}'
+
+# both nodes must report mode "federated" and see the peer online
+curl -s -b c2.txt localhost:3002/api/cluster/sync/status | python3 -m json.tool | head -30
+```
+
+> `-e DB_HOST=...` overrides the `DB_HOST=host.docker.internal` of `docker/.env`,
+> which is what gives each node its own database. The nodes register the peer by
+> **joining**; there is no peer-URL environment variable. `CLUSTER_PRIVATE_KEY` is
+> generated on the first boot and carried to the joining node by the join, so it
+> only needs to be set everywhere when you want it fixed in advance.
+
+```bash
+cd web && npm run build
+npm run e2e:cluster-federated -- --url http://localhost:3000 --peer-url http://localhost:3002
+```
 
 ## 10. Regenerating the icons
 

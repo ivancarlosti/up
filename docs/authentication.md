@@ -34,8 +34,11 @@ sequenceDiagram
 
 - Payload: `{sub, email, method, iat, exp}` base64url encoded and signed with
   HMAC-SHA256 (`utils.SignedValue`).
-- **No session table**: the cookie is stateless, and because the secret lives in
-  the shared `settings` table every cluster node accepts the same cookie.
+- **No session table**: the cookie is stateless. In the default shared-database
+  mode the secret lives in the shared `settings` table, so every cluster node
+  accepts the same cookie; in federated mode each node has its own database, so
+  enable `CLUSTER_SYNC_SESSION_SECRET` to synchronise it (see
+  [clustering-modes.md](clustering-modes.md)).
 - Rotating `session_secret` (delete the row and restart) invalidates **all**
   sessions at once.
 - Lifetime: `SESSION_TTL_HOURS` (default 720 h = 30 days).

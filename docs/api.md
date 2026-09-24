@@ -14,6 +14,7 @@
 | `/api/public/*` | none (IP rules scope `public` + rate limit) |
 | `/api/v1/*` | `Authorization: Bearer up_<prefix>_<secret>` (scope `read`/`write`) |
 | `/api/cluster/join` (node flavour) | `X-Cluster-Key` / body `private_key` |
+| `/api/cluster/sync/*` (peer routes) | HMAC-SHA256 signature with the cluster private key (`X-Cluster-Node`, `X-Cluster-Timestamp`, `X-Cluster-Nonce`, `X-Cluster-Signature`) |
 | `/api/ws` | session cookie |
 
 Status codes: `200`/`201` success, `204` no content, `400` invalid payload,
@@ -297,6 +298,13 @@ rendered twice. An unknown `group_id` answers `400 ERR_MONITOR_GROUP_INVALID`.
 | GET | `/api/cluster/private-key` | `{"private_key":"..."}` |
 | POST | `/api/cluster/private-key/regenerate` | rotates the key |
 | POST | `/api/cluster/heartbeat` | refresh liveness, returns `{"online":[],"offline":[]}` |
+| GET | `/api/cluster/sync/status` | federated view of this node: peers, settle state, outbox cursor (`last_change_id`), last manifest result, conflicts and dead letters (session) |
+
+The signed **peer API** is node to node only and is never called by a browser:
+`GET /api/cluster/sync/{ping,changes,manifest,snapshot,votes,settings}` and
+`POST /api/cluster/sync/now`, all authenticated with the HMAC headers above. The
+routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
+`404`). See [clustering-modes.md](clustering-modes.md) §11.
 
 ## 8. Settings, tokens and IP rules
 

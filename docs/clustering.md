@@ -6,13 +6,13 @@
 > which is what keeps monitors, heartbeats, aggregated state and notification
 > decisions synchronised.
 
-> **One database per cluster.** This document describes the *shared database*
-> mode, the only mode implemented today: every node must point at the same
-> schema. A per-node database is **not** supported — the node registry,
-> liveness, voting, transition detection and the notification lock all read and
-> write shared rows. The design that removes that requirement (one database per
-> node, dashboards syncing monitors and status pages between them) is specified
-> in [clustering-federated.md](clustering-federated.md).
+> **Two modes.** `CLUSTER_MODE=shared` (the default, and what this document
+> describes) means every node points at the **same external MariaDB/MySQL
+> database**, which is what keeps monitors, heartbeats, aggregated state and
+> notification decisions synchronised. `CLUSTER_MODE=federated` gives every node
+> **its own** database and synchronises the configuration, the votes and the
+> notification ownership over a signed peer API; it is the reference in
+> [clustering-modes.md](clustering-modes.md).
 
 ## 1. Topology
 
@@ -40,7 +40,7 @@ flowchart TB
 | Variable | Node 1 | Node 2 | Meaning |
 |---|---|---|---|
 | `CLUSTER_ENABLED` | `true` | `true` | enables the cluster features on that node |
-| `CLUSTER_MODE` | `shared` | `shared` | **no other value is implemented**: `federated` (one database per node) is refused at boot — see [clustering-federated.md](clustering-federated.md) |
+| `CLUSTER_MODE` | `shared` | `shared` | `shared` (this document) or `federated` (one database per node) — see [clustering-modes.md](clustering-modes.md); federated also requires `CLUSTER_PEER_API=true` |
 | `CLUSTER_PEER_API` | `false` | `false` | optional: enables the signed node to node API and the peer ping loop. It also works in shared mode, where it cross-checks liveness over HTTP instead of trusting the shared row |
 | `NODE_ID` | `up-node-1` | `up-node-2` | **unique** per node, becomes `heartbeats.node_id` |
 | `NODE_NAME` | `Primary Node` | `Node 2` | display name |
@@ -123,7 +123,7 @@ WARN more than one primary node found: keeping the oldest and demoting the rest 
 ```
 
 `is_primary` is still a stored column (federated mode derives the role instead,
-see [clustering-federated.md](clustering-federated.md)), but it is now written by
+see [clustering-modes.md](clustering-modes.md)), but it is now written by
 one code path (`database.ClaimSelf`) instead of two.
 
 ## 4. Liveness and the offline rule

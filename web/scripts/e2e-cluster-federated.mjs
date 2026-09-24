@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * End to end check of a FEDERATED cluster (one database per node, phase 6 of
- * docs/clustering-federated.md).
+ * docs/clustering-modes.md).
  *
  * Unlike every other e2e script this one needs TWO running nodes: in federated
  * mode the configuration travels over the signed peer API, so a single instance

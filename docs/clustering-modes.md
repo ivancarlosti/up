@@ -1,15 +1,25 @@
-# Up - Federated clustering (one database per node)
+# Up - Cluster modes
 
-> **Status: phases 0, 0.5, 1, 2 and 3 implemented; 4, 5 and 6 are design.** The
+> Up runs its nodes in one of two modes, chosen with `CLUSTER_MODE`:
+>
+> - **`shared`** (default) — every node points at the **same** MariaDB/MySQL
+>   database. This is the original topology and its reference is
+>   [clustering.md](clustering.md).
+> - **`federated`** — every node keeps **its own** database and the nodes
+>   synchronise the configuration over a signed peer API. This document is the
+>   reference for that mode.
+>
+> **Status: implemented.** All phases (0, 0.5, 1, 2, 3, 4, 5 and 6) are in the
+> code and verified against two to four nodes with one database each. The
 > synchronisation identity (`uuid`, `origin_node_id`, `revision`), the idempotent
-> backfill, the `CLUSTER_MODE` skeleton, the signed peer API with the settle time,
-> the outbox/pull/apply protocol with the LWW merge, and the manifest/snapshot
-> healing pass for **all seven entities** (monitors, groups, their memberships,
-> templates, status pages with their selection, channels and their links) are in the
-> code and verified against two nodes with two databases. Phases 4-6 are not built,
-> so the working cluster is still the *shared database* mode described in
-> [clustering.md](clustering.md), and `CLUSTER_MODE=federated` is refused at boot
-> until the mode is real.
+> backfill, the signed peer API with the settle time, the outbox/pull/apply
+> protocol with the LWW merge, the manifest/snapshot healing pass for **all seven
+> entities** (monitors, groups, their memberships, templates, status pages with
+> their selection, channels and their links), the federated voting with the
+> derived leader and the notification election, and the opt-in
+> channels/settings/session-secret sync with push are all shipped. A federated
+> node **boots**: `internal/config/validate.go` refuses it only when
+> `CLUSTER_ENABLED` or `CLUSTER_PEER_API` is not `true`.
 >
 > | Phase | Deliverable | Status |
 > |---|---|---|
@@ -18,13 +28,15 @@
 > | 1 | peer registry, signed ping, settle time | **done** |
 > | 2 | outbox, pull/apply, LWW, manifest/snapshot, monitors + groups | **done** (all seven entities) |
 > | 3 | status pages (+ items/groups) and templates | **done** |
-> | 4 | federated voting, derived leader, leader-owned notifications | design |
-> | 5 | Admin UI, observability, conflict log | **done** (section 20) |
-> | 6 | opt-in channels/settings/session-secret sync, push sync | design |
+> | 4 | federated voting, derived leader, leader-owned notifications | **done** |
+> | 5 | Admin UI, observability, conflict log | **done** (section 21) |
+> | 6 | opt-in channels/settings/session-secret sync, push sync | **done** |
 >
-> Section 21 records every place where the shipped code **deviates from this
-> design**, with the reason — those are the paragraphs below that are no longer
-> accurate as written.
+> Sections 2-19 below were written while the mode was being designed and are kept
+> because they explain **why** the protocol looks the way it does; section 22
+> records every place where the shipped code **deviates from that design**, and
+> section 23 lists what the exit criteria verification actually exercised. Where a
+> design paragraph and section 22 disagree, section 22 is the accurate one.
 
 ## 1. Goal
 
@@ -140,7 +152,7 @@ Consequences to accept and document:
 Pull (rather than push) is deliberate: a node behind NAT needs no inbound
 connection, and a node that was offline for a day heals itself by catching up
 from its own cursor. An optional `POST /api/cluster/sync/now` ping keeps latency
-low without replacing the loop (phase 6).
+low without replacing the loop (`CLUSTER_SYNC_PUSH`, section 13).
 
 ### 5.2 Manifest and full resync (healing)
 
@@ -290,7 +302,7 @@ Alternatives, selectable with `CLUSTER_NOTIFY_ELECTION`:
 > bucket in the key reintroduces both the two-senders bug and the clock
 > dependency (see decision **D3**).
 
-## 9. Liveness (phase 1, implemented)
+## 9. Liveness (implemented)
 
 Two things are kept apart on purpose:
 
@@ -415,13 +427,14 @@ while a write per request would sit on the hot path of every pull.
 
 | Method | Path | Purpose | Status |
 |---|---|---|---|
-| GET | `/api/cluster/sync/ping` | identity, version, protocol version, mode, uptime, server time | **phase 1** |
-| GET | `/api/cluster/sync/status` | **local** admin view: peers, settle state, last success, last error (session auth) | **phase 1** |
-| GET | `/api/cluster/sync/changes?since=&limit=` | outbox batch + `next_since`, `has_more`, `latest_revision` | phase 2 |
-| GET | `/api/cluster/sync/manifest` | per entity `{count, max_revision, checksum}` | phase 2 |
-| GET | `/api/cluster/sync/snapshot?entity=&page=` | paged full state, uuid order | phase 2 |
-| GET | `/api/cluster/sync/votes` | latest verdict per monitor uuid (voting input) | phase 4 |
-| POST | `/api/cluster/sync/now` | ask a peer to pull immediately | phase 6 |
+| GET | `/api/cluster/sync/ping` | identity, version, protocol version, mode, uptime, server time | implemented |
+| GET | `/api/cluster/sync/status` | **local** admin view: peers, settle state, last success, last error (session auth) | implemented |
+| GET | `/api/cluster/sync/changes?since=&limit=` | outbox batch + `next_since`, `has_more`, `latest_revision` | implemented |
+| GET | `/api/cluster/sync/manifest` | per entity `{count, max_revision, checksum}` | implemented |
+| GET | `/api/cluster/sync/snapshot?entity=&page=` | paged full state, uuid order | implemented |
+| GET | `/api/cluster/sync/votes` | latest verdict per monitor uuid (voting input) | implemented |
+| GET | `/api/cluster/sync/settings` | synchronised settings whitelist and session secret (per the opt-in switches) | implemented |
+| POST | `/api/cluster/sync/now` | ask a peer to pull immediately | implemented |
 
 The routes are always registered, so a node with the peer API disabled answers a
 clear `403` instead of a `404` (or worse, the SPA fallback). They carry **no IP
@@ -442,9 +455,11 @@ New tables (added to `database.MigrationModels()`):
 |---|---|
 | `sync_outbox` | `id`, `entity`, `uuid`, `action` (`upsert`/`delete`), `origin_node_id`, `revision`, `payload` (JSON, null on delete), `payload_hash`, `created_at` |
 | `sync_objects` | `uuid` (PK), `entity`, `local_id`, `origin_node_id`, `revision`, `deleted_at`, `updated_at` |
-| `sync_peers` | `peer_node_id` (PK), `peer_name`, `peer_api_url`, `peer_version`, `protocol_version`, `status`, `last_seen_at`, `last_success_at`, `online_since`, `last_error`, `last_error_at`, `updated_at` — **phase 1, implemented**; the cursor columns (`last_change_id`, `last_manifest_at`) arrive with phase 2 |
+| `sync_peers` | `peer_node_id` (PK), `peer_name`, `peer_api_url`, `peer_version`, `protocol_version`, `status`, `last_seen_at`, `last_success_at`, `online_since`, `last_error`, `last_error_at`, plus the cursor columns `last_change_id` / `last_manifest_at` / `last_manifest_ok`, `updated_at` — all implemented |
 | `peer_votes` | `monitor_uuid` + `node_id` (composite PK), `status`, `latency_ms`, `message`, `checked_at`, `fetched_at` |
 | `sync_conflicts` | `id`, `entity`, `uuid`, `kept_origin`, `kept_revision`, `lost_origin`, `lost_revision`, `detected_at` |
+| `sync_pending_links` | an unresolved reference (a change that arrived before its target), with its attempt count |
+| `sync_dead_letters` | a change that could not be applied, with its attempt count (section 22.9) |
 
 `sync_nonces` is no longer in the list: replay protection lives in an in-memory
 cache, see section 11.
@@ -482,8 +497,8 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CLUSTER_MODE` | `shared` | `shared` (today) or `federated` (independent databases) |
-| `CLUSTER_PEER_API` | `false` | **phase 1**: enables the signed peer API and the peer ping loop. Independent of `CLUSTER_MODE` on purpose — it works in shared mode too, where it cross-checks liveness over HTTP instead of trusting a shared row. Federated mode requires it |
+| `CLUSTER_MODE` | `shared` | `shared` (every node points at the same database) or `federated` (one independent database per node, section 2). The default keeps an existing deployment untouched (section 20) |
+| `CLUSTER_PEER_API` | `false` | enables the signed peer API and the peer ping loop. Independent of `CLUSTER_MODE` on purpose — it works in shared mode too, where it cross-checks liveness over HTTP instead of trusting a shared row. Federated mode **requires** it (`internal/config/validate.go`) |
 | `CLUSTER_SYNC_SECONDS` | `15` | pull interval per peer |
 | `CLUSTER_SYNC_BATCH` | `500` | maximum changes per pull |
 | `CLUSTER_SYNC_MANIFEST_SECONDS` | `600` | healing/reconcile pass |
@@ -499,24 +514,23 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | `CLUSTER_INSECURE_SKIP_VERIFY` | `false` | explicit opt-in for a self-signed peer TLS certificate (logged loudly) |
 
 `CLUSTER_PEER_API=true` requires `CLUSTER_ENABLED=true` and a `NODE_ID` (the
-signature is built on it). `CLUSTER_MODE=federated` requires `CLUSTER_ENABLED=true`
-and a `NODE_ID`, and is still **refused at boot** until the mode is real. Both are
-validated in `internal/config/validate.go` with the same "report every problem at
-once" style.
+signature is built on it). `CLUSTER_MODE=federated` requires `CLUSTER_ENABLED=true`,
+a `NODE_ID` and `CLUSTER_PEER_API=true`; it boots and runs. Both are validated in
+`internal/config/validate.go` with the same "report every problem at once" style.
 
 ## 14. Code impact map
 
-Shipped in phase 1: `internal/models/sync.go`,
+The mode spans `internal/models/sync.go`,
 `internal/services/cluster_sign.go`, `internal/services/cluster_peers.go`,
-`internal/services/cluster_peer_status.go`, `internal/middleware/peer.go` and
-`internal/handlers/sync.go`, plus the two routes, the `PingPeers` call on the
-maintenance ticker, the `sync_peers` migration and the two configuration
-variables.
+`internal/services/cluster_peer_status.go`, the `internal/services/sync*.go`
+family, `internal/middleware/peer.go` and `internal/handlers/sync.go`, plus the
+peer routes, the `PingPeers` call on the maintenance ticker, the sync migrations
+and the configuration variables.
 
 | Area | Change |
 |---|---|
-| `internal/models/sync.go` (new) | `SyncPeer` (**phase 1**) and the pure `Settled` / `SettledPeers`; `SyncChange`, `SyncObject`, `PeerVote`, `SyncConflict` and the `uuid`/`origin_node_id`/`revision` columns come with later phases |
-| `internal/services/sync*.go` (new) | `sync.go` (service + loops), `sync_outbox.go`, `sync_pull.go`, `sync_apply.go`, `sync_map.go`, `sync_votes.go`, `sync_manifest.go`, `sync_elect.go` |
+| `internal/models/sync.go` | `SyncPeer`, `SyncChange`, `SyncObject`, `PeerVote`, `SyncConflict`, `SyncPendingLink`, `SyncDeadLetter` and the pure `Settled` / `PickLeader` / `NotificationCandidates` helpers; the `uuid`/`origin_node_id`/`revision` identity lives in the entity models |
+| `internal/services/sync*.go` | `sync.go` (service + loops), `sync_emit.go`, `sync_apply.go`, `sync_apply_entities.go`, `sync_manifest.go`, `sync_votes.go`, `sync_settings.go`, `sync_push.go` |
 | `internal/services/cluster.go`, `cluster_evaluate.go`, `cluster_nodes.go` | mode-aware `Nodes`/`Sweep`/`IsPrimary`; federated `EvaluateAll` merging local + `peer_votes`; `AggregateVotes` untouched |
 | `internal/services/cluster_notify.go` | `claimEvent` picks the shared lock (shared mode) or the deterministic election (federated mode) |
 | `internal/handlers/sync.go` (new), `router.go`, `router_admin.go` | the peer endpoints plus the local `/api/cluster/sync/status` admin view |
@@ -525,7 +539,7 @@ variables.
 | `internal/config/` | the new variables + validation |
 | `cmd/server/app.go` | construct the sync service, wire it into the cluster service, start the loops next to `sched.StartMaintenance` |
 | `web/src/views/admin/AdminClusterView.vue`, `types-platform.ts`, 3 locales | mode badge, derived leader, per-peer sync table (cursor lag, last manifest, last error), conflict log, "Sync now" |
-| `web/scripts/e2e-cluster-federated.mjs` (new), `docker/docker-compose-federated.yml` (new) | end-to-end validation with two nodes and two databases |
+| `web/scripts/e2e-cluster-federated.mjs` (new) | end-to-end validation with two nodes and two databases (the rig is documented in `development.md` §9; there is no bundled federated compose file) |
 
 The sync core (merge order, cursor arithmetic, notification ownership, checksums,
 manifest diff) is written as pure functions so it can be unit-tested without a
@@ -543,11 +557,11 @@ dependency in phase 0).
 | 0 | uuids, `origin_node_id`, `revision`, backfill, `CLUSTER_MODE` skeleton — **done** | `go test ./...` unchanged, migration idempotent (verified against MariaDB 11), `CLUSTER_MODE=shared` behaviour identical |
 | 0.5 | **`run_on=some`** (decision **D11**): `run_on_nodes`, the shared membership rule in the probe and vote paths, UI + templates | **done** (independent of federated mode, and it works in shared mode too) |
 | 1 | peer registry, HTTP liveness, signed request middleware, `ping`, **ownership settle time** | a two-node pair reports each other online; unsigned/replayed calls rejected — **done** |
-| 2 | outbox, pull/apply, LWW merge, tombstones, manifest/snapshot, **monitors + groups** | a monitor created on node A is scheduled by node B after one interval |
-| 3 | **status pages** (+ items/groups) and templates | a status page created on A answers publicly on B with the right monitors |
-| 4 | federated voting (`peer_votes`), derived leader, notification election | `ALL_NODES_FAIL`/`QUORUM` behave as documented; one e-mail per transition in a two-node test |
-| 5 | Admin UI, observability, conflict log, docs | mode + peer lag visible in the UI; a conflict surfaces without reading logs |
-| 6 | optional: channels/settings/session-secret sync over TLS, push-based low-latency sync | opt-in features documented and off by default |
+| 2 | outbox, pull/apply, LWW merge, tombstones, manifest/snapshot, **monitors + groups** | a monitor created on node A is scheduled by node B after one interval — **done** (all seven entities) |
+| 3 | **status pages** (+ items/groups) and templates | a status page created on A answers publicly on B with the right monitors — **done** |
+| 4 | federated voting (`peer_votes`), derived leader, notification election | `ALL_NODES_FAIL`/`QUORUM` behave as documented; one e-mail per transition in a two-node test — **done** |
+| 5 | Admin UI, observability, conflict log, docs | mode + peer lag visible in the UI; a conflict surfaces without reading logs — **done** |
+| 6 | optional: channels/settings/session-secret sync over TLS, push-based low-latency sync | opt-in features documented and off by default — **done** |
 
 ## 16. Failure modes
 
@@ -571,7 +585,7 @@ dependency in phase 0).
 - Secrets (SMTP password, webhook URL, session secret) only sync behind an
   explicit opt-in and must run over TLS; `CLUSTER_INSECURE_SKIP_VERIFY` exists
   only for internal labs and logs a warning on every boot.
-- `docs/security.md` gains a "peer trust model" section: every node is trusted
+- `docs/security.md` has a "peer trust model" section: every node is trusted
   with the configuration, which is the same trust the shared database implies
   today.
 
@@ -586,13 +600,15 @@ dependency in phase 0).
 - **e2e:** `web/scripts/e2e-cluster-federated.mjs` with two nodes and two
   databases: create/edit/delete on each side, status page propagation, voting
   with one node stopped, one notification per transition.
-- **e2e (phase 0, implemented):** `npm run e2e:backfill` checks through the API
-  that every synchronised row carries a well formed and **distinct** `uuid`, that
+- **e2e (identity):** `npm run e2e:backfill` checks through the API that every
+  synchronised row carries a well formed and **distinct** `uuid`, that
   `revision >= 1`, that a freshly created monitor gets its identity from
-  `BeforeCreate`, and that `/api/cluster/status` reports `mode: "shared"`.
-- **Docs:** this document is the reference; `clustering.md`, `database.md`,
-  `architecture.md`, `security.md`, `README.md` and `development.md` are updated
-  in phases 2–5 as each piece lands.
+  `BeforeCreate`, and that `/api/cluster/status` reports `mode: "shared"` on the
+  shared-mode instance it runs against.
+- **Docs:** this document (renamed from `clustering-federated.md`) is the
+  reference for the federated mode; `clustering.md` is the reference for the
+  shared mode. `database.md`, `architecture.md`, `security.md`, `api.md`,
+  `monitors.md`, `README.md` and `development.md` describe the shipped behaviour.
 
 **How phase 1 proved its exit criteria** (two instances, one database,
 `CLUSTER_PEER_API=true`):
@@ -630,8 +646,8 @@ suite:
 | **D3** | Notification election | `leader` / `hash` (HRW) / `origin` | **decided: `leader`** — the sticky lowest-id online node owns both the decision and the send. `hash` (rendezvous over `monitor_uuid`, never modulo, never keyed on `event` or a wall-clock bucket) is the load-sharing option; `origin` is the partition-safe one, at the cost of alerting stopping while that node is down |
 | **D4** | Notification channels and session secret | never / opt-in / always | **opt-in for both**; without the session secret a login stays valid on one dashboard only |
 | **D5** | Heartbeat history | node-local / replicate a rolling window | **node-local**: the per-node breakdown already exists, and replicating the biggest table defeats the purpose |
-| **D6** | DB-level Go tests | keep pure + e2e / add `gorm.io/driver/sqlite` (test-only) | **deferred**: no new dependency. Phase 0 verified its migration operatively (two boots against MariaDB 11) plus `e2e:backfill`; revisit when phase 2 adds the apply path |
-| **D7** | Partition alerting rule | keep `QUORUM` = majority of the *reachable* nodes / add a majority-of-all-known variant | the current rule lets an isolated minority report `DOWN` from a single vote; settle this before phase 4, and note that `run_on=some` makes it likelier (section 10.1) |
+| **D6** | DB-level Go tests | keep pure + e2e / add `gorm.io/driver/sqlite` (test-only) | **deferred**: no new dependency. The pure helpers are unit-tested, the migration/backfill and the apply path were verified operatively (two boots against MariaDB 11, plus `e2e:backfill` and `e2e:cluster-federated`) |
+| **D7** | Partition alerting rule | keep `QUORUM` = majority of the *reachable* nodes / add a majority-of-all-known variant | the current rule lets an isolated minority report `DOWN` from a single vote; **shipped as-is** (see §22.11 — the admin view now shows `reachable / known`), and `run_on=some` makes it likelier (section 10.1) |
 | **D8** | Leadership settle time | none / 2× ping / 90 s | **2× ping (60 s)**: long enough to absorb a blip, short enough to be a real failover |
 | **D9** | Notification ownership stickiness | per-monitor / per-bucket | **per-monitor** — implied by D3, and it removes the wall-clock dependency entirely |
 | **D10** | "No third-party component" | hard requirement / negotiable | **hard**: D3 keeps federated mode broker-free. A shared Redis/etcd lock would make the election trivial and correct, so revisit this decision before accepting duplicates instead |

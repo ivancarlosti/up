@@ -18,8 +18,9 @@
 | `timeout_seconds` | `10` | 1..300 | budget of a single attempt |
 | `resend_interval_seconds` | `0` | >= 0 | 0 = notify only on transitions |
 | `upside_down` | `false` | - | inverts up/down (a rule that must keep blocking) |
-| `run_on` | `all` | all, primary, node | which cluster nodes execute it |
+| `run_on` | `all` | all, primary, node, some | which cluster nodes execute it (`some` = the subset in `run_on_nodes`) |
 | `node_id` | - | - | required when `run_on=node` |
+| `run_on_nodes` | - | - | comma separated node ids, required when `run_on=some` |
 | `tags` | - | 255 chars | comma separated, used by filters and status pages |
 
 ### Retries and the `pending` status
@@ -217,8 +218,8 @@ Rules that matter in practice:
 ## 8. Templates
 
 A template is a monitor without a target: the probe type and its options plus the
-defaults (interval, timeout, retries, re-notification, `run_on`, tags, channels
-and groups). It exists for two jobs:
+defaults (interval, timeout, retries, re-notification, `run_on` / `run_on_nodes`,
+tags, channels and groups). It exists for two jobs:
 
 1. **Add monitors in bulk** (Admin > Monitors > *Add in bulk*): paste one monitor
    per line and pick the template. The server parses the paste, validates every

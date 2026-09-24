@@ -136,7 +136,7 @@ func (c *Config) validate() []string {
 		// changed and how it pulls what the others changed. A federated node without it
 		// would claim to be part of a cluster, take part in nothing, and diverge in
 		// silence — which is the failure this mode exists to avoid, so it is refused at
-		// boot rather than warned about (docs/clustering-federated.md, section 20).
+		// boot rather than warned about (docs/clustering-modes.md, section 20).
 		if !c.ClusterPeerAPI {
 			problems = append(problems,
 				"CLUSTER_MODE=federated requires CLUSTER_PEER_API=true")

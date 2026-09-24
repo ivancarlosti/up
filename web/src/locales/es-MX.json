@@ -428,7 +428,7 @@
   },
   "cluster": {
     "title": "Clúster",
-    "subtitle": "Varios paneles sincronizados mediante la misma base de datos",
+    "subtitle": "Varios paneles sincronizados como un único clúster",
     "disabled": "El clúster está desactivado (CLUSTER_ENABLED=false).",
     "disabledHint": "Activa CLUSTER_ENABLED=true en este nodo para unirte a un clúster.",
     "thisNode": "Este nodo",

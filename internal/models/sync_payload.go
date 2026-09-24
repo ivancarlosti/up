@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Wire payloads of the peer protocol (docs/clustering-federated.md, section 5).
+// Wire payloads of the peer protocol (docs/clustering-modes.md, section 5).
 //
 // They are spelled out field by field rather than embedding the models, on
 // purpose: the wire form is a contract, and a field added to a model for the
@@ -191,7 +191,7 @@ type SettingPayload struct {
 //
 // It carries the presentation settings and, when its own opt-in is on, the session secret.
 // Nothing else: API tokens, IP rules and per-node rate limits are deliberately never
-// synchronised (docs/clustering-federated.md, section 10), because security configuration
+// synchronised (docs/clustering-modes.md, section 10), because security configuration
 // stays a per-node concern.
 type SyncSettingsResponse struct {
 	NodeID          string           `json:"node_id"`
