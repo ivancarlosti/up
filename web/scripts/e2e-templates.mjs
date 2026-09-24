@@ -84,6 +84,50 @@ try {
   }
   check('template card rendered', (await api(`document.body.innerText`)).includes(templateName))
 
+  // --- edit the template through the UI ------------------------------------
+  // Regression guard: the update marshals the JSON columns by hand, so a raw
+  // struct used to reach the driver and every single save answered 500.
+  const editedName = `${templateName} edited`
+  const editOpened = await api(`(() => {
+    const name = ${JSON.stringify(templateName)}
+    const card = [...document.querySelectorAll('*')].find(
+      (el) => el.innerText?.includes(name) && el.querySelector('button[aria-label]'),
+    )
+    const button = [...(card?.querySelectorAll('button[aria-label]') ?? [])].find((el) =>
+      /^(edit|editar)$/i.test(el.getAttribute('aria-label') ?? ''),
+    )
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  check('edit dialog opens', editOpened)
+  await sleep(600)
+  await setValue(page, '#template-name', editedName)
+  await setValue(page, '#template-interval', '240')
+  // The propagate switch is the last one of the template dialog (the form holds
+  // one switch per capability, plus this one).
+  const toggled = await api(`(() => {
+    const dialog = document.querySelector('#template-interval')?.closest('[role="dialog"]')
+    const switches = [...(dialog?.querySelectorAll('button[role="switch"]') ?? [])]
+    const button = switches.at(-1)
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  check('the propagate switch toggles', toggled)
+  check('the edit is saved', await clickButton(page, /^(save|salvar|guardar)$/i))
+  await sleep(1500)
+  const edited = await api(`fetch('/api/monitor-templates')
+    .then((r) => r.json())
+    .then((list) => list.find((t) => t.id === ${template.id}) ?? null)`)
+  check('the edit persisted', edited?.name === editedName, String(edited?.name))
+  check(
+    'the edited defaults persisted',
+    edited?.defaults?.interval_seconds === 240,
+    String(edited?.defaults?.interval_seconds),
+  )
+  check('the propagate switch persisted', edited?.propagate === false, String(edited?.propagate))
+
   // --- bulk add through the UI ---------------------------------------------
   await page.goto(`${url}/admin/monitors`, { settle: 1500 })
   check('bulk dialog opens', await clickButton(page, /add in bulk|adicionar em lote|agregar en lote/i))
@@ -136,7 +180,7 @@ try {
   const after = await api(`fetch('/api/monitors?decorate=false')
     .then((r) => r.json())
     .then((list) => list.filter((m) => m.name.startsWith('e2e bulk ${stamp}')).map((m) => ({ interval: m.interval_seconds, url: m.config.url })))`)
-  check('the template was applied', after.every((m) => m.interval === 120), JSON.stringify(after.map((m) => m.interval)))
+  check('the template was applied', after.every((m) => m.interval === 240), JSON.stringify(after.map((m) => m.interval)))
   check(
     'the targets survived the bulk edit',
     after.every((m) => String(m.url).startsWith('http://127.0.0.1:8099/')),

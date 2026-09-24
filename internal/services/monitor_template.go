@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -116,6 +117,38 @@ func (s *MonitorTemplateService) Create(ctx context.Context, template *models.Mo
 	return nil
 }
 
+// templateUpdateColumns renders the writable columns of a template update.
+//
+// It is a pure function so the one rule that is easy to get wrong can be tested
+// without a database: GORM applies "serializer:json" to model fields, never to
+// raw map values, so the JSON columns have to be marshalled by hand. Writing a
+// struct here fails at the driver with
+// "unsupported type models.MonitorConfig, a struct" and answers 500 on every
+// template edit (the monitor, notification and synchronisation writers all
+// marshal for the same reason).
+func templateUpdateColumns(template *models.MonitorTemplate) (map[string]any, error) {
+	configJSON, err := json.Marshal(template.Config)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the template configuration: %w", err)
+	}
+	defaultsJSON, err := json.Marshal(template.Defaults)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the template defaults: %w", err)
+	}
+	return map[string]any{
+		"name":        template.Name,
+		"description": template.Description,
+		"type":        template.Type,
+		"config":      string(configJSON),
+		"defaults":    string(defaultsJSON),
+		"propagate":   template.Propagate,
+		// Every edit advances the revision: it is the primary component of the
+		// merge order (see the group update).
+		"revision":   gorm.Expr("revision + 1"),
+		"updated_at": time.Now().UTC(),
+	}, nil
+}
+
 // Update saves an existing template.
 func (s *MonitorTemplateService) Update(ctx context.Context, template *models.MonitorTemplate) error {
 	template.Normalize()
@@ -125,18 +158,12 @@ func (s *MonitorTemplateService) Update(ctx context.Context, template *models.Mo
 	if err := s.validateName(ctx, template.Name, template.ID); err != nil {
 		return err
 	}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&models.MonitorTemplate{}).Where("id = ?", template.ID).Updates(map[string]any{
-			"name":        template.Name,
-			"description": template.Description,
-			"type":        template.Type,
-			"config":      template.Config,
-			"defaults":    template.Defaults,
-			// Every edit advances the revision: it is the primary component of the
-			// merge order (see the group update).
-			"revision":   gorm.Expr("revision + 1"),
-			"updated_at": time.Now().UTC(),
-		})
+	columns, err := templateUpdateColumns(template)
+	if err != nil {
+		return ErrInternal(err)
+	}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.MonitorTemplate{}).Where("id = ?", template.ID).Updates(columns)
 		if result.Error != nil {
 			return result.Error
 		}
