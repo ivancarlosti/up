@@ -153,9 +153,11 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		}
 	}
 
-	// The synchronisation outbox keeps the changes a peer may still need. Older
-	// than the retention it is pruned, and a peer whose cursor points before the
-	// pruned region is reconciled from the snapshots instead.
+	// The synchronisation outbox keeps the changes a peer may still need, and the
+	// conflict log and dead letters keep the history of what went wrong. Older than the
+	// retention both are pruned; a peer whose cursor points before the pruned region is
+	// reconciled from the snapshots instead, and the conflict log is history rather
+	// than state.
 	if s.sync != nil && s.sync.Enabled() {
 		before := now.AddDate(0, 0, -s.cfg.ClusterSyncTombstoneDays)
 		switch deleted, err := s.sync.PruneOutbox(ctx, before); {
@@ -163,6 +165,13 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 			s.log.Error("outbox prune failed", "error", err)
 		case deleted > 0:
 			s.log.Info("outbox prune finished",
+				"deleted", deleted, "older_than_days", s.cfg.ClusterSyncTombstoneDays)
+		}
+		switch deleted, err := s.sync.PruneSyncHistory(ctx, before); {
+		case err != nil:
+			s.log.Error("sync history prune failed", "error", err)
+		case deleted > 0:
+			s.log.Info("sync history prune finished",
 				"deleted", deleted, "older_than_days", s.cfg.ClusterSyncTombstoneDays)
 		}
 	}

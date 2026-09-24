@@ -6,6 +6,7 @@ import type {
   ClusterSettings,
   ClusterStatus,
   IPRule,
+  PeerStatusReport,
   StatusPage,
   StatusPageMonitorItem,
   StatusPageGroupLink,
@@ -31,6 +32,8 @@ export const adminApi = {
   publicStatusPage: (slug: string) => get<StatusPage>(`/api/public/status/${slug}`),
 
   clusterStatus: () => get<ClusterStatus>('/api/cluster/status'),
+  /** peerStatus is the local synchronisation view: cursor, checksums, conflicts. */
+  peerStatus: () => get<PeerStatusReport>('/api/cluster/sync/status'),
   clusterNodes: () => get<ClusterNode[]>('/api/cluster/nodes'),
   clusterSettings: () => get<ClusterSettings>('/api/cluster/settings'),
   updateClusterSettings: (payload: Partial<ClusterSettings>) => put<ClusterSettings>('/api/cluster/settings', payload),

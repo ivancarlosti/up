@@ -75,6 +75,29 @@ func (s *SyncService) PruneOutbox(ctx context.Context, before time.Time) (int64,
 	return result.RowsAffected, nil
 }
 
+// PruneSyncHistory removes the conflict log and the dead letters older than the
+// retention.
+//
+// Unlike the tombstones in sync_objects, which are kept because they are what stops a
+// re-delivered old upsert from recreating a deleted row, a conflict or a dead letter is
+// HISTORY: worth keeping long enough for an operator to see what happened, and not
+// worth keeping for ever.
+//
+// A pending link is NOT pruned here. An unresolved reference is not history but an
+// open problem, it stops being retried on its own past the attempt cap, and the report
+// counts it separately so it cannot be forgotten.
+func (s *SyncService) PruneSyncHistory(ctx context.Context, before time.Time) (int64, error) {
+	conflicts := s.db.WithContext(ctx).Where("detected_at < ?", before).Delete(&models.SyncConflict{})
+	if conflicts.Error != nil {
+		return 0, ErrInternal(conflicts.Error)
+	}
+	letters := s.db.WithContext(ctx).Where("updated_at < ?", before).Delete(&models.SyncDeadLetter{})
+	if letters.Error != nil {
+		return 0, ErrInternal(letters.Error)
+	}
+	return conflicts.RowsAffected + letters.RowsAffected, nil
+}
+
 // NextSyncTick is how often the pull loop runs.
 func (s *SyncService) NextSyncTick() time.Duration {
 	return time.Duration(s.cfg.ClusterSyncSeconds) * time.Second

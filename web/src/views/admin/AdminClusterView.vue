@@ -14,12 +14,17 @@ import { translateError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/format'
 import { copyToClipboard } from '@/lib/utils'
 import { useToastStore } from '@/stores/toast'
-import type { ClusterStatus, FailureStrategy, NodeUnavailableStrategy, NotificationSenderStrategy } from '@/lib/types'
+import type { ClusterStatus, FailureStrategy, NodeUnavailableStrategy, NotificationSenderStrategy, PeerStatusReport } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
 
 const status = ref<ClusterStatus | null>(null)
+/** peers is the local synchronisation view: it is what shows a stalled or diverging
+ * peer, which the registry view above cannot (a peer stays "online" while nothing
+ * flows). It is loaded separately, so a node with the synchronisation disabled still
+ * renders the rest of the page. */
+const peers = ref<PeerStatusReport | null>(null)
 const privateKey = ref('')
 const revealKey = ref(false)
 const saving = ref(false)
@@ -62,6 +67,13 @@ async function load(): Promise<void> {
     privateKey.value = key.private_key
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
+  }
+  try {
+    peers.value = await api.peerStatus()
+  } catch {
+    // The synchronisation endpoints refuse when the mode does not publish: that is a
+    // normal state, not a failure of the page.
+    peers.value = null
   }
 }
 
@@ -239,6 +251,122 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
+    </Card>
+
+    <Card :title="t('cluster.syncTitle')">
+      <div class="grid gap-3 sm:grid-cols-4">
+        <div>
+          <p class="text-xs text-muted-foreground">{{ t('cluster.pendingLinks') }}</p>
+          <p class="text-lg font-semibold">
+            {{ peers?.sync.pending_links ?? 0 }}
+            <span v-if="(peers?.sync.pending_links_given_up ?? 0) > 0" class="text-xs text-status-down">
+              ({{ peers?.sync.pending_links_given_up }} {{ t('cluster.givenUp') }})
+            </span>
+          </p>
+        </div>
+        <div>
+          <p class="text-xs text-muted-foreground">{{ t('cluster.conflicts') }}</p>
+          <p class="text-lg font-semibold">{{ peers?.sync.conflicts ?? 0 }}</p>
+        </div>
+        <div>
+          <p class="text-xs text-muted-foreground">{{ t('cluster.deadLetters') }}</p>
+          <p class="text-lg font-semibold">
+            {{ peers?.sync.dead_letters ?? 0 }}
+            <span v-if="(peers?.sync.dead_letters_skipped ?? 0) > 0" class="text-xs text-status-down">
+              ({{ peers?.sync.dead_letters_skipped }} {{ t('cluster.skipped') }})
+            </span>
+          </p>
+        </div>
+        <div>
+          <p class="text-xs text-muted-foreground">{{ t('cluster.quorum') }}</p>
+          <p class="text-lg font-semibold">
+            {{ peers?.sync.quorum_reachable ?? 0 }}/{{ peers?.sync.quorum_known ?? 0 }}
+          </p>
+          <p class="text-xs text-muted-foreground">
+            {{ peers?.sync.quorum_settled ?? 0 }} {{ t('cluster.quorumSettled') }}
+          </p>
+        </div>
+      </div>
+
+      <Alert
+        v-if="(peers?.sync.quorum_reachable ?? 0) < (peers?.sync.quorum_known ?? 0)"
+        variant="warning"
+        class="mt-3"
+      >
+        {{ t('cluster.quorumHint') }}
+      </Alert>
+
+      <table class="data-table mt-4">
+        <thead>
+          <tr>
+            <th>{{ t('cluster.syncPeer') }}</th>
+            <th>{{ t('cluster.syncCursor') }}</th>
+            <th>{{ t('cluster.syncChecksums') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="peer in peers?.peers ?? []" :key="peer.peer_node_id">
+            <td>{{ peer.peer_name || peer.peer_node_id }}</td>
+            <td class="font-mono">{{ peer.last_change_id }}</td>
+            <td>
+              <Badge v-if="!peer.last_manifest_at" variant="outline">{{ t('cluster.syncNever') }}</Badge>
+              <Badge v-else-if="peer.last_manifest_ok" variant="success">{{ t('cluster.syncAgree') }}</Badge>
+              <Badge v-else variant="danger">{{ t('cluster.syncDisagree') }}</Badge>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="(peers?.recent_conflicts?.length ?? 0) > 0" class="mt-4">
+        <p class="mb-1 text-sm font-medium">{{ t('cluster.recentConflicts') }}</p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ t('cluster.entity') }}</th>
+              <th>{{ t('cluster.uuid') }}</th>
+              <th>{{ t('cluster.kept') }}</th>
+              <th>{{ t('cluster.lost') }}</th>
+              <th>{{ t('cluster.detectedAt') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="conflict in peers?.recent_conflicts ?? []" :key="conflict.uuid + conflict.detected_at">
+              <td>{{ conflict.entity }}</td>
+              <td class="font-mono text-xs">{{ conflict.uuid }}</td>
+              <td class="font-mono">{{ conflict.kept_origin }} r{{ conflict.kept_revision }}</td>
+              <td class="font-mono">{{ conflict.lost_origin }} r{{ conflict.lost_revision }}</td>
+              <td class="text-muted-foreground">{{ formatDateTime(conflict.detected_at, locale) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="(peers?.recent_dead_letters?.length ?? 0) > 0" class="mt-4">
+        <p class="mb-1 text-sm font-medium">{{ t('cluster.recentDeadLetters') }}</p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ t('cluster.changeId') }}</th>
+              <th>{{ t('cluster.entity') }}</th>
+              <th>{{ t('cluster.attempts') }}</th>
+              <th>{{ t('common.error') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="letter in peers?.recent_dead_letters ?? []" :key="letter.change_id">
+              <td class="font-mono">{{ letter.change_id }}</td>
+              <td>{{ letter.entity }}</td>
+              <td>
+                {{ letter.attempts }}
+                <Badge v-if="letter.skipped" variant="danger">{{ t('cluster.skipped') }}</Badge>
+              </td>
+              <td class="text-xs text-muted-foreground">{{ letter.last_error }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p v-if="!peers" class="text-sm text-muted-foreground">{{ t('cluster.syncUnavailable') }}</p>
     </Card>
 
     <Card :title="t('cluster.strategies')">

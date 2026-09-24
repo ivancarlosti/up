@@ -1,21 +1,29 @@
 # Up - Federated clustering (one database per node)
 
-> **Status: phase 0 implemented, phases 1-6 are design.** The synchronisation
-> identity (`uuid`, `origin_node_id`, `revision` on monitors, status pages, groups
-> and templates), the idempotent backfill and the `CLUSTER_MODE` skeleton are in
-> the code. Nothing else here is built yet: the working cluster is still the
-> *shared database* mode described in [clustering.md](clustering.md), and
-> `CLUSTER_MODE=federated` is refused at boot until the mode is real.
+> **Status: phases 0, 1, 2 and 3 implemented; 4, 5 and 6 are design.** The
+> synchronisation identity (`uuid`, `origin_node_id`, `revision`), the idempotent
+> backfill, the `CLUSTER_MODE` skeleton, the signed peer API with the settle time,
+> the outbox/pull/apply protocol with the LWW merge, and the manifest/snapshot
+> healing pass for **all seven entities** (monitors, groups, their memberships,
+> templates, status pages with their selection, channels and their links) are in the
+> code and verified against two nodes with two databases. Phases 4-6 are not built,
+> so the working cluster is still the *shared database* mode described in
+> [clustering.md](clustering.md), and `CLUSTER_MODE=federated` is refused at boot
+> until the mode is real.
 >
 > | Phase | Deliverable | Status |
 > |---|---|---|
 > | 0 | sync identity, backfill, `CLUSTER_MODE` skeleton | **done** |
 > | 1 | peer registry, signed ping, settle time | **done** |
-> | 2 | outbox, pull/apply, LWW, manifest/snapshot, monitors + groups | design |
-> | 3 | status pages (+ items/groups) and templates | design |
+> | 2 | outbox, pull/apply, LWW, manifest/snapshot, monitors + groups | **done** (all seven entities) |
+> | 3 | status pages (+ items/groups) and templates | **done** |
 > | 4 | federated voting, derived leader, leader-owned notifications | design |
-> | 5 | Admin UI, observability, conflict log | design |
+> | 5 | Admin UI, observability, conflict log | **done** (section 20) |
 > | 6 | opt-in channels/settings/session-secret sync, push sync | design |
+>
+> Section 21 records every place where the shipped code **deviates from this
+> design**, with the reason — those are the paragraphs below that are no longer
+> accurate as written.
 
 ## 1. Goal
 
@@ -636,8 +644,9 @@ suite:
 3. `CLUSTER_MODE=federated` is refused at boot with an explicit problem until the
    mode is real. Accepting the value early would produce a node that claims to be
    federated and silently behaves like a shared one (its own database, nothing
-   synchronised). The check lives in `internal/config/validate.go` and is deleted
-   in phase 4.
+   synchronised). The check lives in `internal/config/validate.go` and is removed as
+   the **final step of the migration**, once phases 4-6 have landed and the operator
+   path is documented — not before.
 4. A cluster cannot be half-shared/half-federated: a `shared` node and a
    `federated` node exchange nothing (the protocol version is rejected), which
    keeps the two modes from silently mixing.
@@ -648,3 +657,131 @@ suite:
 
 
 
+
+
+## 21. The admin view (phase 5, implemented)
+
+`GET /api/cluster/sync/status` (session auth) is the local, per-node view, and the
+UI shows all of it in **Admin → Cluster**.
+
+- The peer table reports status, settle state, last success, last error, and two
+  things a peer table cannot otherwise show: the **outbox cursor**
+  (`sync_peers.last_change_id`) and the **manifest result** (`last_manifest_at` /
+  `last_manifest_ok`). A cursor that stops advancing is a *stalled* sync; checksums
+  that disagree are *divergence* rather than lag. Both are invisible when the only
+  thing on screen is "online / offline", because a peer stays online while nothing
+  flows.
+- The summary reports the waiting references (and how many have been given up on),
+  the merge conflicts, the unapplied changes (and how many were skipped), and the
+  visibility split `quorum_reachable / quorum_known` with the settled count — the
+  D7 denominator, on the screen (§22.11).
+- The **recent conflicts** and the **recent unapplied changes** are listed
+  themselves, so a conflict is visible without reading a log file. That is phase 5's
+  exit criterion.
+- Retention: the conflict log and the dead letters are pruned after
+  `CLUSTER_SYNC_TOMBSTONE_DAYS` (30 by default) because they are *history*.
+  `sync_pending_links` is **not** pruned: an unresolved reference is an open
+  problem, not history — it stops being retried past the attempt cap, and the report
+  counts it separately so it cannot be forgotten.
+
+
+## 22. Deviations from this design
+
+Every item below is a place where the shipped code differs from the sections above,
+with the reason. Each one was forced by something the two-node lab exposed; the two
+nodes ran with two databases throughout.
+
+1. **Link entities (§5).** Memberships and monitor↔channel links are first-class
+   entities (`monitor_group_member`, `monitor_notification`) whose uuid is derived
+   from the pair (`uuid5("{kind}|{sorted uuids}")`), instead of lists inside the
+   container payload. A membership can be edited from *either* end — the monitor form
+   and the group editor both rewrite the same join table — and with lists inside the
+   payload that gives two writers of two conflicting versions of one relation. As its
+   own entity, a relation has one identity, one revision and one writer per edit, and
+   it can be removed without touching its container.
+2. **Tombstones are kept; only the outbox is pruned (§12).**
+   `CLUSTER_SYNC_TOMBSTONE_DAYS` prunes the **outbox**, not `sync_objects`. A
+   tombstone in `sync_objects` is what stops a re-delivered old upsert from
+   recreating a deleted row; expiring it would make that guarantee time-limited and
+   turn a late delivery into a resurrection. A peer whose cursor points before the
+   pruned region is healed by the manifest and the snapshot instead — which is what
+   makes the prune safe, and why `cursor_expired` exists.
+3. **The snapshot is enumerated from `sync_objects`, not from the entity tables
+   (§5).** A relation has no row of its own and a tombstone has none either, so a
+   snapshot built from the entity tables could describe the live rows but never a
+   deletion — and a missed deletion is exactly what the healing pass exists to
+   repair. `sync_objects.payload` therefore stores the last applied or published
+   payload (empty for a tombstone), and the snapshot is a page of `sync_objects` in
+   uuid order.
+4. **`origin_node_id` means "the node that produced the current version", not "the
+   creator" (§4).** The tie-break needs two concurrent edits to be distinguishable:
+   if origin meant the creator, two edits of the same row would share an origin, the
+   tie-break would be a tie, each node would keep its own and they would diverge. The
+   emitter stamps the local node on every local write — the row, the payload, the
+   envelope and `sync_objects` — and the apply path takes the origin from the
+   **envelope**, never from the sender's payload copy.
+5. **The outbox carries the VERSION timestamp (§4).** `sync_outbox.updated_at` is the
+   `updated_at` of the row on the producing node, not the insert time. The insert
+   time is always slightly later than the update it describes, so a node comparing its
+   own row's `updated_at` against a peer's insert time compares two different
+   quantities and concludes that the other is newer. Measured in the lab: each node
+   adopted the other's change and logged the opposite conflict verdict.
+6. **Protocol version 2.** The status page selection travels as records (uuid, display
+   name, group name, sort order, per-item visibility) rather than two sorted uuid
+   lists: the order and the per-item overrides live in the join row, so a receiver
+   rebuilding the selection from uuids silently reset both.
+
+
+7. **A name collision renames the ARRIVING row (§4).** `name` is unique for groups
+   and templates and `slug` for pages, so an arriving row can collide with one the
+   operator created locally. The local row keeps its name — synchronisation must not
+   rename the operator's data behind their back — and the arriving row takes a
+   deterministic suffix, so the change still lands and no change is ever blocked by a
+   name. The suffix depends only on local occupancy, so re-applying is stable.
+8. **A reference that arrives before its target is resolved as LOCAL work (§5).** The
+   design said the container would be re-delivered; it cannot be, because it arrives
+   at the revision the node already holds and the merge rule skips it — as it must, or
+   every re-delivery would look like a new version. The receiver therefore re-writes
+   the container's own stored payload, without touching its identity, as soon as the
+   target exists. Markers are cleared on resolution, and past
+   `maxPendingLinkAttempts` (20) they stop triggering retries and stay listed.
+9. **A change that cannot be applied is contained (§16).** One unreadable change would
+   otherwise roll back its whole batch, leaving the cursor where it is and queueing
+   every later change behind it for ever. The apply degrades to one change per
+   transaction, counts the failure in `sync_dead_letters`, and past
+   `maxDeadLetterAttempts` (10) skips **only** that change. Skipping is recoverable:
+   the identity then disagrees and the manifest heals it with a snapshot. An invalid
+   outbox payload is also handed to peers as *absent* rather than as broken JSON,
+   because a `json.RawMessage` that cannot be marshalled fails the whole response and
+   would make a node unservable to every peer.
+10. **The manifest checksum covers `(uuid, revision)` per entity (§5).** The counts
+    and the maximum revision are reported as well, but the checksum is over the
+    identity set: an identity-level divergence — same revision, different origin or
+    timestamp — is not caught by it. Named here because it is a real limit of the
+    healing pass, not an oversight.
+11. **`QUORUM` keeps the reachable set as its denominator (decision D7).** Unchanged
+    on purpose, and now visible: the admin view shows `reachable / known`, so a
+    partition that shrinks the denominator is a fact on the screen instead of a
+    surprise. An isolated minority can still decide with fewer nodes than the cluster
+    has — that is the accepted cost of this rule.
+
+## 23. Exit criteria: what has been verified
+
+Verified against two nodes with two databases, with the boot guard patched for the
+lab build only:
+
+- A monitor, a group, its memberships, a template, a status page (with its order and
+  per-item overrides), a channel (with its configuration) and a channel link created
+  on one node all appear on the other, and deletions arrive as tombstones.
+- A monitor created on A is probed by B after one interval, and a status page created
+  on A answers publicly on **B** with the right monitors and order (the phase 2 and
+  phase 3 exit criteria).
+- A concurrent edit made on both nodes in one interval converges: both nodes hold the
+  same identity and record the same conflict verdict.
+- A change B never received is repaired by the manifest and the snapshot; a pruned
+  outbox with a stale cursor heals through `cursor_expired` and the cursor realigns.
+- A reference that arrives before its target is materialised once the target exists,
+  and its marker is cleared.
+- A corrupt outbox payload is contained: the sender keeps serving, the receiver
+  records a dead letter, and the manifest delivers the row from the snapshot.
+- Both nodes report identical live identity sets per entity, and the manifests agree.

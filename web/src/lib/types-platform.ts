@@ -81,6 +81,81 @@ export interface ClusterStatus {
   offline_node_names: string[] | null
 }
 
+/**
+ * PeerSyncSummary is the synchronisation health a node can see by itself.
+ *
+ * The failure modes of a federated cluster are quiet: a reference whose target never
+ * arrived, an edit that lost the merge, a change that could not be applied, and a
+ * partition that shrinks the vote denominator are all invisible in a peer table.
+ */
+export interface PeerSyncSummary {
+  pending_links: number
+  pending_links_given_up: number
+  conflicts: number
+  dead_letters: number
+  dead_letters_skipped: number
+  /** With the QUORUM strategy the denominator is the REACHABLE nodes (decision D7). */
+  quorum_known: number
+  quorum_reachable: number
+  quorum_settled: number
+}
+
+/** PeerStatusView is one peer as this node currently sees it. */
+export interface PeerStatusView {
+  peer_node_id: string
+  peer_name: string
+  api_url: string
+  peer_version: string
+  protocol_version: number
+  node_status: NodeStatus
+  peer_status: string
+  settled: boolean
+  online_since: string | null
+  last_seen_at: string | null
+  last_success_at: string | null
+  last_error: string
+  last_error_at: string | null
+  /** Cursor into the peer's outbox: one that stops advancing is a stalled sync. */
+  last_change_id: number
+  last_manifest_at: string | null
+  /** False means the checksums disagree: the peer is diverging, not merely behind. */
+  last_manifest_ok: boolean
+}
+
+export interface ConflictView {
+  entity: string
+  uuid: string
+  kept_origin: string
+  kept_revision: number
+  lost_origin: string
+  lost_revision: number
+  detected_at: string
+}
+
+export interface DeadLetterView {
+  change_id: number
+  entity: string
+  uuid: string
+  attempts: number
+  skipped: boolean
+  last_error: string
+  updated_at: string
+}
+
+/** PeerStatusReport is GET /api/cluster/sync/status (the local sync view). */
+export interface PeerStatusReport {
+  node_id: string
+  mode: string
+  peer_api_enabled: boolean
+  version: string
+  protocol_version: number
+  settle_seconds: number
+  peers: PeerStatusView[]
+  sync: PeerSyncSummary
+  recent_conflicts: ConflictView[] | null
+  recent_dead_letters: DeadLetterView[] | null
+}
+
 export interface StatusPage {
   id: number
   slug: string
