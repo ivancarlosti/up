@@ -50,7 +50,7 @@ to the definitive verdict. `retries=0` means "report the first failure".
 | `auth_type` | none, basic, bearer | basic uses `basic_user`/`basic_pass`, bearer uses `bearer_token` |
 | `ignore_tls` | bool | skips certificate verification |
 | `max_redirects` | 0..20 | 0 = no redirect accepted, default 10 |
-| `cache_buster` | bool | appends a fresh `uptime_kuma_cachebuster=<random>` to every request |
+| `cache_buster` | bool | appends a fresh `up_cachebuster=<random>` to every request |
 | `accepted_status_codes` | ranges | `200-299` (default), `200-299,301,404` |
 | `keyword` | string | **keyword type only**, required |
 | `invert_keyword` | bool | the keyword must be **absent** |
@@ -64,10 +64,9 @@ Behaviour:
 - Network errors are normalised into a short message (`connection refused`,
   `timeout exceeded`, `DNS resolution failed`, `TLS certificate error`).
 - `upside_down=true` inverts the final status (a keyword that must NOT appear).
-- `cache_buster=true` adds a randomly generated `uptime_kuma_cachebuster`
-  parameter to every request, so a cache, a CDN or an in-between proxy always
-  asks the origin. The parameter name is deliberately the same one Uptime Kuma
-  uses (a cache rule written for it keeps working) and the value changes on
+- `cache_buster=true` adds a randomly generated `up_cachebuster` parameter to
+  every request, so a cache, a CDN or an in-between proxy always asks the
+  origin. The parameter name is `up_cachebuster` and its value is regenerated on
   every check. A query string already present in the URL is preserved next to
   it. HTTP and Keyword monitors share the option, the `ssl`, TCP and DNS types
   do not have it.

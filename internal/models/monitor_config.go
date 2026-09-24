@@ -25,7 +25,7 @@ type MonitorConfig struct {
 	BearerToken         string   `json:"bearer_token,omitempty"`
 	IgnoreTLS           bool     `json:"ignore_tls,omitempty"`            // ignore TLS/SSL errors
 	MaxRedirects        int      `json:"max_redirects,omitempty"`         // 0 = no redirect, default 10
-	CacheBuster         bool     `json:"cache_buster,omitempty"`          // append a random uptime_kuma_cachebuster parameter
+	CacheBuster         bool     `json:"cache_buster,omitempty"`          // append a random up_cachebuster parameter
 	AcceptedStatusCodes string   `json:"accepted_status_codes,omitempty"` // "200-299,301"
 
 	// --- Keyword ----------------------------------------------------------

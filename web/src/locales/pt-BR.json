@@ -163,7 +163,7 @@
     "ignoreTls": "Ignorar erros de TLS/SSL",
     "maxRedirects": "Máx. de redirecionamentos",
     "cacheBuster": "Adicionar parâmetro cache buster",
-    "cacheBusterHelp": "Acrescenta um parâmetro uptime_kuma_cachebuster gerado aleatoriamente em cada requisição, para que caches e CDNs respondam com dados frescos.",
+    "cacheBusterHelp": "Acrescenta um parâmetro up_cachebuster gerado aleatoriamente em cada requisição, para que caches e CDNs respondam com dados frescos.",
     "acceptedCodes": "Códigos de status aceitos",
     "acceptedCodesHelp": "Faixas e códigos separados por vírgula, por exemplo 200-299,301.",
     "keyword": "Palavra-chave",

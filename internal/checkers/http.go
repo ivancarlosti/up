@@ -21,10 +21,9 @@ import (
 const maxBodyBytes = 512 * 1024
 
 // cacheBusterParam is the query parameter appended to every request of a
-// monitor with cache_buster enabled. The name is the same one Uptime Kuma
-// uses, so the behaviour is recognisable to operators coming from it and a
-// cache/proxy rule already matching the parameter keeps working.
-const cacheBusterParam = "uptime_kuma_cachebuster"
+// monitor with cache_buster enabled. A cache or proxy rule aimed at this
+// monitor can match the parameter by name.
+const cacheBusterParam = "up_cachebuster"
 
 // cacheBusterValue returns a fresh random value for the cache buster
 // parameter. The entropy source is the shared one (crypto/rand); when it is
