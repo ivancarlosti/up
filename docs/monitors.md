@@ -333,11 +333,16 @@ smallest one the reminder repeats **once a day**. The events are
    set it wins, and no network lookup runs. Use it for the TLDs that publish no
    date at all.
 2. **RDAP** — the IANA bootstrap (`https://data.iana.org/rdap/dns.json`) says
-   whether the TLD has RDAP; when it does, the registry endpoint answers the
-   `expiration` event (and the registrar).
+   whether the TLD has RDAP; when it does, the registry answers the `expiration`
+   event (and the registrar) on `<bootstrap-base>/domain/<name>` (the bootstrap
+   publishes base URLs, so Up appends the `domain/` resource path itself).
 3. **WHOIS** — a port 43 query, parsed by the **per-TLD rule** configured in
    *Admin > TLD/SSL expiration* (`whois_parsers`): a regular expression whose
    first capture group holds the date, plus the date layouts the registry uses.
+
+TLDs such as `.io`, `.pt` or `.mx` have no RDAP at all: they stay
+`unsupported` until a WHOIS parser for their registry is added or the manual date
+is set.
 
 The status stored with the monitor tells the operator what happened:
 `ok` (a date was found), `not_found` (the registry says the domain is free),

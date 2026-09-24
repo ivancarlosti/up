@@ -80,6 +80,18 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 			s.log.Warn("node liveness sweep failed", "error", err)
 		}
 		s.purgeRetention(ctx)
+		// Make the daily schedule visible from the first seconds: the job is silent
+		// until its time comes (a once-a-day cadence on a one-minute ticker), which
+		// otherwise reads like a job that never runs.
+		if s.expiry != nil {
+			settings := s.expiry.Settings()
+			s.log.Info("expiry job scheduled",
+				"check_time", settings.CheckTime,
+				"timezone", settings.CheckTimezone,
+				"next_run", models.NextDailyRun(time.Now().UTC(), settings.CheckTime, settings.CheckTimezone).Format(time.RFC3339),
+				"rdap", settings.RDAPEnabled,
+				"whois", settings.WHOISEnabled)
+		}
 		// The first pull happens right after the boot, so a node that was restarted
 		// catches up without waiting a whole interval.
 		if s.sync != nil {

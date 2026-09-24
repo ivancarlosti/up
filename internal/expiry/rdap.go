@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +22,31 @@ import (
 // be confused — the second one has to fall through to WHOIS.
 const RDAPBootstrapURL = "https://data.iana.org/rdap/dns.json"
 
-// RDAPFallbackBase is used when the bootstrap file cannot be fetched.
-const RDAPFallbackBase = "https://rdap.org/domain/"
+// RDAPFallbackBase is used when the bootstrap file cannot be fetched. It is a
+// BASE url, exactly like the ones in the IANA bootstrap: the resource path is
+// appended by rdapEndpoint.
+const RDAPFallbackBase = "https://rdap.org/"
+
+// rdapDomainPath is the RDAP resource path of a domain lookup.
+//
+// The IANA bootstrap publishes base urls ("https://rdap.registro.br/",
+// "https://rdap.verisign.com/com/v1/"), so the lookup url is
+// "<base>/domain/<name>". Registries answer 400/501 without the segment, which
+// used to be stored as an error instead of the expiration date.
+const rdapDomainPath = "domain/"
 
 // rdapMaxBody caps the RDAP response read.
 const rdapMaxBody = 1 << 20
+
+// rdapEndpoint builds the lookup URL of a domain from a base URL. A base that
+// already carries the resource path is not doubled.
+func rdapEndpoint(base, domain string) string {
+	trimmed := strings.TrimSuffix(strings.TrimSpace(base), "/")
+	if strings.HasSuffix(strings.ToLower(trimmed), "/domain") {
+		return trimmed + "/" + url.PathEscape(domain)
+	}
+	return trimmed + "/" + rdapDomainPath + url.PathEscape(domain)
+}
 
 // rdapClient performs RDAP lookups.
 type rdapClient struct {
@@ -133,7 +154,7 @@ func (c *rdapClient) lookup(ctx context.Context, domain string) *models.DomainIn
 		return nil
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, base+domain, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rdapEndpoint(base, domain), nil)
 	if err != nil {
 		return rdapError(domain, now, err)
 	}

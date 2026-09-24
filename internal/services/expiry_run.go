@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ivancarlosti/up/internal/checkers"
@@ -33,6 +34,10 @@ type ExpiryService struct {
 	parsers      *WhoisParserService
 	cluster      *ClusterService
 	resolver     *expiry.Resolver
+	// logMu guards loggedServedDay: the "today is already served" line is written
+	// once per day instead of once per ticker tick (1440 times a day).
+	logMu           sync.Mutex
+	loggedServedDay int64
 }
 
 // NewExpiryService builds the expiry job.
@@ -85,7 +90,8 @@ func (s *ExpiryService) RunDue(ctx context.Context, now time.Time) error {
 	}
 	day := now.UTC().Unix() / 86400
 	if s.settings.ExpiryLastRunDay() >= day {
-		return nil // already served
+		s.logServedOnce(day, now, settings)
+		return nil
 	}
 	if s.cluster != nil {
 		allowed, err := s.cluster.ClaimDailyJob(ctx, "expiry_run", day)
@@ -97,6 +103,8 @@ func (s *ExpiryService) RunDue(ctx context.Context, now time.Time) error {
 			return nil
 		}
 	}
+	s.log.Info("expiry job started",
+		"day", day, "check_time", settings.CheckTime, "timezone", settings.CheckTimezone)
 	if err := s.RunNow(ctx); err != nil {
 		return err
 	}
@@ -104,6 +112,23 @@ func (s *ExpiryService) RunDue(ctx context.Context, now time.Time) error {
 		s.log.Warn("could not record the expiry run day", "error", err)
 	}
 	return nil
+}
+
+// logServedOnce reports that today's run is already done, at most once per day.
+//
+// The job ticks every minute and is silent for the remaining 1439 of them:
+// without this line an operator reading the container logs cannot tell a
+// scheduled job from one that never runs.
+func (s *ExpiryService) logServedOnce(day int64, now time.Time, settings models.ExpirySettings) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	if s.loggedServedDay == day {
+		return
+	}
+	s.loggedServedDay = day
+	s.log.Info("expiry job: today is already served",
+		"check_time", settings.CheckTime, "timezone", settings.CheckTimezone,
+		"next_run", models.NextDailyRun(now, settings.CheckTime, settings.CheckTimezone).Format(time.RFC3339))
 }
 
 // RunNow refreshes every deduplicated target and evaluates the alerts. It is the
