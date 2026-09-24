@@ -140,7 +140,9 @@ func (s *StatusPageService) SetGroups(ctx context.Context, pageID uint, links []
 			}
 			order++
 		}
-		return nil
+		// The group sections are part of the page payload, so this is a new version
+		// of the page: the revision must advance or a peer would skip the change.
+		return s.touchStatusPage(ctx, tx, pageID)
 	})
 	if err != nil {
 		return ErrInternal(fmt.Errorf("saving the status page groups: %w", err))

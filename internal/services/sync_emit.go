@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -136,7 +137,11 @@ func BuildMonitorTemplatePayload(t *models.MonitorTemplate, groupUUIDs, notifica
 }
 
 // BuildStatusPagePayload renders a status page for the wire.
-func BuildStatusPagePayload(p *models.StatusPage, monitorUUIDs, groupUUIDs []string) ([]byte, error) {
+//
+// The selection travels as records in display order (see StatusPageItemPayload):
+// the order and the per-item overrides are part of the page as the operator built
+// it, so a receiver that only received the uuids would render a different page.
+func BuildStatusPagePayload(p *models.StatusPage, items []models.StatusPageItemPayload, groups []models.StatusPageGroupPayload) ([]byte, error) {
 	return json.Marshal(models.StatusPagePayload{
 		UUID:         p.UUID,
 		OriginNodeID: p.OriginNodeID,
@@ -154,8 +159,8 @@ func BuildStatusPagePayload(p *models.StatusPage, monitorUUIDs, groupUUIDs []str
 		ShowTags:    p.ShowTags,
 		CustomCSS:   p.CustomCSS,
 
-		MonitorUUIDs: orEmpty(monitorUUIDs),
-		GroupUUIDs:   orEmpty(groupUUIDs),
+		Monitors: orEmptySlice(items),
+		Groups:   orEmptySlice(groups),
 	})
 }
 
@@ -186,8 +191,47 @@ func orEmpty(values []string) []string {
 	return values
 }
 
-// ---------------------------------------------------------------------------
-// Emitter
+// orEmptySlice is orEmpty for the record lists (the status page selection).
+func orEmptySlice[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
+}
+
+// statusPageItems reads the monitor selection of a page in DISPLAY ORDER.
+//
+// sort_order is the page's own order (StatusPageService.SetMonitors allocates it
+// from the order the operator gave), and the uuid is only a tie-break so that two
+// nodes produce the same sequence for the same selection.
+func statusPageItems(ctx context.Context, tx *gorm.DB, pageID uint) ([]models.StatusPageItemPayload, error) {
+	var rows []models.StatusPageItemPayload
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT m.uuid AS uuid, s.display_name AS display_name, s.group_name AS group_name,
+		        s.sort_order AS sort_order, s.show_uptime AS show_uptime, s.show_chart AS show_chart
+		   FROM status_page_monitors s
+		   JOIN monitors m ON m.id = s.monitor_id
+		  WHERE s.status_page_id = ?
+		  ORDER BY s.sort_order ASC, m.uuid ASC`, pageID).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("reading the monitor selection of status page %d: %w", pageID, err)
+	}
+	return rows, nil
+}
+
+// statusPageGroups reads the group sections of a page in display order.
+func statusPageGroups(ctx context.Context, tx *gorm.DB, pageID uint) ([]models.StatusPageGroupPayload, error) {
+	var rows []models.StatusPageGroupPayload
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT g.uuid AS uuid, s.display_name AS display_name, s.sort_order AS sort_order
+		   FROM status_page_groups s
+		   JOIN monitor_groups g ON g.id = s.group_id
+		  WHERE s.status_page_id = ?
+		  ORDER BY s.sort_order ASC, g.uuid ASC`, pageID).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("reading the group selection of status page %d: %w", pageID, err)
+	}
+	return rows, nil
+}
+
 // ---------------------------------------------------------------------------
 
 // syncEntities maps an entity name to the table that holds it. It is the single
@@ -351,22 +395,16 @@ func (e *SyncEmitter) EmitStatusPage(ctx context.Context, tx *gorm.DB, id uint) 
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the status page to publish: %w", err)
 	}
-	monitorUUIDs, err := uuidList(ctx, tx,
-		`SELECT m.uuid FROM monitors m
-		   JOIN status_page_monitors s ON s.monitor_id = m.id
-		  WHERE s.status_page_id = ? ORDER BY m.uuid`, row.ID)
+	items, err := statusPageItems(ctx, tx, row.ID)
 	if err != nil {
 		return err
 	}
-	groupUUIDs, err := uuidList(ctx, tx,
-		`SELECT g.uuid FROM monitor_groups g
-		   JOIN status_page_groups s ON s.group_id = g.id
-		  WHERE s.status_page_id = ? ORDER BY g.uuid`, row.ID)
+	groups, err := statusPageGroups(ctx, tx, row.ID)
 	if err != nil {
 		return err
 	}
 	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.StatusPage{}, row.ID)
-	payload, err := BuildStatusPagePayload(&row, monitorUUIDs, groupUUIDs)
+	payload, err := BuildStatusPagePayload(&row, items, groups)
 	if err != nil {
 		return err
 	}
@@ -432,12 +470,14 @@ func (e *SyncEmitter) EmitMonitorNotification(ctx context.Context, tx *gorm.DB, 
 // A relation has no version column of its own, so its revision comes from
 // sync_objects: the last one applied plus one. LocalID stays zero because a
 // relation is addressed by its two ends, not by a row id.
+//
+// The tombstone carries the payload too, and that is not decoration: the receiver
+// addresses a relation by its two ends, and the uuid is a HASH of them, so a
+// tombstone with no payload cannot be resolved — measured in the lab as a peer stuck
+// at a cursor it could never pass, with every later change blocked behind it.
 func (e *SyncEmitter) emitLink(ctx context.Context, tx *gorm.DB, entity, uuid string, linked bool, build func() ([]byte, error)) error {
 	if e.skip(ctx) || uuid == "" {
 		return nil
-	}
-	if !linked {
-		return e.EmitDelete(ctx, tx, entity, uuid)
 	}
 	revision, err := e.nextRevision(ctx, tx, uuid)
 	if err != nil {
@@ -447,7 +487,11 @@ func (e *SyncEmitter) emitLink(ctx context.Context, tx *gorm.DB, entity, uuid st
 	if err != nil {
 		return err
 	}
-	return e.write(ctx, tx, entity, SyncIdentity{UUID: uuid, Revision: revision}, models.ActionUpsert, payload)
+	action := models.ActionUpsert
+	if !linked {
+		action = models.ActionDelete
+	}
+	return e.write(ctx, tx, entity, SyncIdentity{UUID: uuid, Revision: revision}, action, payload)
 }
 
 // nextRevision returns the revision to use for a record that carries no version
@@ -490,6 +534,128 @@ func (e *SyncEmitter) RowUUID(ctx context.Context, tx *gorm.DB, entity string, l
 		return "", fmt.Errorf("reading the uuid of %s %d: %w", entity, localID, err)
 	}
 	return row.UUID, nil
+}
+
+// GroupLinks is the published state of a group's members, as uuids.
+//
+// It mirrors MonitorLinks: a membership can be edited from either end (the monitor
+// form and the group editor both rewrite the same join table), so both ends need the
+// same before/after diff to publish exactly one change per membership that moved.
+type GroupLinks struct {
+	MonitorUUIDs map[string]bool
+}
+
+// EmptyGroupLinks is the "no member" state, used when a group is created.
+func EmptyGroupLinks() GroupLinks {
+	return GroupLinks{MonitorUUIDs: map[string]bool{}}
+}
+
+// SnapshotGroupLinks reads the members of a group right now.
+//
+// The caller takes it BEFORE rewriting them, so PublishGroupLinks can tell what
+// actually moved: a re-save with the same members must not put anything in the
+// outbox.
+func (e *SyncEmitter) SnapshotGroupLinks(ctx context.Context, tx *gorm.DB, groupID uint) (GroupLinks, error) {
+	links := EmptyGroupLinks()
+	if e.skip(ctx) {
+		return links, nil
+	}
+	uuids, err := uuidList(ctx, tx,
+		`SELECT m.uuid FROM monitors m
+		   JOIN monitor_group_members g ON g.monitor_id = m.id
+		  WHERE g.group_id = ? ORDER BY m.uuid`, groupID)
+	if err != nil {
+		return links, err
+	}
+	for _, uuid := range uuids {
+		links.MonitorUUIDs[uuid] = true
+	}
+	return links, nil
+}
+
+// PublishGroupLinks publishes the memberships that appeared or disappeared.
+func (e *SyncEmitter) PublishGroupLinks(ctx context.Context, tx *gorm.DB, groupID uint, before GroupLinks) error {
+	if e.skip(ctx) {
+		return nil
+	}
+	groupUUID, err := e.RowUUID(ctx, tx, models.EntityMonitorGroup, groupID)
+	if err != nil {
+		return err
+	}
+	if groupUUID == "" {
+		// The group is gone (a delete): the caller tombstones its memberships,
+		// because a group that no longer exists cannot be the subject of a diff.
+		return nil
+	}
+	now, err := e.SnapshotGroupLinks(ctx, tx, groupID)
+	if err != nil {
+		return err
+	}
+
+	added, removed := models.DiffSets(before.MonitorUUIDs, now.MonitorUUIDs)
+	for _, monitorUUID := range added {
+		if err := e.EmitMonitorGroupMember(ctx, tx, monitorUUID, groupUUID, true); err != nil {
+			return err
+		}
+	}
+	for _, monitorUUID := range removed {
+		if err := e.EmitMonitorGroupMember(ctx, tx, monitorUUID, groupUUID, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TombstoneGroupLinks publishes the removal of every membership a group had.
+//
+// The uuids are sorted so the outbox order is deterministic: a map iterates in a
+// random order, and two nodes publishing the same edit should produce the same
+// sequence of changes.
+func (e *SyncEmitter) TombstoneGroupLinks(ctx context.Context, tx *gorm.DB, groupUUID string, links GroupLinks) error {
+	if e.skip(ctx) || groupUUID == "" {
+		return nil
+	}
+	monitorUUIDs := make([]string, 0, len(links.MonitorUUIDs))
+	for monitorUUID := range links.MonitorUUIDs {
+		monitorUUIDs = append(monitorUUIDs, monitorUUID)
+	}
+	sort.Strings(monitorUUIDs)
+	for _, monitorUUID := range monitorUUIDs {
+		if err := e.EmitMonitorGroupMember(ctx, tx, monitorUUID, groupUUID, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TombstoneNotificationLinks publishes the removal of every monitor link a channel
+// had.
+//
+// The caller reads the links BEFORE deleting them: once the rows are gone they
+// cannot be read, and the tombstones have to name them.
+func (e *SyncEmitter) TombstoneNotificationLinks(ctx context.Context, tx *gorm.DB, notificationUUID string, monitorUUIDs []string) error {
+	if e.skip(ctx) || notificationUUID == "" {
+		return nil
+	}
+	sorted := append([]string(nil), monitorUUIDs...)
+	sort.Strings(sorted)
+	for _, monitorUUID := range sorted {
+		if err := e.EmitMonitorNotification(ctx, tx, monitorUUID, notificationUUID, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MonitorUUIDsOfNotification reads the uuids of the monitors a channel is linked to.
+func (e *SyncEmitter) MonitorUUIDsOfNotification(ctx context.Context, tx *gorm.DB, notificationID uint) ([]string, error) {
+	if e.skip(ctx) {
+		return nil, nil
+	}
+	return uuidList(ctx, tx,
+		`SELECT m.uuid FROM monitors m
+		   JOIN monitor_notifications l ON l.monitor_id = m.id
+		  WHERE l.notification_id = ? ORDER BY m.uuid`, notificationID)
 }
 
 // SnapshotMonitorLinks reads the relations a monitor has right now.

@@ -8,6 +8,38 @@ import (
 // at returns a pointer to the given time (the columns are nullable).
 func at(t time.Time) *time.Time { return &t }
 
+// TestSyncedEntitiesCoversEveryEntity pins the list that decides what a node
+// SERVES.
+//
+// An entity missing from it is worse than one missing from the apply switch: the
+// change is written to the outbox, never handed to a peer, and the cursor then
+// advances past it — so the row is silently lost for good, and neither the manifest
+// nor the snapshot covers it either. Measured in the lab: the two relation entities
+// were missing here, and every membership and channel link was lost in exactly that
+// way.
+func TestSyncedEntitiesCoversEveryEntity(t *testing.T) {
+	index := map[string]bool{}
+	for _, entity := range SyncedEntities() {
+		if index[entity] {
+			t.Fatalf("%s appears twice in SyncedEntities", entity)
+		}
+		index[entity] = true
+	}
+	for _, entity := range []string{
+		EntityMonitor,
+		EntityMonitorGroup,
+		EntityMonitorGroupMember,
+		EntityMonitorTemplate,
+		EntityStatusPage,
+		EntityNotification,
+		EntityMonitorNotification,
+	} {
+		if !index[entity] {
+			t.Errorf("%s is not in SyncedEntities: a change of it would be written to the outbox and never served", entity)
+		}
+	}
+}
+
 // TestSyncPeerSettled pins the rule behind the settle time: a peer may not take
 // the leader role (or the notification duty) until it has been continuously
 // reachable for the configured period, which is what stops a flapping node from

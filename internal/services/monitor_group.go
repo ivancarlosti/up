@@ -22,6 +22,10 @@ type MonitorGroupService struct {
 	log  *slog.Logger
 	hub  EventPublisher
 	mono *MonitorService
+	// emit publishes the local writes to the peers. It is nil on a node that does
+	// not publish (anything but federated mode), and every helper below is a no-op
+	// in that case.
+	emit *SyncEmitter
 }
 
 // NewMonitorGroupService builds the group service.
@@ -34,6 +38,55 @@ func (s *MonitorGroupService) SetPublisher(p EventPublisher) { s.hub = p }
 
 // SetMonitorService injects the monitor service (used by the deep group clone).
 func (s *MonitorGroupService) SetMonitorService(m *MonitorService) { s.mono = m }
+
+// SetSyncEmitter injects the publisher of the synchronisation outbox.
+func (s *MonitorGroupService) SetSyncEmitter(emitter *SyncEmitter) { s.emit = emitter }
+
+// snapshotMembers reads the members of a group before they are rewritten.
+func (s *MonitorGroupService) snapshotMembers(ctx context.Context, tx *gorm.DB, id uint) (GroupLinks, error) {
+	if s.emit == nil {
+		return EmptyGroupLinks(), nil
+	}
+	return s.emit.SnapshotGroupLinks(ctx, tx, id)
+}
+
+// publishGroup records the group and the memberships it now has, compared with the
+// state captured before the write. Both writes happen inside the caller's
+// transaction, so the outbox can never drift from the data.
+//
+// The group editor is the second place a membership can change (the monitor form is
+// the first), which is why the diff is taken from the group side too: a membership
+// must have exactly one writer per edit, and this is that writer for this path.
+func (s *MonitorGroupService) publishGroup(ctx context.Context, tx *gorm.DB, id uint, before GroupLinks) error {
+	if s.emit == nil {
+		return nil
+	}
+	if err := s.emit.EmitMonitorGroup(ctx, tx, id); err != nil {
+		return err
+	}
+	return s.emit.PublishGroupLinks(ctx, tx, id, before)
+}
+
+// groupUUID reads the global identity of a group (needed before a delete).
+func (s *MonitorGroupService) groupUUID(ctx context.Context, tx *gorm.DB, id uint) (string, error) {
+	if s.emit == nil {
+		return "", nil
+	}
+	return s.emit.RowUUID(ctx, tx, models.EntityMonitorGroup, id)
+}
+
+// tombstoneGroup publishes the removal of a group and of its memberships. The
+// memberships go first: the receiver deletes the group with its cascade, so the
+// relation tombstones would otherwise refer to rows that are already gone.
+func (s *MonitorGroupService) tombstoneGroup(ctx context.Context, tx *gorm.DB, uuid string, members GroupLinks) error {
+	if s.emit == nil || uuid == "" {
+		return nil
+	}
+	if err := s.emit.TombstoneGroupLinks(ctx, tx, uuid, members); err != nil {
+		return err
+	}
+	return s.emit.EmitDelete(ctx, tx, models.EntityMonitorGroup, uuid)
+}
 
 func (s *MonitorGroupService) publish(event string, payload any) {
 	if s.hub != nil {
@@ -125,7 +178,10 @@ func (s *MonitorGroupService) Create(ctx context.Context, group *models.MonitorG
 		if err := tx.Create(group).Error; err != nil {
 			return err
 		}
-		return replaceMonitorGroupMembers(tx, group.ID, monitorIDs)
+		if err := replaceMonitorGroupMembers(tx, group.ID, monitorIDs); err != nil {
+			return err
+		}
+		return s.publishGroup(ctx, tx, group.ID, EmptyGroupLinks())
 	})
 	if err != nil {
 		return ErrInternal(fmt.Errorf("creating monitor group: %w", err))
@@ -143,12 +199,21 @@ func (s *MonitorGroupService) Update(ctx context.Context, group *models.MonitorG
 		return err
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		before, err := s.snapshotMembers(ctx, tx, group.ID)
+		if err != nil {
+			return err
+		}
 		result := tx.Model(&models.MonitorGroup{}).Where("id = ?", group.ID).Updates(map[string]any{
 			"name":        group.Name,
 			"description": group.Description,
 			"color":       group.Color,
 			"sort_order":  group.SortOrder,
-			"updated_at":  time.Now().UTC(),
+			// Every edit advances the revision: it is the primary component of the
+			// merge order, so a wrong clock cannot make an old edit win. It is
+			// bumped by the database so two concurrent edits cannot both write the
+			// same number.
+			"revision":   gorm.Expr("revision + 1"),
+			"updated_at": time.Now().UTC(),
 		})
 		if result.Error != nil {
 			return result.Error
@@ -157,9 +222,11 @@ func (s *MonitorGroupService) Update(ctx context.Context, group *models.MonitorG
 			return gorm.ErrRecordNotFound
 		}
 		if monitorIDs != nil {
-			return replaceMonitorGroupMembers(tx, group.ID, monitorIDs)
+			if err := replaceMonitorGroupMembers(tx, group.ID, monitorIDs); err != nil {
+				return err
+			}
 		}
-		return nil
+		return s.publishGroup(ctx, tx, group.ID, before)
 	})
 	if err == gorm.ErrRecordNotFound {
 		return ErrNotFound(i18n.CodeMonitorGroupNotFound, fmt.Sprintf("monitor group %d does not exist", group.ID))
@@ -178,7 +245,18 @@ func (s *MonitorGroupService) SetMonitors(ctx context.Context, id uint, monitorI
 		return nil, err
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return replaceMonitorGroupMembers(tx, id, monitorIDs)
+		before, err := s.snapshotMembers(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := replaceMonitorGroupMembers(tx, id, monitorIDs); err != nil {
+			return err
+		}
+		// A membership is its own entity with its own revision, so this edit moves
+		// members and not the group row: the group is republished with the identity
+		// it already has (which a peer skips as not newer), and only the members
+		// that actually changed produce a change.
+		return s.publishGroup(ctx, tx, id, before)
 	}); err != nil {
 		return nil, ErrInternal(fmt.Errorf("updating the members of group %d: %w", id, err))
 	}
@@ -198,6 +276,16 @@ func (s *MonitorGroupService) SetMonitors(ctx context.Context, id uint, monitorI
 // would fail.
 func (s *MonitorGroupService) Delete(ctx context.Context, id uint) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The identity and the members are read BEFORE the cascade: once the rows
+		// are gone they cannot be read, and the tombstones have to name them.
+		uuid, err := s.groupUUID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		members, err := s.snapshotMembers(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		if err := tx.Where("group_id = ?", id).Delete(&models.MonitorGroupMember{}).Error; err != nil {
 			return err
 		}
@@ -208,7 +296,7 @@ func (s *MonitorGroupService) Delete(ctx context.Context, id uint) error {
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return nil
+		return s.tombstoneGroup(ctx, tx, uuid, members)
 	})
 	if err == gorm.ErrRecordNotFound {
 		return ErrNotFound(i18n.CodeMonitorGroupNotFound, fmt.Sprintf("monitor group %d does not exist", id))

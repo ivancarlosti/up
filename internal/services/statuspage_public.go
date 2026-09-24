@@ -40,7 +40,9 @@ func (s *StatusPageService) SetMonitors(ctx context.Context, pageID uint, monito
 			}
 			order++
 		}
-		return nil
+		// The selection is part of the page payload, so it is a new version of the
+		// page: the revision must advance or a peer would skip the change.
+		return s.touchStatusPage(ctx, tx, pageID)
 	})
 	if err != nil {
 		return ErrInternal(fmt.Errorf("saving the status page monitors: %w", err))

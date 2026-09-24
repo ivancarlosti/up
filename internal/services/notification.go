@@ -23,6 +23,8 @@ type NotificationService struct {
 	log    *slog.Logger
 	engine *notify.Engine
 	hub    EventPublisher
+	// emit publishes the local writes to the peers (nil outside federated mode).
+	emit *SyncEmitter
 }
 
 // NewNotificationService builds the notification service.
@@ -32,6 +34,49 @@ func NewNotificationService(db *gorm.DB, cfg *config.Config, log *slog.Logger, e
 
 // SetPublisher injects the real time publisher.
 func (s *NotificationService) SetPublisher(p EventPublisher) { s.hub = p }
+
+// SetSyncEmitter injects the publisher of the synchronisation outbox.
+func (s *NotificationService) SetSyncEmitter(emitter *SyncEmitter) { s.emit = emitter }
+
+// publishNotification records the channel in the outbox, inside the caller's
+// transaction.
+//
+// The payload carries the channel configuration, credentials included: the node
+// that owns the notification election is the one that sends, so it must hold them.
+func (s *NotificationService) publishNotification(ctx context.Context, tx *gorm.DB, id uint) error {
+	if s.emit == nil {
+		return nil
+	}
+	return s.emit.EmitNotification(ctx, tx, id)
+}
+
+// notificationUUID reads the global identity of a channel (needed before a delete).
+func (s *NotificationService) notificationUUID(ctx context.Context, tx *gorm.DB, id uint) (string, error) {
+	if s.emit == nil {
+		return "", nil
+	}
+	return s.emit.RowUUID(ctx, tx, models.EntityNotification, id)
+}
+
+// notificationLinkMonitors reads the monitors a channel is linked to, so their links
+// can be tombstoned before the rows disappear.
+func (s *NotificationService) notificationLinkMonitors(ctx context.Context, tx *gorm.DB, id uint) ([]string, error) {
+	if s.emit == nil {
+		return nil, nil
+	}
+	return s.emit.MonitorUUIDsOfNotification(ctx, tx, id)
+}
+
+// tombstoneNotification publishes the removal of a channel and of its monitor links.
+func (s *NotificationService) tombstoneNotification(ctx context.Context, tx *gorm.DB, uuid string, monitorUUIDs []string) error {
+	if s.emit == nil || uuid == "" {
+		return nil
+	}
+	if err := s.emit.TombstoneNotificationLinks(ctx, tx, uuid, monitorUUIDs); err != nil {
+		return err
+	}
+	return s.emit.EmitDelete(ctx, tx, models.EntityNotification, uuid)
+}
 
 // List returns every channel with the monitors it is linked to.
 func (s *NotificationService) List(ctx context.Context) ([]*models.Notification, error) {
@@ -80,7 +125,12 @@ func (s *NotificationService) Create(ctx context.Context, notification *models.N
 	if problem := notification.Validate(); problem != "" {
 		return ErrBadRequest(i18n.CodeNotificationConfig, problem)
 	}
-	if err := s.db.WithContext(ctx).Create(notification).Error; err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(notification).Error; err != nil {
+			return err
+		}
+		return s.publishNotification(ctx, tx, notification.ID)
+	}); err != nil {
 		return ErrInternal(fmt.Errorf("creating notification: %w", err))
 	}
 	s.log.Info("notification channel created", "id", notification.ID, "name", notification.Name, "type", notification.Type)
@@ -107,14 +157,26 @@ func (s *NotificationService) Update(ctx context.Context, notification *models.N
 		"is_default":              notification.IsDefault,
 		"resend_interval_seconds": notification.ResendIntervalSeconds,
 		"config":                  string(configJSON),
-		"updated_at":              time.Now().UTC(),
+		// Every edit advances the revision: it is the primary component of the
+		// merge order (see the group update).
+		"revision":   gorm.Expr("revision + 1"),
+		"updated_at": time.Now().UTC(),
 	}
-	result := s.db.WithContext(ctx).Model(&models.Notification{}).Where("id = ?", notification.ID).Updates(updates)
-	if result.Error != nil {
-		return ErrInternal(result.Error)
-	}
-	if result.RowsAffected == 0 {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.Notification{}).Where("id = ?", notification.ID).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return s.publishNotification(ctx, tx, notification.ID)
+	})
+	if err == gorm.ErrRecordNotFound {
 		return ErrNotFound(i18n.CodeNotificationNotFound, fmt.Sprintf("notification %d does not exist", notification.ID))
+	}
+	if err != nil {
+		return ErrInternal(err)
 	}
 	s.log.Info("notification channel updated", "id", notification.ID, "name", notification.Name)
 	s.publish("notification.updated", notification)
@@ -124,13 +186,26 @@ func (s *NotificationService) Update(ctx context.Context, notification *models.N
 // Delete removes a channel together with its links and logs.
 func (s *NotificationService) Delete(ctx context.Context, id uint) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The identity and the linked monitors are read BEFORE the cascade: once the
+		// rows are gone they cannot be read, and the tombstones have to name them.
+		uuid, err := s.notificationUUID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		monitorUUIDs, err := s.notificationLinkMonitors(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		if err := tx.Where("notification_id = ?", id).Delete(&models.MonitorNotification{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("notification_id = ?", id).Delete(&models.NotificationLog{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&models.Notification{}, id).Error
+		if err := tx.Delete(&models.Notification{}, id).Error; err != nil {
+			return err
+		}
+		return s.tombstoneNotification(ctx, tx, uuid, monitorUUIDs)
 	})
 	if err != nil {
 		return ErrInternal(fmt.Errorf("deleting notification %d: %w", id, err))

@@ -20,6 +20,8 @@ type MonitorTemplateService struct {
 	log  *slog.Logger
 	hub  EventPublisher
 	mono *MonitorService
+	// emit publishes the local writes to the peers (nil outside federated mode).
+	emit *SyncEmitter
 }
 
 // NewMonitorTemplateService builds the template service.
@@ -32,6 +34,34 @@ func (s *MonitorTemplateService) SetPublisher(p EventPublisher) { s.hub = p }
 
 // SetMonitorService injects the monitor service (used to apply a template).
 func (s *MonitorTemplateService) SetMonitorService(m *MonitorService) { s.mono = m }
+
+// SetSyncEmitter injects the publisher of the synchronisation outbox.
+func (s *MonitorTemplateService) SetSyncEmitter(emitter *SyncEmitter) { s.emit = emitter }
+
+// publishTemplate records the template in the outbox, inside the caller's
+// transaction.
+func (s *MonitorTemplateService) publishTemplate(ctx context.Context, tx *gorm.DB, id uint) error {
+	if s.emit == nil {
+		return nil
+	}
+	return s.emit.EmitMonitorTemplate(ctx, tx, id)
+}
+
+// templateUUID reads the global identity of a template (needed before a delete).
+func (s *MonitorTemplateService) templateUUID(ctx context.Context, tx *gorm.DB, id uint) (string, error) {
+	if s.emit == nil {
+		return "", nil
+	}
+	return s.emit.RowUUID(ctx, tx, models.EntityMonitorTemplate, id)
+}
+
+// tombstoneTemplate publishes the removal of a template.
+func (s *MonitorTemplateService) tombstoneTemplate(ctx context.Context, tx *gorm.DB, uuid string) error {
+	if s.emit == nil || uuid == "" {
+		return nil
+	}
+	return s.emit.EmitDelete(ctx, tx, models.EntityMonitorTemplate, uuid)
+}
 
 func (s *MonitorTemplateService) publish(event string, payload any) {
 	if s.hub != nil {
@@ -70,7 +100,12 @@ func (s *MonitorTemplateService) Create(ctx context.Context, template *models.Mo
 	if err := s.validateName(ctx, template.Name, 0); err != nil {
 		return err
 	}
-	if err := s.db.WithContext(ctx).Create(template).Error; err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(template).Error; err != nil {
+			return err
+		}
+		return s.publishTemplate(ctx, tx, template.ID)
+	}); err != nil {
 		return ErrInternal(fmt.Errorf("creating monitor template: %w", err))
 	}
 	s.log.Info("monitor template created", "id", template.ID, "name", template.Name, "type", template.Type)
@@ -87,19 +122,31 @@ func (s *MonitorTemplateService) Update(ctx context.Context, template *models.Mo
 	if err := s.validateName(ctx, template.Name, template.ID); err != nil {
 		return err
 	}
-	result := s.db.WithContext(ctx).Model(&models.MonitorTemplate{}).Where("id = ?", template.ID).Updates(map[string]any{
-		"name":        template.Name,
-		"description": template.Description,
-		"type":        template.Type,
-		"config":      template.Config,
-		"defaults":    template.Defaults,
-		"updated_at":  time.Now().UTC(),
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.MonitorTemplate{}).Where("id = ?", template.ID).Updates(map[string]any{
+			"name":        template.Name,
+			"description": template.Description,
+			"type":        template.Type,
+			"config":      template.Config,
+			"defaults":    template.Defaults,
+			// Every edit advances the revision: it is the primary component of the
+			// merge order (see the group update).
+			"revision":   gorm.Expr("revision + 1"),
+			"updated_at": time.Now().UTC(),
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return s.publishTemplate(ctx, tx, template.ID)
 	})
-	if result.Error != nil {
-		return ErrInternal(result.Error)
-	}
-	if result.RowsAffected == 0 {
+	if err == gorm.ErrRecordNotFound {
 		return ErrNotFound(i18n.CodeMonitorTemplateNotFound, fmt.Sprintf("monitor template %d does not exist", template.ID))
+	}
+	if err != nil {
+		return ErrInternal(err)
 	}
 	s.log.Info("monitor template updated", "id", template.ID, "name", template.Name)
 	s.publish("monitor.template.updated", template)
@@ -108,12 +155,27 @@ func (s *MonitorTemplateService) Update(ctx context.Context, template *models.Mo
 
 // Delete removes a template (the monitors created from it stay).
 func (s *MonitorTemplateService) Delete(ctx context.Context, id uint) error {
-	result := s.db.WithContext(ctx).Delete(&models.MonitorTemplate{}, id)
-	if result.Error != nil {
-		return ErrInternal(result.Error)
-	}
-	if result.RowsAffected == 0 {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The identity is read BEFORE the delete: once the row is gone its uuid
+		// cannot be read any more, and the tombstone has to name it.
+		uuid, err := s.templateUUID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		result := tx.Delete(&models.MonitorTemplate{}, id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return s.tombstoneTemplate(ctx, tx, uuid)
+	})
+	if err == gorm.ErrRecordNotFound {
 		return ErrNotFound(i18n.CodeMonitorTemplateNotFound, fmt.Sprintf("monitor template %d does not exist", id))
+	}
+	if err != nil {
+		return ErrInternal(err)
 	}
 	s.log.Info("monitor template deleted", "id", id)
 	s.publish("monitor.template.deleted", map[string]any{"id": id})

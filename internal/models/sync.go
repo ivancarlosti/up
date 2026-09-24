@@ -10,7 +10,16 @@ import (
 // ProtocolVersion is the version of the peer API (docs/clustering-federated.md).
 // It is exchanged in every ping so a node talking to an incompatible build says
 // so once, instead of failing in a confusing way later.
-const ProtocolVersion = 1
+// ProtocolVersion is the version of the peer wire format. A peer that speaks a
+// different one is refused with an explicit error instead of being fed a batch it
+// would mis-read.
+//
+// History:
+//   - 1: first version of the peer API (ping, status, changes).
+//   - 2: the status page selection travels as records (order and per-item
+//     overrides included) instead of two sorted uuid lists. Version 1 could not
+//     express the display order, so applying a page on a peer silently reset it.
+const ProtocolVersion = 2
 
 // Peer status values stored in SyncPeer.Status.
 const (

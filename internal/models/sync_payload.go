@@ -106,8 +106,30 @@ type StatusPagePayload struct {
 	ShowTags    bool   `json:"show_tags"`
 	CustomCSS   string `json:"custom_css"`
 
-	MonitorUUIDs []string `json:"monitor_uuids"`
-	GroupUUIDs   []string `json:"group_uuids"`
+	Monitors []StatusPageItemPayload  `json:"monitors"`
+	Groups   []StatusPageGroupPayload `json:"groups"`
+}
+
+// StatusPageItemPayload is one monitor of a page's selection, WITH its display
+// order and its per-page overrides.
+//
+// Sending the uuids alone is not enough: the order and the overrides live in the
+// join row, so a receiver rebuilding the selection from uuids would silently reset
+// both — the page would look different on the peer for no reason anyone could see.
+type StatusPageItemPayload struct {
+	UUID        string `json:"uuid"`
+	DisplayName string `json:"display_name"`
+	GroupName   string `json:"group_name"`
+	SortOrder   int    `json:"sort_order"`
+	ShowUptime  bool   `json:"show_uptime"`
+	ShowChart   bool   `json:"show_chart"`
+}
+
+// StatusPageGroupPayload is one group section of a page, for the same reason.
+type StatusPageGroupPayload struct {
+	UUID        string `json:"uuid"`
+	DisplayName string `json:"display_name"`
+	SortOrder   int    `json:"sort_order"`
 }
 
 // NotificationPayload is a delivery channel.
@@ -222,8 +244,10 @@ func SyncedEntities() []string {
 	return []string{
 		EntityMonitor,
 		EntityMonitorGroup,
+		EntityMonitorGroupMember,
 		EntityMonitorTemplate,
 		EntityStatusPage,
 		EntityNotification,
+		EntityMonitorNotification,
 	}
 }

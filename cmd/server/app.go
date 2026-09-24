@@ -77,6 +77,10 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// wiring them unconditionally keeps the container simple.
 	syncEmitter := services.NewSyncEmitter(db, cfg, log)
 	monitors.SetSyncEmitter(syncEmitter)
+	monitorGroups.SetSyncEmitter(syncEmitter)
+	monitorTemplates.SetSyncEmitter(syncEmitter)
+	statusPages.SetSyncEmitter(syncEmitter)
+	notifications.SetSyncEmitter(syncEmitter)
 	syncService := services.NewSyncService(db, cfg, log, cluster, syncEmitter)
 	syncService.SetPublisher(hub)
 

@@ -100,6 +100,14 @@ func (s *SyncService) applyEntity(ctx context.Context, tx *gorm.DB, change model
 	switch change.Entity {
 	case models.EntityMonitor:
 		return s.applyMonitor(ctx, tx, change)
+	case models.EntityMonitorGroup:
+		return s.applyGroup(ctx, tx, change)
+	case models.EntityMonitorTemplate:
+		return s.applyTemplate(ctx, tx, change)
+	case models.EntityStatusPage:
+		return s.applyStatusPage(ctx, tx, change)
+	case models.EntityNotification:
+		return s.applyNotification(ctx, tx, change)
 	case models.EntityMonitorGroupMember, models.EntityMonitorNotification:
 		return s.applyRelation(ctx, tx, change)
 	default:
@@ -184,13 +192,17 @@ func (s *SyncService) trackApplied(ctx context.Context, tx *gorm.DB, change mode
 	}).Create(&object).Error
 }
 
-// applyMonitor merges one monitor change into the local database.
-func (s *SyncService) applyMonitor(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (models.ApplyDecision, error) {
+// mergeDecision loads what this node holds for a uuid, compares the incoming
+// change with it and reports the verdict, recording a concurrent edit on the way.
+//
+// Every entity goes through it so that the merge rule, the conflict log and the
+// tombstone comparison cannot drift apart between one entity and another: a
+// divergence there would be invisible until two nodes disagreed about a row.
+func (s *SyncService) mergeDecision(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (models.ApplyDecision, *models.SyncObject, error) {
 	current, err := s.loadSyncObject(ctx, tx, change.UUID)
 	if err != nil {
-		return models.ApplySkip, err
+		return models.ApplySkip, nil, err
 	}
-
 	incoming := models.SyncCandidate{
 		Revision:     change.Revision,
 		UpdatedAt:    change.UpdatedAt,
@@ -199,13 +211,22 @@ func (s *SyncService) applyMonitor(ctx context.Context, tx *gorm.DB, change mode
 	deleted := change.Action == models.ActionDelete
 	decision := models.Decide(incoming, deleted, current)
 
-	// A concurrent edit is reported whichever way the merge goes: when the incoming
+	// A concurrent edit is reported whichever way the merge went: when the incoming
 	// change wins, the edit it replaces is the one that lost. A stale re-delivery
 	// is not a conflict (see models.IsConflict) and stays silent.
 	if models.IsConflict(incoming, current) {
 		if err := s.recordConflict(ctx, tx, change, current, decision != models.ApplySkip); err != nil {
-			return decision, err
+			return decision, current, err
 		}
+	}
+	return decision, current, nil
+}
+
+// applyMonitor merges one monitor change into the local database.
+func (s *SyncService) applyMonitor(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (models.ApplyDecision, error) {
+	decision, current, err := s.mergeDecision(ctx, tx, change)
+	if err != nil {
+		return models.ApplySkip, err
 	}
 	if decision == models.ApplySkip {
 		return decision, nil
@@ -371,25 +392,12 @@ func (s *SyncService) recordConflict(ctx context.Context, tx *gorm.DB, change mo
 //
 // A relation is addressed by its two ends, so the local rows are resolved through
 // sync_objects. When one end has not arrived yet the change is recorded as a
-// pending link instead of being dropped: the healing pass re-delivers the
-// container with its full relation set once the target exists.
+// pending link instead of being dropped: the healing pass re-delivers the container
+// with its full relation set once the target exists.
 func (s *SyncService) applyRelation(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (models.ApplyDecision, error) {
-	current, err := s.loadSyncObject(ctx, tx, change.UUID)
+	decision, _, err := s.mergeDecision(ctx, tx, change)
 	if err != nil {
 		return models.ApplySkip, err
-	}
-	incoming := models.SyncCandidate{
-		Revision:     change.Revision,
-		UpdatedAt:    change.UpdatedAt,
-		OriginNodeID: change.OriginNodeID,
-	}
-	deleted := change.Action == models.ActionDelete
-	decision := models.Decide(incoming, deleted, current)
-
-	if models.IsConflict(incoming, current) {
-		if err := s.recordConflict(ctx, tx, change, current, decision != models.ApplySkip); err != nil {
-			return decision, err
-		}
 	}
 	if decision == models.ApplySkip {
 		return decision, nil
@@ -402,7 +410,7 @@ func (s *SyncService) applyRelation(ctx context.Context, tx *gorm.DB, change mod
 		return decision, s.trackApplied(ctx, tx, change, 0, true)
 	}
 
-	monitorUUID, targetUUID, err := relationEnds(change)
+	monitorUUID, targetUUID, err := s.relationEnds(ctx, tx, change)
 	if err != nil {
 		return models.ApplySkip, err
 	}
@@ -411,7 +419,7 @@ func (s *SyncService) applyRelation(ctx context.Context, tx *gorm.DB, change mod
 		return models.ApplySkip, err
 	}
 	if !linked {
-		if err := s.recordPendingLink(ctx, tx, change.Entity, change.UUID, targetUUID); err != nil {
+		if err := s.recordPendingLink(ctx, tx, change.Entity, change.UUID, "target", targetUUID); err != nil {
 			return models.ApplySkip, err
 		}
 	}
@@ -419,20 +427,37 @@ func (s *SyncService) applyRelation(ctx context.Context, tx *gorm.DB, change mod
 }
 
 // relationEnds reads the two uuids a relation payload names.
-func relationEnds(change models.SyncChangePayload) (string, string, error) {
+//
+// A tombstone may arrive with no payload of its own, and the uuid of a relation is
+// a HASH of the two ends, so it cannot be inverted: the pair is then read from what
+// this node stored when it applied the link. When there is neither, the relation was
+// never applied here and there is nothing to remove.
+func (s *SyncService) relationEnds(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (string, string, error) {
+	payload := change.Payload
+	if len(payload) == 0 {
+		object, err := s.loadSyncObject(ctx, tx, change.UUID)
+		if err != nil {
+			return "", "", err
+		}
+		if object == nil || object.Payload == "" {
+			return "", "", nil
+		}
+		payload = []byte(object.Payload)
+	}
+
 	switch change.Entity {
 	case models.EntityMonitorGroupMember:
-		var payload models.MonitorGroupMemberPayload
-		if err := json.Unmarshal(change.Payload, &payload); err != nil {
+		var decoded models.MonitorGroupMemberPayload
+		if err := json.Unmarshal(payload, &decoded); err != nil {
 			return "", "", fmt.Errorf("unreadable membership payload for %s: %w", change.UUID, err)
 		}
-		return payload.MonitorUUID, payload.GroupUUID, nil
+		return decoded.MonitorUUID, decoded.GroupUUID, nil
 	case models.EntityMonitorNotification:
-		var payload models.MonitorNotificationPayload
-		if err := json.Unmarshal(change.Payload, &payload); err != nil {
+		var decoded models.MonitorNotificationPayload
+		if err := json.Unmarshal(payload, &decoded); err != nil {
 			return "", "", fmt.Errorf("unreadable link payload for %s: %w", change.UUID, err)
 		}
-		return payload.MonitorUUID, payload.NotificationUUID, nil
+		return decoded.MonitorUUID, decoded.NotificationUUID, nil
 	}
 	return "", "", fmt.Errorf("entity %q is not a relation", change.Entity)
 }
@@ -463,7 +488,7 @@ func (s *SyncService) linkRelation(ctx context.Context, tx *gorm.DB, entity, mon
 // removeRelation deletes the local link of a relation that was removed elsewhere.
 // A missing row is fine: the change may name a relation this node never had.
 func (s *SyncService) removeRelation(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) error {
-	monitorUUID, targetUUID, err := relationEnds(change)
+	monitorUUID, targetUUID, err := s.relationEnds(ctx, tx, change)
 	if err != nil {
 		return err
 	}
@@ -515,19 +540,19 @@ func (s *SyncService) localID(ctx context.Context, tx *gorm.DB, entity, uuid str
 // It is a marker rather than a queue: the healing pass re-delivers the container
 // with its full relation set, and by then the target exists. That keeps the retry
 // bounded and visible instead of silently dropping the link.
-func (s *SyncService) recordPendingLink(ctx context.Context, tx *gorm.DB, entity, uuid, missingUUID string) error {
+func (s *SyncService) recordPendingLink(ctx context.Context, tx *gorm.DB, entity, uuid, kind, missingUUID string) error {
 	pending := models.SyncPendingLink{
 		Entity:      entity,
 		UUID:        uuid,
-		Kind:        entity,
+		Kind:        kind,
 		MissingUUID: missingUUID,
 		CreatedAt:   time.Now().UTC(),
 	}
 	if err := tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&pending).Error; err != nil {
 		return fmt.Errorf("recording a pending link for %s: %w", uuid, err)
 	}
-	s.log.Info("a relation arrived before its target: it will be linked after the next reconciliation",
-		"entity", entity, "uuid", uuid, "missing", missingUUID)
+	s.log.Info("a reference arrived before its target: it will be linked after the next reconciliation",
+		"entity", entity, "uuid", uuid, "kind", kind, "missing", missingUUID)
 	return nil
 }
 
