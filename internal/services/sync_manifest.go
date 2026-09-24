@@ -47,7 +47,7 @@ func (s *SyncService) ServeManifest(ctx context.Context) (*models.SyncManifestRe
 func (s *SyncService) entityManifest(ctx context.Context, entity string) (models.SyncManifestEntity, error) {
 	var rows []models.SyncObject
 	if err := s.db.WithContext(ctx).
-		Select("uuid", "revision").
+		Select("uuid", "revision", "origin_node_id").
 		Where("entity = ? AND deleted_at IS NULL", entity).
 		Find(&rows).Error; err != nil {
 		return models.SyncManifestEntity{}, ErrInternal(err)
@@ -55,7 +55,9 @@ func (s *SyncService) entityManifest(ctx context.Context, entity string) (models
 	identities := make([]models.EntityIdentity, 0, len(rows))
 	var maxRevision int64
 	for _, row := range rows {
-		identities = append(identities, models.EntityIdentity{UUID: row.UUID, Revision: row.Revision})
+		identities = append(identities, models.EntityIdentity{
+			UUID: row.UUID, Revision: row.Revision, OriginNodeID: row.OriginNodeID,
+		})
 		if row.Revision > maxRevision {
 			maxRevision = row.Revision
 		}

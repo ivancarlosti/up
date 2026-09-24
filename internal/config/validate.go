@@ -178,10 +178,10 @@ func (c *Config) validate() []string {
 	case ClusterLeaderLowestID:
 	case ClusterLeaderExplicit:
 		if strings.TrimSpace(c.ClusterLeaderNodeID) == "" {
-			problems = append(problems, "CLUSTER_LEADER_MODE=explicit requires CLUSTER_LEADER_NODE_ID")
+			problems = append(problems, "CLUSTER_LEADER_ELECTION=explicit requires CLUSTER_LEADER_NODE_ID")
 		}
 	default:
-		problems = append(problems, "CLUSTER_LEADER_MODE must be "+ClusterLeaderLowestID+" or "+ClusterLeaderExplicit)
+		problems = append(problems, "CLUSTER_LEADER_ELECTION must be "+ClusterLeaderLowestID+" or "+ClusterLeaderExplicit)
 	}
 	switch c.ClusterNotifyElection {
 	case NotifyElectionLeader, NotifyElectionHash, NotifyElectionOrigin:

@@ -487,9 +487,9 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | `CLUSTER_SYNC_BATCH` | `500` | maximum changes per pull |
 | `CLUSTER_SYNC_MANIFEST_SECONDS` | `600` | healing/reconcile pass |
 | `CLUSTER_SYNC_TOMBSTONE_DAYS` | `30` | tombstone retention before a full resync is required |
-| `CLUSTER_LEADER_ELECTION` | `lowest_id` | `lowest_id` \| `explicit` \| `hash` |
-| `CLUSTER_LEADER_NODE_ID` | - | required when `explicit` |
-| `CLUSTER_NOTIFY_ELECTION` | `leader` | `leader` \| `hash` \| `origin` |
+| `CLUSTER_LEADER_ELECTION` | `lowest_id` | how the leader is DERIVED when there is no shared row: `lowest_id` (the settled node with the smallest `node_id`) or `explicit`. `hash` is deliberately not a leader mode — `IsPrimary()` is one boolean for the whole node, while hash ownership is per monitor, so it lives in `CLUSTER_NOTIFY_ELECTION` (§22.12) |
+| `CLUSTER_LEADER_NODE_ID` | - | required when `CLUSTER_LEADER_ELECTION=explicit` |
+| `CLUSTER_NOTIFY_ELECTION` | `leader` | which node alerts in federated mode: `leader` (the derived leader), `hash` (rendezvous over the monitor uuid) or `origin` (the node that created the monitor) |
 | `CLUSTER_LEADER_SETTLE_SECONDS` | `60` | how long a node must be continuously online before it may take the leader role (and the notification duty) instead of the current one |
 | `CLUSTER_SYNC_NOTIFICATIONS` | `false` | sync the notification channels (secret-bearing) |
 | `CLUSTER_SYNC_SETTINGS` | `false` | sync the non-secret settings whitelist |
@@ -764,6 +764,28 @@ nodes ran with two databases throughout.
     partition that shrinks the denominator is a fact on the screen instead of a
     surprise. An isolated minority can still decide with fewer nodes than the cluster
     has — that is the accepted cost of this rule.
+12. **`hash` is an election mode, not a leader mode (§7).** `IsPrimary()` answers one
+    question for the whole node ("do I run the `run_on=primary` probes?"), while hash
+    ownership is per monitor by construction, so a hash "leader" would be a per-monitor
+    answer to a global question. `CLUSTER_LEADER_ELECTION` therefore accepts
+    `lowest_id` and `explicit` only, and `hash` lives in `CLUSTER_NOTIFY_ELECTION`,
+    where it is meaningful. Both remain deterministic from the local view.
+13. **The notification text is the owner's own measurement.** In federated mode a node
+    holds only its own heartbeats, so the message and latency that travel with an alert
+    are the SENDING node's numbers, while the verdict that triggered it is the cluster
+    aggregate. A richer message (the worst node's detail) would mean carrying per-node
+    detail in the vote payload; it is deliberately left out of v1.
+14. **The notification lock is per node, not per cluster (§8).** Without a shared
+    table the unique index cannot elect a single sender across the cluster, so
+    ownership is derived (12) and the lock row only stops the OWNER from sending twice
+    inside one window. A node that is not the owner returns before writing anything —
+    the election must be free of side effects for the nodes that lose it, because they
+    ask again on every evaluation pass.
+15. **The manifest checksum includes the producer (§5, §22.10).** `(uuid, revision,
+    origin_node_id)` rather than `(uuid, revision)`: two nodes can hold the same
+    revision from different producers — one adopted a concurrent edit, the other kept
+    its own — and that state is a real divergence which a two-component checksum
+    reports as agreement.
 
 ## 23. Exit criteria: what has been verified
 

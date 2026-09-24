@@ -77,9 +77,16 @@ func (s *SyncService) applyGroup(ctx context.Context, tx *gorm.DB, change models
 
 // deleteGroupCascade removes a group and its memberships, exactly as the local
 // delete does. The monitors themselves are untouched.
+//
+// The status page selection is cleaned too: a group can be a section of a page, and a
+// dangling link there would survive the group it points at (the same cleanup the local
+// delete performs, so both nodes end up with the same rows).
 func deleteGroupCascade(tx *gorm.DB, id uint) error {
 	if err := tx.Where("group_id = ?", id).Delete(&models.MonitorGroupMember{}).Error; err != nil {
 		return fmt.Errorf("removing the memberships of group %d: %w", id, err)
+	}
+	if err := tx.Where("group_id = ?", id).Delete(&models.StatusPageGroupLink{}).Error; err != nil {
+		return fmt.Errorf("removing the status page links of group %d: %w", id, err)
 	}
 	if err := tx.Delete(&models.MonitorGroup{}, id).Error; err != nil {
 		return fmt.Errorf("removing group %d: %w", id, err)

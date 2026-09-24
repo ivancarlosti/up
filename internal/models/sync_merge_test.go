@@ -324,6 +324,30 @@ func TestEntityChecksum(t *testing.T) {
 	}
 }
 
+// TestEntityChecksumSeesAnIdentityDivergence pins the reason the origin belongs in the
+// checksum.
+//
+// Two nodes can hold the SAME revision of the same row and still be different: one
+// adopted a concurrent edit and the other kept its own. That is a real state (measured in
+// the lab), and a checksum over `(uuid, revision)` alone cannot see it — so the manifest
+// would report agreement while the two dashboards showed different rows.
+func TestEntityChecksumSeesAnIdentityDivergence(t *testing.T) {
+	fromOne := []EntityIdentity{{UUID: "u", Revision: 5, OriginNodeID: "up-node-1"}}
+	fromTwo := []EntityIdentity{{UUID: "u", Revision: 5, OriginNodeID: "up-node-2"}}
+
+	if EntityChecksum(fromOne) == EntityChecksum(fromTwo) {
+		t.Fatal("the same revision from different producers must not compare equal")
+	}
+	if EntityChecksum(fromOne) != EntityChecksum([]EntityIdentity{{UUID: "u", Revision: 5, OriginNodeID: "up-node-1"}}) {
+		t.Fatal("the same identity must hash the same on every node")
+	}
+	// A missing origin (a row from before the identity existed) is still hashed, so the
+	// two nodes only disagree while they really differ.
+	if EntityChecksum(fromOne) == EntityChecksum([]EntityIdentity{{UUID: "u", Revision: 5}}) {
+		t.Fatal("an empty origin must not hash the same as a named one")
+	}
+}
+
 // TestEntityChecksumEmptyIsStable guards the "nothing to sync yet" case: two
 // fresh nodes must agree.
 func TestEntityChecksumEmptyIsStable(t *testing.T) {

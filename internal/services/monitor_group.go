@@ -295,6 +295,12 @@ func (s *MonitorGroupService) Delete(ctx context.Context, id uint) error {
 		if err := tx.Where("group_id = ?", id).Delete(&models.MonitorGroupMember{}).Error; err != nil {
 			return err
 		}
+		// A group can be a section of a status page, so its links go with it: leaving
+		// them behind would point a page at a group that no longer exists (and a peer
+		// applying the same delete would remove them, so the two nodes would differ).
+		if err := tx.Where("group_id = ?", id).Delete(&models.StatusPageGroupLink{}).Error; err != nil {
+			return err
+		}
 		result := tx.Delete(&models.MonitorGroup{}, id)
 		if result.Error != nil {
 			return result.Error

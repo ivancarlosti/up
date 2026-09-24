@@ -146,9 +146,18 @@ func ConflictSides(incoming SyncCandidate, current *SyncObject, incomingWon bool
 
 // EntityIdentity is one entry of a manifest checksum: the global identity of a
 // row plus the revision this node holds.
+// EntityIdentity is one entry of a manifest checksum: the global identity of a row, the
+// revision this node holds, and the node that produced that revision.
+//
+// The origin is part of the identity on purpose. Two nodes can hold the same revision of
+// the same uuid and still disagree: one may have adopted a concurrent edit and the other
+// kept its own — measured in the lab, and invisible to a `(uuid, revision)` checksum. With
+// the origin in it, that state is a divergence the manifest can see and heal, instead of
+// two dashboards that quietly show different rows.
 type EntityIdentity struct {
-	UUID     string
-	Revision int64
+	UUID         string
+	Revision     int64
+	OriginNodeID string
 }
 
 // EntityChecksum hashes the identity of a whole entity ("every live row I have,
@@ -165,7 +174,10 @@ func EntityChecksum(rows []EntityIdentity) string {
 		if sorted[i].UUID != sorted[j].UUID {
 			return sorted[i].UUID < sorted[j].UUID
 		}
-		return sorted[i].Revision < sorted[j].Revision
+		if sorted[i].Revision != sorted[j].Revision {
+			return sorted[i].Revision < sorted[j].Revision
+		}
+		return sorted[i].OriginNodeID < sorted[j].OriginNodeID
 	})
 
 	digest := sha256.New()
@@ -173,6 +185,8 @@ func EntityChecksum(rows []EntityIdentity) string {
 		digest.Write([]byte(row.UUID))
 		digest.Write([]byte{':'})
 		digest.Write([]byte(strconv.FormatInt(row.Revision, 10)))
+		digest.Write([]byte{':'})
+		digest.Write([]byte(row.OriginNodeID))
 		digest.Write([]byte{'\n'})
 	}
 	return hex.EncodeToString(digest.Sum(nil))

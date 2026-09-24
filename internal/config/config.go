@@ -35,7 +35,7 @@ const (
 	ClusterModeFederated = "federated"
 )
 
-// Leader derivation (CLUSTER_LEADER_MODE) for federated mode, where `nodes.is_primary`
+// Leader derivation (CLUSTER_LEADER_ELECTION) for federated mode, where `nodes.is_primary`
 // does not exist because there is no shared row to hold it.
 const (
 	// ClusterLeaderLowestID makes the leader the settled node with the smallest
@@ -141,9 +141,12 @@ type Config struct {
 	// would drop the alert silently. The payload carries credentials, so the
 	// peers must run over TLS.
 	ClusterSyncNotifications bool
-	// ClusterLeaderMode is how the leader is derived when there is no shared row:
-	// lowest_id (the settled node with the smallest node_id) or explicit
-	// (CLUSTER_LEADER_NODE_ID). It only applies in federated mode.
+	// ClusterLeaderMode is how the leader is derived when there is no shared row
+	// (CLUSTER_LEADER_ELECTION): lowest_id (the settled node with the smallest
+	// node_id) or explicit (CLUSTER_LEADER_NODE_ID). It only applies in federated
+	// mode. `hash` is deliberately NOT a leader mode: IsPrimary() is one boolean for
+	// the whole node, while hash ownership is per monitor, so it belongs to the
+	// notification election (CLUSTER_NOTIFY_ELECTION).
 	ClusterLeaderMode string
 	// ClusterLeaderNodeID pins the leader when ClusterLeaderMode is explicit.
 	ClusterLeaderNodeID string
@@ -212,7 +215,7 @@ func Load() (*Config, error) {
 		ClusterMode:                   strings.ToLower(env("CLUSTER_MODE", ClusterModeShared)),
 		ClusterPeerAPI:                mustBool("CLUSTER_PEER_API", false),
 		ClusterLeaderSettleSeconds:    envInt("CLUSTER_LEADER_SETTLE_SECONDS", 60),
-		ClusterLeaderMode:             strings.ToLower(strings.TrimSpace(env("CLUSTER_LEADER_MODE", ClusterLeaderLowestID))),
+		ClusterLeaderMode:             strings.ToLower(strings.TrimSpace(env("CLUSTER_LEADER_ELECTION", ClusterLeaderLowestID))),
 		ClusterLeaderNodeID:           strings.TrimSpace(env("CLUSTER_LEADER_NODE_ID", "")),
 		ClusterNotifyElection:         strings.ToLower(strings.TrimSpace(env("CLUSTER_NOTIFY_ELECTION", NotifyElectionLeader))),
 		ClusterSyncSeconds:            envInt("CLUSTER_SYNC_SECONDS", 15),

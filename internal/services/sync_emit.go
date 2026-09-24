@@ -305,8 +305,12 @@ func (e *SyncEmitter) skip(ctx context.Context) bool {
 // could not be refreshed, and the outbox envelope carries the same value anyway.
 func (e *SyncEmitter) stampOrigin(ctx context.Context, tx *gorm.DB, model any, id uint) string {
 	if id != 0 {
+		// UpdateColumn, not Update: GORM's automatic `updated_at` would bump the row's
+		// timestamp for a purely metadata write, and the identity published a moment
+		// earlier (row, envelope and sync_objects) would then be 1 ms behind the row it
+		// describes. The merge compares the identity, so the two must agree.
 		if err := tx.WithContext(ctx).Model(model).Where("id = ?", id).
-			Update("origin_node_id", e.cfg.NodeID).Error; err != nil {
+			UpdateColumn("origin_node_id", e.cfg.NodeID).Error; err != nil {
 			e.log.Warn("could not refresh the origin of a published row",
 				"node_id", e.cfg.NodeID, "error", err)
 		}
