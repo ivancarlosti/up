@@ -12,11 +12,10 @@ import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant } from '@/lib/expiry'
 import { formatDateTime, formatLatency, formatUptime, statusColor } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
 import type {
-  CertificateInfo,
-  DomainInfo,
   Heartbeat,
   Monitor,
   MonitorGroup,
@@ -117,32 +116,6 @@ const targetHref = computed(() => {
   return /^https?:\/\//i.test(url) ? url : ''
 })
 
-/** certificateVariant colours the validity badge by urgency. */
-function certificateVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
-  if (daysLeft <= 0) return 'danger'
-  if (daysLeft <= 7) return 'danger'
-  if (daysLeft <= 30) return 'warning'
-  return 'success'
-}
-
-/** certificateTitle is the tooltip of the badge (issuer + exact expiry). */
-function certificateTitle(certificate: CertificateInfo): string {
-  const parts = [certificate.issuer, certificate.subject].filter(Boolean)
-  return `${parts.join(' — ')} (${formatDateTime(certificate.not_after, locale.value)})`
-}
-
-/** domainTitle is the tooltip of the domain badge (registrar + source). */
-function domainTitle(domain: DomainInfo): string {
-  const parts = [domain.registrar, domain.domain].filter(Boolean)
-  return `${parts.join(' — ')} (${formatDateTime(domain.expires_at, locale.value)})`
-}
-
-/** domainVariant colours the badge, using the manual/unavailable cases too. */
-function domainVariant(domain: DomainInfo): 'success' | 'warning' | 'danger' | 'secondary' {
-  if (domain.status !== 'ok') return 'secondary'
-  return certificateVariant(domain.days_left)
-}
-
 /** loadFormOptions fills the lists the edit dialog needs. */
 async function loadFormOptions(): Promise<void> {
   try {
@@ -208,16 +181,16 @@ watch(hours, load)
       <StatusBadge :status="monitor.status" pulse class="ml-2" />
       <Badge
         v-if="monitor.certificate"
-        :variant="certificateVariant(monitor.certificate.days_left)"
-        :title="certificateTitle(monitor.certificate)"
+        :variant="expiryVariant(monitor.certificate.days_left)"
+        :title="certificateTitle(monitor.certificate, locale)"
         class="ml-1"
       >
         {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
       </Badge>
       <Badge
         v-if="monitor.domain"
-        :variant="domainVariant(monitor.domain)"
-        :title="domainTitle(monitor.domain)"
+        :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
+        :title="domainTitle(monitor.domain, locale)"
         class="ml-1"
       >
         <template v-if="monitor.domain.status === 'ok'">

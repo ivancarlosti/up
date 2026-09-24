@@ -72,7 +72,13 @@ Query: `search`, `type`, `tag`, `active`, `include_secrets`.
   "notification_ids":[1]}]
 ```
 
-Credentials are masked with `***` unless `include_secrets=true`.
+Credentials are masked with `***` unless `include_secrets=true`. The payload is
+the same decorated monitor the dashboard uses, so a monitor that watches its
+certificate or its domain carries `certificate` (`issuer`, `subject`, `not_after`,
+`days_left`, `captured_at`) and `domain` (`domain`, `registrar`, `expires_at`,
+`source`, `status`, `days_left`, `checked_at`) when the watch is on and an
+observation exists. `GET /api/v1/monitors/:id`, `GET /api/v1/monitors` and
+`GET /api/v1/status?include_monitors=true` all return the same decoration.
 
 ### `GET /api/v1/monitors/:id`
 
@@ -96,6 +102,8 @@ Require the `write` scope; both return the updated (redacted) monitor.
 ### `GET /api/v1/status-pages/:slug`
 
 Same payload as the public status page (useful to render your own frontend).
+The `certificate`/`domain` badges of the monitors are only included when the
+page has `show_expiry` on (see [status-pages.md](status-pages.md)).
 
 ## 4. Recipes
 

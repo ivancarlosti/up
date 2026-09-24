@@ -115,6 +115,7 @@ type StatusPagePayload struct {
 	ShowUptime  bool   `json:"show_uptime"`
 	ShowCharts  bool   `json:"show_charts"`
 	ShowTags    bool   `json:"show_tags"`
+	ShowExpiry  bool   `json:"show_expiry"`
 	CustomCSS   string `json:"custom_css"`
 
 	Monitors []StatusPageItemPayload  `json:"monitors"`

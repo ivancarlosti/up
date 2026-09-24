@@ -143,6 +143,23 @@ func (s *CertificateService) Get(ctx context.Context, monitorID uint) (*models.M
 	return &row, nil
 }
 
+// ByMonitorIDs returns the stored certificate of each monitor (one query). It is
+// what the admin expiry view uses to preview a worklist without running it.
+func (s *CertificateService) ByMonitorIDs(ctx context.Context, monitorIDs []uint) (map[uint]*models.MonitorCertificate, error) {
+	out := map[uint]*models.MonitorCertificate{}
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var rows []models.MonitorCertificate
+	if err := s.db.WithContext(ctx).Where("monitor_id IN ?", monitorIDs).Find(&rows).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	for i := range rows {
+		out[rows[i].MonitorID] = &rows[i]
+	}
+	return out, nil
+}
+
 // All returns the certificates of the monitors that watch one, with their
 // monitor loaded: this is what the watcher job iterates.
 func (s *CertificateService) All(ctx context.Context) ([]models.MonitorCertificate, []*models.Monitor, error) {

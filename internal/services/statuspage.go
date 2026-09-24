@@ -229,6 +229,7 @@ func (s *StatusPageService) Update(ctx context.Context, page *models.StatusPage)
 			"show_uptime": page.ShowUptime,
 			"show_charts": page.ShowCharts,
 			"show_tags":   page.ShowTags,
+			"show_expiry": page.ShowExpiry,
 			"custom_css":  page.CustomCSS,
 			// Every edit advances the revision: it is the primary component of the
 			// merge order (see the group update).

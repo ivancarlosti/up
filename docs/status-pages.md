@@ -19,7 +19,7 @@ Example API response:
   "id": 1, "slug": "main", "title": "Up Status",
   "description": "Public status of the platform", "footer_text": "Powered by Up",
   "theme": "system", "is_public": true,
-  "show_uptime": true, "show_charts": true, "show_tags": false,
+  "show_uptime": true, "show_charts": true, "show_tags": false, "show_expiry": false,
   "overall_status": "up", "up_monitors": 4, "down_monitors": 0, "monitors_count": 4,
   "monitors": [
     {
@@ -43,6 +43,7 @@ Example API response:
 | `show_uptime` | shows the 24 h uptime percentage per monitor |
 | `show_charts` | shows the heartbeat bars |
 | `show_tags` | shows the monitor tags |
+| `show_expiry` | publishes the certificate/domain **days left** badges of the monitors (default `false`) |
 | `custom_css` | injected into the public page (advanced) |
 | `monitor_ids` order | display order (up to any number of monitors) |
 
@@ -126,6 +127,7 @@ Colours follow the overall status: green (`up`), red (`down`), amber
 | IP rules | scope `public` in Admin > Security (`docs/security.md`) |
 | Hidden page | `is_public=false` (admins can preview) |
 | No secrets | the public payload exposes no credentials, no configuration and no error details |
+| Expiry is opt-in | `show_expiry=false` strips the `certificate`/`domain` objects from the payload entirely, so a page that does not show them does not publish them |
 
 ## 7. Limitations and extensions
 

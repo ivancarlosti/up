@@ -9,7 +9,7 @@
 | Field | Default | Range | Notes |
 |---|---|---|---|
 | `name` | - | 1..200 chars | required, shown everywhere |
-| `type` | `http` | http, keyword, tcp, dns | selects the checker |
+| `type` | `http` | http, keyword, tcp, dns, ssl | selects the checker |
 | `active` | `true` | - | paused monitors keep their history but are not executed |
 | `description` | - | 500 chars | free text |
 | `interval_seconds` | `60` | 5..86400 | ticker of the worker |
@@ -161,6 +161,14 @@ TCP and DNS example:
 }
 ```
 
+```json
+{
+  "name": "SMTPS",
+  "type": "ssl",
+  "config": { "host": "mail.example.com", "port": 465, "server_name": "mail.example.com" }
+}
+```
+
 `notification_ids` replaces the links on every update; omit the field to keep the
 current links, send `[]` to clear them.
 
@@ -304,6 +312,10 @@ effect of the handshake). Two switches decide what happens with it:
 | `cert_watch` | the probe captures the certificate and it is shown in the UI (validity badge, issuer, exact expiry) |
 | `cert_notify` | the certificate events reach the notification channels (requires `cert_watch`) |
 
+The validity badge appears on the dashboard card, the monitor detail page and the
+admin monitors table (sortable by days left), and on a public status page only
+when that page has `show_expiry` on (`docs/status-pages.md`).
+
 `cert_warn_days` is a **free form** list of days before expiry, e.g. `7,6,5,30`
 (any numbers, any order; empty means `30,14,7,1`). The cadence is hybrid:
 
@@ -332,7 +344,9 @@ every watched endpoint at the time configured in *Admin > TLD/SSL expiration*:
 - a monitor checked every 60 s therefore stops rewriting the same row 1440 times
   a day, while its badge and its reminders stay a day fresh;
 - one node of a cluster runs the job (a day-bucket lock elects it), so the
-  registries are not queried once per node.
+  registries are not queried once per node;
+- *Admin > TLD/SSL expiration* lists that worklist and can refresh a single
+  target without waiting for the daily run (see §10).
 
 The observation is stored within the column budgets: the subject alternative
 names live in a `TEXT` column (a CDN certificate can list hundreds of them) and
@@ -384,7 +398,34 @@ rate limit between two lookups (default `100 ms`) and the time of day are
 configured in *Admin > TLD/SSL expiration*; a per-TLD `min_interval_ms` can slow
 down one strict registry without slowing down the others.
 
-## 11. Upside down monitors
+### What the next run will look up
+
+*Admin > TLD/SSL expiration* shows the **deduplicated worklist** of the job: one
+row per unique target, with the monitors that share it, the last observation and
+the days left, plus a per-row *check now*. `GET /api/admin/expiry/targets`
+returns exactly what `POST /api/admin/expiry/run` would iterate (both are built
+from the same planner), and `POST /api/admin/expiry/targets/refresh` with
+`{kind, target}` refreshes one row through the same resolver, rate limit and
+reminder evaluation as the daily job — so a manual check cannot produce a
+different observation than the scheduled one.
+
+A row whose only source is the date typed in the monitor form is marked
+`manual date`: it is still listed (the operator must see it) but no network
+lookup happens for it. `kind` is `certificate` (key `host:port|sni`) or `domain`
+(key is the registrable domain).
+
+## 11. The `ssl` monitor type
+
+| Field | Notes |
+|---|---|
+| `host` | hostname or IP to dial (required) |
+| `port` | 1..65535, default 443 |
+| `server_name` | optional SNI for virtual hosts the IP alone does not identify |
+| `ignore_tls` | accepts an unverified chain (the handshake still has to answer) |
+
+The probe **is** the TLS handshake, so the monitor is `up` when the chain
+verifies (plus the optional SNI) and `down` otherwise; the certificate captured
+on the way is what feeds the badges and the reminders of §9.
 
 **When it expires**: a monitor that verifies TLS goes `down` on its own (the
 handshake fails, so the normal down notification arrives), *unless*
@@ -427,22 +468,47 @@ Use the **dedicated type** when:
 For a normal `https://` site the HTTP flag is enough, and it avoids a second
 monitor and a second request: that is exactly what the flag is for.
 
-## 10. Upside down monitors
+## 12. Upside down monitors
 
 `upside_down=true` swaps `up` and `down` **after** the probe, with a
 `upside down:` prefix in the message. Typical use: an IP that must stay blocked
 (a TCP monitor to a port that must remain closed) or a DNS name that must not
 exist.
 
-## 12. How the UI is wired
+## 13. How the UI is wired
 
 | Element | File |
 |---|---|
-| Form (all four types) | `web/src/components/monitors/MonitorForm.vue` |
+| Form (all five types) | `web/src/components/monitors/MonitorForm.vue` |
+| Target fields per type | `web/src/components/monitors/MonitorConfigFields.vue` |
 | Card with status/uptime/bars | `web/src/components/monitors/MonitorCard.vue` |
 | Status badge | `web/src/components/monitors/StatusBadge.vue` |
 | Heartbeat bars | `web/src/components/monitors/HeartbeatBars.vue` (`HeartbeatBar.vue`) |
-| Detail page (stats + events + votes) | `web/src/views/MonitorDetailView.vue` |
-| Table listing | `web/src/views/admin/AdminMonitorsView.vue` |
+| Detail page (stats + events + votes + expiry badges) | `web/src/views/MonitorDetailView.vue` |
+| Table listing (sortable, expiry columns) | `web/src/views/admin/AdminMonitorsView.vue` |
+| Sortable header widget | `web/src/components/ui/SortHeader.vue` |
+| Table sorting rules | `web/src/lib/sort.ts` |
+| Expiry badge colour/tooltip | `web/src/lib/expiry.ts` |
+| Daily job + TLD rules + target list | `web/src/views/admin/AdminExpiryView.vue` |
+| Public status page | `web/src/views/StatusPagePublicView.vue` |
 
-All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`).
+All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
+`certificate.*`, `domain.*`, `expiry.*`).
+
+### Sorting the monitors table
+
+Every column of Admin > Monitors except *Actions* is a sort button: name, type,
+groups, certificate, domain, status, interval and uptime. Clicking a header sorts
+ascending, clicking it again reverses the direction; the choice is remembered per
+browser (`localStorage`, key `up.admin.monitors.sort`) and announced to screen
+readers through `aria-sort`.
+
+The rules (`web/src/lib/sort.ts`):
+
+- rows **without** the value sink to the bottom in both directions: a monitor with
+  no group, no certificate date or a domain whose lookup did not return a date is
+  never mixed into the middle of the sorted values;
+- `status` sorts by the attention a status deserves (down, degraded, pending,
+  unknown, maintenance, up) and the **paused** monitors stay last either way;
+- every comparison falls back to the name, so a re-render never reshuffles rows
+  with equal values.

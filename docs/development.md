@@ -122,7 +122,7 @@ export PATH="$HOME/.local/go/bin:$PATH"
 
 go build ./...          # compile everything
 go vet ./...            # static analysis
-go test ./...           # unit tests (checkers, aggregation, IP rules, notify)
+go test ./...           # unit tests (checkers, aggregation, IP rules, notify, expiry, sync)
 go test ./internal/services -run AggregateVotes -v
 gofmt -l .              # formatting check (empty output = clean)
 
@@ -171,6 +171,14 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > (a valid and an expired certificate), creates a `ssl` monitor through the real
 > form with the certificate switches on, checks the validity badge and the API
 > payload, and kills the helper at the end.
+>
+> `npm run e2e:domain-expiry` covers the domain watch and the admin expiry page:
+> it creates two monitors with the domain watch on and a **manual date** (no
+> registry is contacted, so the suite stays hermetic), runs the daily job, checks
+> the derived registrable domain, the badge, the deduplicated target list, the
+> per-target refresh, the WHOIS rule tester against a pasted response and the
+> sortable columns of the monitors table. It cleans up the monitors and the rule
+> it created.
 >
 > `npm run e2e:backfill` checks the synchronisation identity that federated
 > clustering uses: it creates two monitors and asserts that every monitor,

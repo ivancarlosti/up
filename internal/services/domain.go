@@ -134,6 +134,23 @@ func (s *DomainService) Get(ctx context.Context, monitorID uint) (*models.Monito
 	return &row, nil
 }
 
+// ByMonitorIDs returns the stored domain of each monitor (one query). It is what
+// the admin expiry view uses to preview a worklist without running it.
+func (s *DomainService) ByMonitorIDs(ctx context.Context, monitorIDs []uint) (map[uint]*models.MonitorDomain, error) {
+	out := map[uint]*models.MonitorDomain{}
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var rows []models.MonitorDomain
+	if err := s.db.WithContext(ctx).Where("monitor_id IN ?", monitorIDs).Find(&rows).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	for i := range rows {
+		out[rows[i].MonitorID] = &rows[i]
+	}
+	return out, nil
+}
+
 // All returns the stored domains of the monitors that watch one, with their
 // monitor loaded: this is what an evaluation-only pass iterates.
 func (s *DomainService) All(ctx context.Context) ([]models.MonitorDomain, []*models.Monitor, error) {

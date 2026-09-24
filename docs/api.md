@@ -342,6 +342,8 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | GET | `/api/admin/expiry` | `{settings, parsers, defaults, last_run_day, next_run}` |
 | PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds` |
 | POST | `/api/admin/expiry/run` | runs the daily check now (deduplicated targets) -> `{ran: true, at}` |
+| GET | `/api/admin/expiry/targets` | the deduplicated worklist: `{targets, count}` (no lookup is performed) |
+| POST | `/api/admin/expiry/targets/refresh` | refreshes ONE target: `{kind, target}` -> `{ran: true, kind, target, monitors, at}` |
 | GET | `/api/admin/expiry/whois-parsers` | the per-TLD rules |
 | POST | `/api/admin/expiry/whois-parsers` | `{tld, server, expiry_regex, date_layouts, not_found_pattern, min_interval_ms, enabled, note}` -> `201` |
 | PUT | `/api/admin/expiry/whois-parsers/:id` | update |
@@ -352,6 +354,30 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 install uses, so the UI can offer a "restore defaults" action. Incoherent values
 answer `400 ERR_VALIDATION` (bad time, unknown timezone, out of range rate limit
 or timeout, an uncompilable regex, a regex without a capture group).
+
+Every target of `/api/admin/expiry/targets` looks like:
+
+```json
+{
+  "kind": "domain",
+  "key": "example.com",
+  "label": "example.com",
+  "domain": "example.com",
+  "manual": false,
+  "monitors": [{ "id": 4, "name": "site", "status": "ok", "days_left": 42,
+                 "expires_at": "2027-05-01T00:00:00Z", "checked_at": "2026-09-24T03:00:00Z" }],
+  "status": "ok", "days_left": 42, "expires_at": "2027-05-01T00:00:00Z",
+  "checked_at": "2026-09-24T03:00:00Z"
+}
+```
+
+The target summary (`status`, `days_left`, `expires_at`, `checked_at`) is the
+most urgent observation of its monitors: the smallest remaining validity among
+the ones that have a date, or the first reported status when none has one.
+`kind` is `certificate` (key `host:port|sni`) or `domain`; a `manual` target only
+exists because of the date typed in the monitor form. Refreshing an unknown
+target answers `404 ERR_NOT_FOUND`, an unknown `kind` or an empty `target`
+answers `400 ERR_VALIDATION`, and a node without the job answers `503`.
 
 ## 9. Real time channel
 

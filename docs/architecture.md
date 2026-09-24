@@ -25,6 +25,10 @@ Up is a minimalist, cluster-ready uptime monitor:
   or `keycloak` (OIDC + e-mail/domain allow list).
 - **Notifications** use [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) as
   the delivery engine; the UI exposes SMTP and Webhook.
+- **Expiration watches**: beyond the probe, Up watches the TLS certificate of an
+  endpoint and the registry registration of a domain (RDAP first, per-TLD WHOIS
+  rules, or a manual date). Both are refreshed by one daily, deduplicated job with
+  a per-target *check now* (`internal/expiry`, `internal/services/expiry_*.go`).
 
 ## 2. Repository layout
 
@@ -35,6 +39,7 @@ internal/
   checkers/          probe engines: HTTP, Keyword, TCP, DNS
   config/            env loading + validation (fail fast, aggregated report)
   database/          connection with retry, GORM AutoMigrate, first boot seed
+  expiry/            expiration engines: RDAP, WHOIS, per-TLD parsing, targets
   handlers/          HTTP layer: routes, payload binding, JSON responses
   i18n/              stable error codes returned by the API
   middleware/        request id, real IP, logging, security headers, CORS,
@@ -154,6 +159,8 @@ same code path, and the aggregated state lives in the shared database
 | `nodes`, `cluster_settings` | Primary node (or any admin) | Yes |
 | `settings` (locale/theme/session secret/cluster key) | Any node | Yes |
 | `ip_rules`, `api_tokens`, `status_pages` | Any node | Yes |
+| `monitor_certificates`, `monitor_domains` | The node that ran the daily expiry job (or the probe for a certificate) | Yes, but the observation is node-specific: it is rewritten, never merged |
+| `whois_parsers` | Any node (admin API) | Yes (same database); local in `federated` mode |
 
 Because everything lives in the shared database, no message broker, cache or
 service discovery is required.
@@ -232,6 +239,8 @@ Every failure answers with a stable code that the frontend translates:
 | Change the aggregation rules | `internal/services/cluster_evaluate.go` (`AggregateVotes`) |
 | Change who sends notifications | `internal/services/cluster_notify.go` (`claimNotification`) |
 | Add an API endpoint | `internal/handlers/router*.go` (+ handler), `docs/api.md` |
+| Add a WHOIS parser / a new expiry source | `internal/expiry/` (engine + `targets.go`), `internal/models/domain.go` (`WhoisParser`), `internal/services/expiry_run.go` / `expiry_targets.go` (worklist), `web/src/views/admin/AdminExpiryView.vue` |
+| Change the expiry schedule | `internal/models/domain.go` (`ExpirySettings`, `RunInstant`), `internal/services/expiry_run.go` (`RunDue`) |
 | Change notification payloads | `internal/notify/message.go`, `internal/notify/urls.go` |
 | Add a UI string | `web/src/locales/*.json` (three files) |
 | Change monitor validation | `internal/models/monitor_validate.go`, `internal/services/monitor_validate.go` |

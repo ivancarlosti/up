@@ -522,6 +522,7 @@ func (s *SyncService) writeStatusPage(ctx context.Context, tx *gorm.DB, payload 
 		"show_uptime":    payload.ShowUptime,
 		"show_charts":    payload.ShowCharts,
 		"show_tags":      payload.ShowTags,
+		"show_expiry":    payload.ShowExpiry,
 		"custom_css":     payload.CustomCSS,
 		"updated_at":     payload.UpdatedAt,
 	}

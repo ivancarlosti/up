@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FlaskConical, Pencil, Play, Plus, Save, Trash2 } from 'lucide-vue-next'
+import { FlaskConical, Pencil, Play, Plus, RefreshCw, Save, Trash2 } from 'lucide-vue-next'
 import Alert from '@/components/ui/Alert.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
@@ -16,9 +16,10 @@ import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { expiryStateVariant } from '@/lib/expiry'
 import { formatDateTime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { ExpirySettings, WhoisParser, WhoisParserPayload, WhoisTestResult } from '@/lib/types'
+import type { ExpirySettings, ExpiryTarget, WhoisParser, WhoisParserPayload, WhoisTestResult } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -30,6 +31,12 @@ const testing = ref(false)
 
 const parsers = ref<WhoisParser[]>([])
 const nextRun = ref<string | null>(null)
+
+// The deduplicated worklist of the job: what a run would look up, with the last
+// observation of each target.
+const targets = ref<ExpiryTarget[]>([])
+const targetsLoading = ref(false)
+const refreshingTarget = ref('')
 
 const settingsForm = reactive<ExpirySettings>(blankSettings())
 const parserForm = reactive<WhoisParserPayload>(blankParser())
@@ -136,6 +143,51 @@ async function load(): Promise<void> {
     toasts.error(t('common.error'), translateError(error))
   } finally {
     loading.value = false
+  }
+  await loadTargets()
+}
+
+/** loadTargets refreshes the deduplicated worklist (no lookup is performed). */
+async function loadTargets(): Promise<void> {
+  targetsLoading.value = true
+  try {
+    targets.value = (await api.expiryTargets()).targets ?? []
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    targetsLoading.value = false
+  }
+}
+
+/** refreshTarget is the "check now" of a single row of the worklist. */
+async function refreshTarget(target: ExpiryTarget): Promise<void> {
+  refreshingTarget.value = target.key
+  try {
+    const result = await api.refreshExpiryTarget({ kind: target.kind, target: target.key })
+    toasts.success(t('expiry.targetRefreshed', { count: result.monitors }))
+    await loadTargets()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    refreshingTarget.value = ''
+  }
+}
+
+/** targetBadge is the label an operator reads: days left, or why there is none. */
+function targetBadge(target: ExpiryTarget): string {
+  if (typeof target.days_left === 'number') {
+    const key = target.kind === 'domain' ? 'domain.daysLeft' : 'certificate.daysLeft'
+    return t(key, { days: target.days_left })
+  }
+  switch (target.status) {
+    case 'not_found':
+      return t('domain.notFound')
+    case 'unsupported':
+      return t('domain.unsupported')
+    case 'error':
+      return t('domain.unavailable')
+    default:
+      return ''
   }
 }
 
@@ -312,6 +364,87 @@ onMounted(load)
           {{ t('common.save') }}
         </Button>
       </template>
+    </Card>
+
+    <Card :title="t('expiry.targetsTitle')" :description="t('expiry.targetsHelp')">
+      <template #actions>
+        <Button variant="outline" size="sm" :loading="targetsLoading" @click="loadTargets">
+          <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('common.refresh') }}
+        </Button>
+      </template>
+
+      <EmptyState
+        v-if="!targets.length && !targetsLoading"
+        :title="t('expiry.noTargets')"
+        :description="t('expiry.noTargetsHelp')"
+      />
+
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead class="text-left text-muted-foreground">
+            <tr class="border-b border-border">
+              <th class="py-2 pr-3 font-medium">{{ t('common.type') }}</th>
+              <th class="py-2 pr-3 font-medium">{{ t('expiry.targetLabel') }}</th>
+              <th class="py-2 pr-3 font-medium">{{ t('expiry.targetMonitorsLabel') }}</th>
+              <th class="py-2 pr-3 font-medium">{{ t('common.status') }}</th>
+              <th class="py-2 pr-3 font-medium">{{ t('expiry.targetLastCheck') }}</th>
+              <th class="py-2 text-right font-medium">{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="target in targets"
+              :key="`${target.kind}:${target.key}`"
+              class="border-b border-border/60 last:border-0"
+            >
+              <td class="py-2 pr-3">
+                <Badge variant="secondary">
+                  {{ target.kind === 'domain' ? t('expiry.targetKindDomain') : t('expiry.targetKindCertificate') }}
+                </Badge>
+                <Badge v-if="target.manual" variant="outline" class="ml-1">{{ t('expiry.targetManual') }}</Badge>
+              </td>
+              <td class="py-2 pr-3">
+                <span class="font-mono">{{ target.label }}</span>
+                <span
+                  v-if="target.server_name && target.server_name !== target.address"
+                  class="ml-1 text-muted-foreground"
+                >
+                  ({{ target.server_name }})
+                </span>
+                <div class="text-[11px] text-muted-foreground">
+                  {{ target.monitors.map((monitor) => monitor.name).join(', ') }}
+                </div>
+              </td>
+              <td class="py-2 pr-3">{{ target.monitors.length }}</td>
+              <td class="py-2 pr-3">
+                <Badge
+                  v-if="targetBadge(target)"
+                  :variant="expiryStateVariant(target.status, target.days_left)"
+                >
+                  {{ targetBadge(target) }}
+                </Badge>
+                <span v-else class="text-muted-foreground">{{ t('expiry.targetPending') }}</span>
+              </td>
+              <td class="py-2 pr-3 text-muted-foreground">
+                {{ target.checked_at ? formatDateTime(target.checked_at, locale) : '—' }}
+              </td>
+              <td class="py-2 text-right">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :loading="refreshingTarget === target.key"
+                  :title="t('expiry.targetRefresh')"
+                  :aria-label="t('expiry.targetRefresh')"
+                  @click="refreshTarget(target)"
+                >
+                  <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </Card>
 
     <Card :title="t('expiry.parsersTitle')" :description="t('expiry.parsersHelp')">

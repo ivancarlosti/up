@@ -52,6 +52,7 @@ function blank(): Partial<StatusPage> {
     show_uptime: true,
     show_charts: true,
     show_tags: false,
+    show_expiry: false,
     custom_css: '',
   }
 }
@@ -237,6 +238,7 @@ onMounted(load)
           <Switch v-model="form.show_uptime as boolean">{{ t('statusPages.showUptime') }}</Switch>
           <Switch v-model="form.show_charts as boolean">{{ t('statusPages.showCharts') }}</Switch>
           <Switch v-model="form.show_tags as boolean">{{ t('statusPages.showTags') }}</Switch>
+          <Switch v-model="form.show_expiry as boolean">{{ t('statusPages.showExpiry') }}</Switch>
         </div>
         <div class="grid gap-1 sm:col-span-2">
           <Label for="page-css">{{ t('statusPages.customCss') }}</Label>

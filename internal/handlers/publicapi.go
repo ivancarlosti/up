@@ -111,6 +111,14 @@ func (h *Container) apiGetMonitor(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
+	// Decorate adds the runtime fields the list endpoint already returns (uptime,
+	// votes, certificate, domain): asking for one monitor used to answer with a
+	// thinner payload than the list, which is never what a client expects when
+	// the expiry data is part of the contract.
+	if err := h.Monitors.Decorate(ctx, []*models.Monitor{monitor}); err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
 	stats, err := h.Stats.Window(ctx, id, queryInt(c, "hours", 24))
 	if err != nil {
 		api.WriteServiceError(c, err)

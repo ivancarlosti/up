@@ -198,7 +198,7 @@ Every attempt produces one row in `notification_logs`:
 | Column | Meaning |
 |---|---|
 | `notification_id`, `monitor_id` | who/what |
-| `event` | `down`, `up`, `test`, `cert_expiring` or `cert_expired` |
+| `event` | `down`, `up`, `test`, `cert_expiring`, `cert_expired`, `domain_expiring` or `domain_expired` |
 | `success` | delivery accepted by the endpoint |
 | `error` | reason when `success=0` (SMTP/shoutrrr message) |
 | `duration_ms` | time of the attempt |
@@ -217,10 +217,10 @@ every six hours (the same opt-in convention as `HEARTBEAT_RETENTION_DAYS`).
 
 The notification *de-duplication* rows in `notification_locks` are different:
 they are meaningless after their own window (60 s for a status event, the day for
-a certificate reminder), so they are pruned automatically after
+a certificate or domain reminder), so they are pruned automatically after
 `models.NotificationLockRetentionHours` (24 h) with no configuration. The prune
 compares `created_at`, never `bucket`, because a bucket is a minute window for
-status events but a day number for certificate events.
+status events but a day number for certificate/domain events.
 
 ## 5. Testing a channel from the CLI
 

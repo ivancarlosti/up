@@ -7,6 +7,9 @@ import type {
   ClusterStatus,
   ExpirySettings,
   ExpirySettingsResponse,
+  ExpiryTargetRefreshResult,
+  ExpiryTargetsResponse,
+  ExpiryTargetKind,
   IPRule,
   PeerStatusReport,
   StatusPage,
@@ -62,6 +65,11 @@ export const adminApi = {
   expirySettings: () => get<ExpirySettingsResponse>('/api/admin/expiry'),
   updateExpirySettings: (payload: ExpirySettings) => put<ExpirySettings>('/api/admin/expiry', payload),
   runExpiryNow: () => post<{ ran: boolean; at: string }>('/api/admin/expiry/run'),
+  /** The deduplicated worklist of the job (what a run would look up). */
+  expiryTargets: () => get<ExpiryTargetsResponse>('/api/admin/expiry/targets'),
+  /** Refreshes ONE target of the worklist ("check now" for a row). */
+  refreshExpiryTarget: (payload: { kind: ExpiryTargetKind; target: string }) =>
+    post<ExpiryTargetRefreshResult>('/api/admin/expiry/targets/refresh', payload),
   createWhoisParser: (payload: WhoisParserPayload) => post<WhoisParser>('/api/admin/expiry/whois-parsers', payload),
   updateWhoisParser: (id: number, payload: WhoisParserPayload) =>
     put<WhoisParser>(`/api/admin/expiry/whois-parsers/${id}`, payload),

@@ -7,8 +7,9 @@
 **Minimalist, cluster-ready uptime monitoring.**
 
 One Go binary - hosts its own Vue 3 dashboard, writes to your external
-MariaDB/MySQL, watches HTTP(s), Keyword, TCP and DNS targets, and runs as a
-cluster of nodes that vote on the real status.
+MariaDB/MySQL, watches HTTP(s), Keyword, TCP, DNS and SSL targets, keeps an eye on
+the expiration of the certificates and domains behind them, and runs as a cluster
+of nodes that vote on the real status.
 
 <!-- buttons -->
 [![Stars](https://img.shields.io/github/stars/ivancarlosti/up?label=⭐%20Stars&color=gold&style=flat)](https://github.com/ivancarlosti/up/stargazers)
@@ -31,13 +32,14 @@ cluster of nodes that vote on the real status.
 |---|---|
 | **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, cache buster, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) |
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
-| **Dashboard** | live status via WebSocket, 24 h uptime, latency, heartbeat bars, per-node breakdown, monitor detail with statistics and event log |
+| **Dashboard** | live status via WebSocket, 24 h uptime, latency, heartbeat bars, per-node breakdown, monitor detail with statistics and event log, and a **sortable monitors table** (name, type, group, status, interval, uptime, certificate/domain expiry) |
 | **Groups & clones** | named groups of monitors (filter, shallow/deep clone), monitor clone, groups drive the status pages |
 | **Templates & bulk** | reusable monitor templates, add monitors by pasting `name,url` (per row report, duplicates skipped), a bulk edit with a diff preview and monitors that **follow** a template (editing it pushes the defaults to every linked monitor; groups and tags stay untouched) |
-| **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
+| **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge on the dashboard/detail/admin list, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Domain expiration** | registry watching for the monitor's domain: RDAP first, per-TLD WHOIS parsers (Admin > TLD/SSL expiration) and a manual date for the TLDs that publish none; free thresholds and daily `domain_expiring`/`domain_expired` reminders |
-| **Expiry scheduling** | one daily, configurable-time check for certificates and domains, **deduplicated by target** (many monitors on the same host/domain = one lookup) with an admin rate limit per registry |
+| **Expiry scheduling** | one daily, configurable-time check for certificates and domains, **deduplicated by target** (many monitors on the same host/domain = one lookup) with an admin rate limit per registry, a target list and a per-target *check now* |
 | **Notifications** | SMTP and Webhook through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, delivery history, test button |
+| **Status pages** | public pages with groups, per-page toggles (uptime, charts, tags) and an **opt-in expiry badge**, plus a shields.io style badge |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
 | **Cluster** | two modes. **`shared`** (default): several nodes on the same external database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting and `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. **`federated`**: one database per node, the configuration, the votes and the notification ownership synchronised over the signed peer API (`CLUSTER_PEER_API`), with a derived leader, a notification election (`leader`/`hash`/`origin`), `run_on=some`, opt-in channel/settings/session-secret sync and push. See [clustering.md](docs/clustering.md) and [clustering-modes.md](docs/clustering-modes.md) |
 | **Public status pages** | per-slug pages with theme, monitor selection, uptime/charts and a README badge |

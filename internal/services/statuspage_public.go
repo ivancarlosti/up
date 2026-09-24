@@ -144,6 +144,15 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 		return nil, err
 	}
 
+	// The expiry observation is only published when the page asks for it: the
+	// payload is anonymous, and a domain expiration is not status information.
+	if !page.ShowExpiry {
+		for _, monitor := range ordered {
+			monitor.Certificate = nil
+			monitor.Domain = nil
+		}
+	}
+
 	byMonitorID := map[uint]*models.Monitor{}
 	for _, monitor := range ordered {
 		byMonitorID[monitor.ID] = monitor

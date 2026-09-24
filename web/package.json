@@ -17,6 +17,7 @@
     "e2e:status-page-groups": "node scripts/e2e-status-page-groups.mjs",
     "e2e:templates": "node scripts/e2e-templates.mjs",
     "e2e:certificates": "node scripts/e2e-certificates.mjs",
+    "e2e:domain-expiry": "node scripts/e2e-domain-expiry.mjs",
     "e2e:backfill": "node scripts/e2e-backfill.mjs",
     "e2e:cluster-federated": "node scripts/e2e-cluster-federated.mjs"
   },

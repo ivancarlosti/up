@@ -3,11 +3,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import HeartbeatBar from '@/components/monitors/HeartbeatBar.vue'
+import Badge from '@/components/ui/Badge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import LocaleSwitcher from '@/components/layout/LocaleSwitcher.vue'
 import ThemeToggle from '@/components/layout/ThemeToggle.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { certificateTitle, domainTitle, expiryStateVariant } from '@/lib/expiry'
 import { formatDateTime, formatRelative, formatUptime, statusColor } from '@/lib/format'
 import type { StatusPage } from '@/lib/types'
 
@@ -131,6 +133,24 @@ watch(slug, load)
             <div class="flex flex-wrap items-center gap-2">
               <span class="h-2.5 w-2.5 rounded-full" :class="statusColor(monitor.status)" />
               <h2 class="text-sm font-medium">{{ monitor.name }}</h2>
+
+              <!-- Opt-in per page: only the days-left badge is published, never
+                   the internal reason of a failed lookup. -->
+              <Badge
+                v-if="page.show_expiry && monitor.certificate"
+                :variant="expiryStateVariant('ok', monitor.certificate.days_left)"
+                :title="certificateTitle(monitor.certificate, locale)"
+              >
+                {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
+              </Badge>
+              <Badge
+                v-if="page.show_expiry && monitor.domain && monitor.domain.status === 'ok'"
+                :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
+                :title="domainTitle(monitor.domain, locale)"
+              >
+                {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
+              </Badge>
+
               <span class="ml-auto text-[11px] text-muted-foreground">{{ t(`status.${monitor.status}`) }}</span>
             </div>
 

@@ -12,6 +12,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
+import SortHeader from '@/components/ui/SortHeader.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import Switch from '@/components/ui/Switch.vue'
 import ApplyTemplateDialog from '@/components/monitors/ApplyTemplateDialog.vue'
@@ -19,11 +20,12 @@ import BulkAddDialog from '@/components/monitors/BulkAddDialog.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
-import { formatDateTime, formatInterval, formatUptime } from '@/lib/format'
+import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant } from '@/lib/expiry'
+import { formatInterval, formatUptime } from '@/lib/format'
+import { monitorSortKeys, sortMonitors } from '@/lib/sort'
+import type { MonitorSortKey, SortDirection } from '@/lib/sort'
 import { useToastStore } from '@/stores/toast'
 import type {
-  CertificateInfo,
-  DomainInfo,
   Monitor,
   MonitorCloneOptions,
   MonitorGroup,
@@ -81,23 +83,43 @@ const counts = computed(() => {
   return counters
 })
 
-/** expiryVariant colours an expiry badge (certificate or domain) by urgency. */
-function expiryVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
-  if (daysLeft <= 7) return 'danger'
-  if (daysLeft <= 30) return 'warning'
-  return 'success'
+/**
+ * Sort state of the table.
+ *
+ * The choice is remembered per browser (the same pattern as the theme store) so
+ * an operator who always sorts by "domain" finds the table that way after a
+ * reload. A hand edited or stale value falls back to the default instead of
+ * breaking the page.
+ */
+const SORT_STORAGE_KEY = 'up.admin.monitors.sort'
+
+function loadSort(): { key: MonitorSortKey; direction: SortDirection } {
+  const fallback: { key: MonitorSortKey; direction: SortDirection } = { key: 'name', direction: 'asc' }
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as { key?: MonitorSortKey; direction?: SortDirection }
+    if (!parsed.key || !monitorSortKeys.includes(parsed.key)) return fallback
+    return { key: parsed.key, direction: parsed.direction === 'desc' ? 'desc' : 'asc' }
+  } catch {
+    return fallback
+  }
 }
 
-/** certificateTitle is the tooltip of the certificate badge (issuer + expiry). */
-function certificateTitle(certificate: CertificateInfo): string {
-  const parts = [certificate.issuer, certificate.subject].filter(Boolean)
-  return `${parts.join(' — ')} (${formatDateTime(certificate.not_after, locale.value)})`
-}
+const sort = ref(loadSort())
 
-/** domainTitle is the tooltip of the domain badge (registrar + expiry). */
-function domainTitle(domain: DomainInfo): string {
-  const parts = [domain.registrar, domain.domain].filter(Boolean)
-  return `${parts.join(' — ')} (${formatDateTime(domain.expires_at, locale.value)})`
+/** toggleSort switches the column, or flips the direction of the current one. */
+function toggleSort(key: MonitorSortKey): void {
+  sort.value =
+    sort.value.key === key
+      ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: 'asc' }
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort.value))
+  } catch {
+    // A browser that refuses to persist (private mode) still sorts, it just
+    // forgets the preference after a reload.
+  }
 }
 
 /** groupFilterOptions adds the "all groups" entry to the real groups. */
@@ -115,6 +137,14 @@ const filtered = computed(() => {
     return monitor.name.toLowerCase().includes(term) || monitor.type.includes(term)
   })
 })
+
+/** sorted applies the chosen column to the filtered rows (see lib/sort.ts). */
+const sorted = computed(() =>
+  sortMonitors(filtered.value, sort.value.key, sort.value.direction, {
+    groupNames: groupNames.value,
+    locale: locale.value,
+  }),
+)
 
 async function load(): Promise<void> {
   try {
@@ -238,19 +268,69 @@ onMounted(load)
       <table class="data-table">
         <thead>
           <tr>
-            <th>{{ t('common.name') }}</th>
-            <th>{{ t('common.type') }}</th>
-            <th>{{ t('monitor.groupsSection') }}</th>
-            <th v-if="hasCertificates">{{ t('certificate.column') }}</th>
-            <th v-if="hasDomains">{{ t('domain.column') }}</th>
-            <th>{{ t('common.status') }}</th>
-            <th>{{ t('common.interval') }}</th>
-            <th>{{ t('common.uptime') }}</th>
+            <SortHeader
+              :label="t('common.name')"
+              column="name"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('name')"
+            />
+            <SortHeader
+              :label="t('common.type')"
+              column="type"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('type')"
+            />
+            <SortHeader
+              :label="t('monitor.groupsSection')"
+              column="group"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('group')"
+            />
+            <SortHeader
+              v-if="hasCertificates"
+              :label="t('certificate.column')"
+              column="certificate"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('certificate')"
+            />
+            <SortHeader
+              v-if="hasDomains"
+              :label="t('domain.column')"
+              column="domain"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('domain')"
+            />
+            <SortHeader
+              :label="t('common.status')"
+              column="status"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('status')"
+            />
+            <SortHeader
+              :label="t('common.interval')"
+              column="interval"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('interval')"
+            />
+            <SortHeader
+              :label="t('common.uptime')"
+              column="uptime"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="toggleSort('uptime')"
+            />
             <th>{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="monitor in filtered" :key="monitor.id">
+          <tr v-for="monitor in sorted" :key="monitor.id">
             <td>
               <button class="text-left hover:underline" @click="router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })">
                 {{ monitor.name }}
@@ -272,7 +352,7 @@ onMounted(load)
               <Badge
                 v-if="monitor.certificate"
                 :variant="expiryVariant(monitor.certificate.days_left)"
-                :title="certificateTitle(monitor.certificate)"
+                :title="certificateTitle(monitor.certificate, locale)"
               >
                 {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
               </Badge>
@@ -282,8 +362,8 @@ onMounted(load)
             <td v-if="hasDomains">
               <Badge
                 v-if="monitor.domain && monitor.domain.status === 'ok'"
-                :variant="expiryVariant(monitor.domain.days_left)"
-                :title="domainTitle(monitor.domain)"
+                :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
+                :title="domainTitle(monitor.domain, locale)"
               >
                 {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
               </Badge>

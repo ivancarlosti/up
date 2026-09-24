@@ -131,15 +131,23 @@ func (s *ExpiryService) logServedOnce(day int64, now time.Time, settings models.
 		"next_run", models.NextDailyRun(now, settings.CheckTime, settings.CheckTimezone).Format(time.RFC3339))
 }
 
-// RunNow refreshes every deduplicated target and evaluates the alerts. It is the
-// manual "run now" action and the body of the daily job.
-func (s *ExpiryService) RunNow(ctx context.Context) error {
+// expiryRun is one prepared worklist: the resolver configured with the current
+// settings and parsers, plus the deduplicated targets of the active watchers.
+type expiryRun struct {
+	plan     expiryPlan
+	settings models.ExpirySettings
+}
+
+// prepare loads the configuration and the watchers and builds the worklist. It is
+// the single definition of "what a run looks up", shared by the daily job and by
+// the per-target refresh of the admin view.
+func (s *ExpiryService) prepare(ctx context.Context) (*expiryRun, error) {
 	settings := s.settings.ExpirySettings()
 	parsers := []models.WhoisParser{}
 	if s.parsers != nil {
 		loaded, err := s.parsers.Enabled(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		parsers = loaded
 	}
@@ -147,83 +155,82 @@ func (s *ExpiryService) RunNow(ctx context.Context) error {
 
 	watchers, err := s.monitors.ExpiryWatchers(ctx)
 	if err != nil {
+		return nil, err
+	}
+	return &expiryRun{plan: planExpiryTargets(watchers), settings: settings}, nil
+}
+
+// RunNow refreshes every deduplicated target and evaluates the alerts. It is the
+// manual "run now" action and the body of the daily job.
+func (s *ExpiryService) RunNow(ctx context.Context) error {
+	run, err := s.prepare(ctx)
+	if err != nil {
 		return err
 	}
-	if len(watchers) == 0 {
+	if len(run.plan.certificates) == 0 && len(run.plan.domains) == 0 && len(run.plan.manual) == 0 {
 		s.log.Debug("expiry job: nothing to watch")
 		return nil
 	}
 
-	certTargets := map[string]expiry.CertificateTarget{}
-	certWatchers := map[string][]*models.Monitor{}
-	domainTargets := map[string][]*models.Monitor{}
-	manualMonitors := []*models.Monitor{}
-
-	for _, monitor := range watchers {
-		if monitor.CertWatch {
-			if target, ok := expiry.CertificateTargetFor(monitor); ok {
-				key := target.Key()
-				certTargets[key] = target
-				certWatchers[key] = append(certWatchers[key], monitor)
-			}
-		}
-		if !monitor.DomainWatch {
-			continue
-		}
-		if expiry.DomainFor(monitor) == "" {
-			continue
-		}
-		if monitor.DomainExpiresAt != nil && !monitor.DomainExpiresAt.IsZero() {
-			// A manual date needs no lookup at all.
-			manualMonitors = append(manualMonitors, monitor)
-			continue
-		}
-		domain := expiry.DomainFor(monitor)
-		domainTargets[domain] = append(domainTargets[domain], monitor)
-	}
-
 	now := time.Now().UTC()
-	timeout := time.Duration(settings.TimeoutSeconds) * time.Second
+	timeout := time.Duration(run.settings.TimeoutSeconds) * time.Second
 
 	certificates := 0
-	for key, target := range certTargets {
-		// One handshake per unique host:port:SNI, fanned out to every monitor
-		// that shares it.
-		info, probeErr := checkers.ProbeCertificate(ctx, target.Address(), target.ServerName, target.Insecure, timeout)
-		if probeErr != nil && info == nil {
-			s.log.Warn("expiry job: certificate lookup failed", "target", target.Address(), "error", probeErr)
-			continue
-		}
-		info.CapturedByNode = s.cfg.NodeID
-		for _, monitor := range certWatchers[key] {
-			s.recordCertificate(ctx, monitor, info, now)
-			certificates++
-		}
+	for key, target := range run.plan.certificates {
+		certificates += s.refreshCertificate(ctx, target, run.plan.certWatchers[key], now, timeout)
 	}
 
 	domains := 0
-	for domain, monitorsForDomain := range domainTargets {
-		// One registry lookup per registrable domain, fanned out to every monitor
-		// that shares it.
-		info := s.resolver.Resolve(ctx, domain, nil)
-		info.CheckedByNode = s.cfg.NodeID
-		for _, monitor := range monitorsForDomain {
-			s.recordDomain(ctx, monitor, info, now)
-			domains++
-		}
+	for domain, monitors := range run.plan.domains {
+		domains += s.refreshDomain(ctx, domain, monitors, false, now)
 	}
-	for _, monitor := range manualMonitors {
-		info := s.resolver.Resolve(ctx, expiry.DomainFor(monitor), monitor.DomainExpiresAt)
-		info.CheckedByNode = s.cfg.NodeID
-		s.recordDomain(ctx, monitor, info, now)
-		domains++
+	for domain, monitors := range run.plan.manual {
+		domains += s.refreshDomain(ctx, domain, monitors, true, now)
 	}
 
 	s.log.Info("expiry job finished",
-		"certificate_targets", len(certTargets), "certificate_monitors", certificates,
-		"domain_targets", len(domainTargets), "domain_monitors", domains,
-		"rate_limit_ms", settings.RateLimitMS)
+		"certificate_targets", len(run.plan.certificates), "certificate_monitors", certificates,
+		"domain_targets", len(run.plan.domains), "domain_monitors", domains,
+		"rate_limit_ms", run.settings.RateLimitMS)
 	return nil
+}
+
+// refreshCertificate performs the single handshake of a target and fans the
+// observation out to every monitor that shares it. It returns how many monitors
+// were updated.
+func (s *ExpiryService) refreshCertificate(ctx context.Context, target expiry.CertificateTarget, monitors []*models.Monitor, now time.Time, timeout time.Duration) int {
+	if len(monitors) == 0 {
+		return 0
+	}
+	info, probeErr := checkers.ProbeCertificate(ctx, target.Address(), target.ServerName, target.Insecure, timeout)
+	if probeErr != nil && info == nil {
+		s.log.Warn("expiry job: certificate lookup failed", "target", target.Address(), "error", probeErr)
+		return 0
+	}
+	info.CapturedByNode = s.cfg.NodeID
+	for _, monitor := range monitors {
+		s.recordCertificate(ctx, monitor, info, now)
+	}
+	return len(monitors)
+}
+
+// refreshDomain performs the single registry lookup of a target (a manual date
+// never touches the network) and fans the observation out to every monitor that
+// shares it. It returns how many monitors were updated.
+func (s *ExpiryService) refreshDomain(ctx context.Context, domain string, monitors []*models.Monitor, manual bool, now time.Time) int {
+	if len(monitors) == 0 {
+		return 0
+	}
+	var manualDate *time.Time
+	if manual && monitors[0].DomainExpiresAt != nil {
+		manualDate = monitors[0].DomainExpiresAt
+	}
+	info := s.resolver.Resolve(ctx, domain, manualDate)
+	info.CheckedByNode = s.cfg.NodeID
+	for _, monitor := range monitors {
+		s.recordDomain(ctx, monitor, info, now)
+	}
+	return len(monitors)
 }
 
 // recordCertificate stores the observation of one monitor and evaluates its

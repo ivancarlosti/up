@@ -356,6 +356,7 @@ Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
 | `status_pages` (+ `status_page_monitors`, `status_page_groups`) | sync | referenced monitors/groups resolve by uuid |
 | `heartbeats` | local | see **D5** |
 | `monitor_states`, `notification_logs`, `monitor_certificates` | local | runtime, derived or node-specific |
+| `monitor_domains`, `whois_parsers` | local | the domain observation is node-specific and the per-TLD rules are operator input, not configuration the peers must agree on (there is no sync entity for either) |
 | notification channels (`notifications`) | opt-in | `CLUSTER_SYNC_NOTIFICATIONS=true`; the payload carries secrets, so it must only be enabled over TLS (decision **D4**) |
 | `settings` | opt-in | whitelist only (app name, default locale, default theme); the cluster key is exchanged at join |
 | `session_secret` | opt-in | without it a login is valid on one dashboard only (decision **D4**) |

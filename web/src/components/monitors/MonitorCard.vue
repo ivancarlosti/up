@@ -7,6 +7,7 @@ import Badge from '@/components/ui/Badge.vue'
 import HeartbeatBar from '@/components/monitors/HeartbeatBar.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import { formatInterval, formatLatency, formatRelative, formatUptime } from '@/lib/format'
+import { certificateTitle, domainTitle, expiryStateVariant } from '@/lib/expiry'
 import type { Monitor } from '@/lib/types'
 
 const props = defineProps<{ monitor: Monitor }>()
@@ -98,6 +99,41 @@ const targetHref = computed(() => {
       <div class="flex min-w-0 flex-wrap items-center gap-1">
         <Badge variant="secondary">{{ monitor.type }}</Badge>
         <Badge v-if="!monitor.active" variant="warning">{{ t('common.paused') }}</Badge>
+
+        <!-- Expiration watches: the same badges as the detail page, so the
+             dashboard answers "what expires soon?" without opening a card. -->
+        <Badge
+          v-if="monitor.certificate"
+          :variant="expiryStateVariant('ok', monitor.certificate.days_left)"
+          :title="certificateTitle(monitor.certificate, locale)"
+        >
+          {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
+        </Badge>
+        <Badge v-else-if="monitor.cert_watch" variant="secondary">{{ t('certificate.pending') }}</Badge>
+        <Badge
+          v-if="monitor.domain && monitor.domain.status === 'ok'"
+          :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
+          :title="domainTitle(monitor.domain, locale)"
+        >
+          {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
+        </Badge>
+        <Badge
+          v-else-if="monitor.domain && monitor.domain.status === 'not_found'"
+          variant="secondary"
+        >
+          {{ t('domain.notFound') }}
+        </Badge>
+        <Badge
+          v-else-if="monitor.domain && monitor.domain.status === 'unsupported'"
+          variant="secondary"
+        >
+          {{ t('domain.unsupported') }}
+        </Badge>
+        <Badge v-else-if="monitor.domain" variant="secondary" :title="monitor.domain.error || ''">
+          {{ t('domain.unavailable') }}
+        </Badge>
+        <Badge v-else-if="monitor.domain_watch" variant="secondary">{{ t('domain.pending') }}</Badge>
+
         <Badge v-for="tag in tags" :key="tag" variant="outline">{{ tag }}</Badge>
       </div>
       <span class="shrink-0 text-[10px] text-muted-foreground">{{ formatRelative(monitor.last_check_at, locale) }}</span>

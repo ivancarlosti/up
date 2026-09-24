@@ -11,6 +11,7 @@ import (
 	"github.com/ivancarlosti/up/internal/expiry"
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
+	"github.com/ivancarlosti/up/internal/services"
 )
 
 // expirySettings returns the daily expiry job configuration, the TLD rules and
@@ -69,6 +70,47 @@ func (h *Container) runExpiryNow(c *gin.Context) {
 		return
 	}
 	api.OK(c, gin.H{"ran": true, "at": time.Now().UTC()})
+}
+
+// expiryTargets lists the deduplicated worklist of the daily job, with the
+// observation stored for each monitor (what a run would look up, and when it was
+// last refreshed).
+func (h *Container) expiryTargets(c *gin.Context) {
+	if h.Expiry == nil {
+		api.WriteError(c, http.StatusServiceUnavailable, i18n.CodeInternal, "the expiry job is not wired")
+		return
+	}
+	targets, err := h.Expiry.Targets(c.Request.Context())
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, gin.H{"targets": targets, "count": len(targets)})
+}
+
+// refreshExpiryTarget refreshes a single target of the worklist ("check now" for
+// one endpoint or one domain) and reports how many monitors it updated.
+func (h *Container) refreshExpiryTarget(c *gin.Context) {
+	if h.Expiry == nil {
+		api.WriteError(c, http.StatusServiceUnavailable, i18n.CodeInternal, "the expiry job is not wired")
+		return
+	}
+	var payload struct {
+		Kind   string `json:"kind"`
+		Target string `json:"target"`
+	}
+	if !bindJSON(c, &payload) {
+		return
+	}
+	refreshed, err := h.Expiry.RunTarget(c.Request.Context(), services.ExpiryTargetKind(payload.Kind), payload.Target)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, gin.H{
+		"ran": true, "kind": payload.Kind, "target": payload.Target,
+		"monitors": refreshed, "at": time.Now().UTC(),
+	})
 }
 
 // listWhoisParsers returns every configured per-TLD rule.

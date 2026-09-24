@@ -167,6 +167,8 @@ export interface StatusPage {
   show_uptime: boolean
   show_charts: boolean
   show_tags: boolean
+  /** Publishes the certificate/domain badges of the monitors on the page. */
+  show_expiry: boolean
   custom_css: string
   created_at: string
   updated_at: string
@@ -328,4 +330,53 @@ export interface WhoisTestResult {
   error?: string
   expires_at?: string
   days_left?: number
+}
+
+/** The two things the daily expiry job refreshes. */
+export type ExpiryTargetKind = 'certificate' | 'domain'
+
+/** One monitor of an expiry target, with the observation stored for it. */
+export interface ExpiryTargetMonitor {
+  id: number
+  name: string
+  status?: string
+  days_left?: number
+  expires_at?: string
+  checked_at?: string
+}
+
+/**
+ * ExpiryTarget is one deduplicated unit of work of the daily job: the endpoint
+ * behind a TLS handshake or the registrable domain behind a registry lookup.
+ */
+export interface ExpiryTarget {
+  kind: ExpiryTargetKind
+  /** Dedup identity: "host:port|sni" for a certificate, the eTLD+1 for a domain. */
+  key: string
+  label: string
+  address?: string
+  server_name?: string
+  domain?: string
+  /** Manual: the target only exists because of the date typed in the monitor. */
+  manual: boolean
+  monitors: ExpiryTargetMonitor[]
+  status?: string
+  days_left?: number
+  expires_at?: string
+  checked_at?: string
+}
+
+/** Response of GET /api/admin/expiry/targets. */
+export interface ExpiryTargetsResponse {
+  targets: ExpiryTarget[]
+  count: number
+}
+
+/** Response of POST /api/admin/expiry/targets/refresh. */
+export interface ExpiryTargetRefreshResult {
+  ran: boolean
+  kind: ExpiryTargetKind
+  target: string
+  monitors: number
+  at: string
 }

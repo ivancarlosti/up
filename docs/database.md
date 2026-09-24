@@ -115,6 +115,12 @@ the database is UTC).
 `date_layouts` (`;` separated Go layouts), `not_found_pattern`, `min_interval_ms`
 (per-registry rate limit override), `enabled` and `note`.
 
+`status_pages.show_expiry` is the third consumer of the same observations: a
+public page publishes the certificate/domain days-left badges only when the
+operator turned it on (default `false`), and `PublicPayload` strips the
+`certificate`/`domain` objects from the anonymous payload otherwise
+(`docs/status-pages.md`).
+
 **Every value that comes from a remote server is clipped before the insert.**
 The columns are dimensioned for the widest realistic answer and the observation
 is trimmed to fit instead of being rejected: `monitor_certificates.dns_names` is
@@ -125,7 +131,18 @@ oversized payload fails the whole insert with `Data too long for column` and
 costs the observation *and* its notification (this is exactly what happened to a
 `*.google.com` certificate before `dns_names` was widened).
 
-## 3. Complete DDL (dumped from a live instance running MariaDB 11.8)
+## 3. Complete DDL (every table, as MariaDB 11.8 reports it)
+
+The block below is a real `SHOW CREATE TABLE` of a freshly migrated instance
+(MariaDB 11.8.9, the default `utf8mb4_uca1400_ai_ci` collation), reproduced with:
+
+    for t in $(docker exec up-mariadb mariadb -u up -psecret up -N -e 'SHOW TABLES;' | sort); do
+      docker exec up-mariadb mariadb -u up -psecret up -N -e "SHOW CREATE TABLE `$t`\G" | sed 's/^Create Table: //'
+    done
+
+It is the contract the column budgets above refer to: `AutoMigrate` creates every
+table on every install (including the synchronisation tables a `federated` node
+uses) and adds the columns an older database is missing.
 
 ```sql
 CREATE TABLE `api_tokens` (
@@ -142,7 +159,7 @@ CREATE TABLE `api_tokens` (
   PRIMARY KEY (`id`),
   KEY `idx_api_tokens_prefix` (`prefix`),
   KEY `idx_api_tokens_token_hash` (`token_hash`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `cluster_settings` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -167,7 +184,7 @@ CREATE TABLE `heartbeats` (
   KEY `idx_hb_monitor_time` (`monitor_id`,`created_at`),
   KEY `idx_hb_monitor_node` (`monitor_id`,`node_id`,`created_at`),
   KEY `idx_heartbeats_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=1636 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `ip_rules` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -181,31 +198,10 @@ CREATE TABLE `ip_rules` (
   PRIMARY KEY (`id`),
   KEY `idx_ip_rules_action` (`action`),
   KEY `idx_ip_rules_scope` (`scope`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
-
-CREATE TABLE `monitor_notifications` (
-  `monitor_id` bigint(20) unsigned NOT NULL,
-  `notification_id` bigint(20) unsigned NOT NULL,
-  `on_down` tinyint(1) NOT NULL DEFAULT 1,
-  `on_up` tinyint(1) NOT NULL DEFAULT 1,
-  PRIMARY KEY (`monitor_id`,`notification_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
-CREATE TABLE `monitor_states` (
-  `monitor_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `status` varchar(20) NOT NULL DEFAULT 'unknown',
-  `changed_at` datetime(3) DEFAULT NULL,
-  `notified` varchar(20) DEFAULT NULL,
-  `notified_at` datetime(3) DEFAULT NULL,
-  `last_message` varchar(500) DEFAULT NULL,
-  `last_latency` bigint(20) DEFAULT NULL,
-  `last_check_at` datetime(3) DEFAULT NULL,
-  `updated_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`monitor_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
-
 CREATE TABLE `monitor_certificates` (
-  `monitor_id` bigint(20) unsigned NOT NULL,
+  `monitor_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `subject` varchar(255) DEFAULT NULL,
   `issuer` varchar(255) DEFAULT NULL,
   `serial` varchar(120) DEFAULT NULL,
@@ -220,21 +216,29 @@ CREATE TABLE `monitor_certificates` (
   PRIMARY KEY (`monitor_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
-CREATE TABLE `monitor_templates` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` varchar(36) NOT NULL,
-  `origin_node_id` varchar(64) DEFAULT NULL,
-  `revision` bigint(20) NOT NULL DEFAULT 1,
-  `name` varchar(150) NOT NULL,
-  `description` varchar(500) DEFAULT NULL,
-  `type` varchar(20) NOT NULL,
-  `config` json DEFAULT NULL,
-  `defaults` json DEFAULT NULL,
-  `created_at` datetime(3) DEFAULT NULL,
-  `updated_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_monitor_templates_uuid` (`uuid`),
-  UNIQUE KEY `idx_monitor_templates_name` (`name`)
+CREATE TABLE `monitor_domains` (
+  `monitor_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `domain` varchar(255) DEFAULT NULL,
+  `registrar` varchar(200) DEFAULT NULL,
+  `expires_at` datetime(3) DEFAULT NULL,
+  `source` varchar(10) DEFAULT NULL,
+  `status` varchar(16) DEFAULT NULL,
+  `error` varchar(500) DEFAULT NULL,
+  `days_left` bigint(20) DEFAULT NULL,
+  `checked_at` datetime(3) DEFAULT NULL,
+  `checked_by_node` varchar(64) DEFAULT NULL,
+  `notified_days` varchar(120) DEFAULT NULL,
+  `last_notified_day` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`monitor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_group_members` (
+  `group_id` bigint(20) unsigned NOT NULL,
+  `monitor_id` bigint(20) unsigned NOT NULL,
+  `sort_order` bigint(20) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`group_id`,`monitor_id`),
+  KEY `idx_monitor_group_members_group_id` (`group_id`),
+  KEY `idx_monitor_group_members_monitor_id` (`monitor_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `monitor_groups` (
@@ -253,13 +257,12 @@ CREATE TABLE `monitor_groups` (
   UNIQUE KEY `idx_monitor_groups_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
-CREATE TABLE `monitor_group_members` (
-  `group_id` bigint(20) unsigned NOT NULL,
+CREATE TABLE `monitor_notifications` (
   `monitor_id` bigint(20) unsigned NOT NULL,
-  `sort_order` bigint(20) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`group_id`,`monitor_id`),
-  KEY `idx_monitor_group_members_group_id` (`group_id`),
-  KEY `idx_monitor_group_members_monitor_id` (`monitor_id`)
+  `notification_id` bigint(20) unsigned NOT NULL,
+  `on_down` tinyint(1) NOT NULL DEFAULT 1,
+  `on_up` tinyint(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (`monitor_id`,`notification_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `monitors` (
@@ -279,14 +282,55 @@ CREATE TABLE `monitors` (
   `upside_down` tinyint(1) NOT NULL DEFAULT 0,
   `run_on` varchar(20) NOT NULL DEFAULT 'all',
   `node_id` varchar(64) DEFAULT NULL,
+  `run_on_nodes` varchar(500) DEFAULT NULL,
   `tags` varchar(255) DEFAULT NULL,
+  `cert_watch` tinyint(1) NOT NULL DEFAULT 0,
+  `cert_notify` tinyint(1) NOT NULL DEFAULT 0,
+  `cert_warn_days` varchar(120) DEFAULT NULL,
+  `domain_watch` tinyint(1) NOT NULL DEFAULT 0,
+  `domain_notify` tinyint(1) NOT NULL DEFAULT 0,
+  `domain_warn_days` varchar(120) DEFAULT NULL,
+  `domain_expires_at` datetime(3) DEFAULT NULL,
+  `template_uuid` varchar(36) DEFAULT NULL,
   `config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`config`)),
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_monitors_uuid` (`uuid`),
-  KEY `idx_monitors_type` (`type`)
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+  KEY `idx_monitors_type` (`type`),
+  KEY `idx_monitors_template_uuid` (`template_uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_states` (
+  `monitor_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `status` varchar(20) NOT NULL DEFAULT 'unknown',
+  `changed_at` datetime(3) DEFAULT NULL,
+  `notified` varchar(20) DEFAULT NULL,
+  `notified_at` datetime(3) DEFAULT NULL,
+  `last_message` varchar(500) DEFAULT NULL,
+  `last_latency` bigint(20) DEFAULT NULL,
+  `last_check_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`monitor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_templates` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) NOT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
+  `name` varchar(150) NOT NULL,
+  `description` varchar(500) DEFAULT NULL,
+  `type` varchar(20) NOT NULL,
+  `config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`config`)),
+  `defaults` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`defaults`)),
+  `propagate` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_monitor_templates_uuid` (`uuid`),
+  UNIQUE KEY `idx_monitor_templates_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `nodes` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -301,7 +345,7 @@ CREATE TABLE `nodes` (
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_nodes_node_id` (`node_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `notification_locks` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -312,7 +356,7 @@ CREATE TABLE `notification_locks` (
   `created_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_notification_lock` (`monitor_id`,`event`,`bucket`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `notification_logs` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -327,10 +371,13 @@ CREATE TABLE `notification_logs` (
   PRIMARY KEY (`id`),
   KEY `idx_notification_logs_notification_id` (`notification_id`),
   KEY `idx_notification_logs_monitor_id` (`monitor_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `notifications` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) DEFAULT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
   `name` varchar(150) NOT NULL,
   `type` varchar(20) NOT NULL,
   `active` tinyint(1) NOT NULL DEFAULT 1,
@@ -340,14 +387,39 @@ CREATE TABLE `notifications` (
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_notifications_uuid` (`uuid`),
   KEY `idx_notifications_type` (`type`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `peer_votes` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `monitor_uuid` varchar(36) NOT NULL,
+  `node_id` varchar(64) NOT NULL,
+  `status` bigint(20) NOT NULL,
+  `latency_ms` bigint(20) DEFAULT NULL,
+  `message` varchar(500) DEFAULT NULL,
+  `important` tinyint(1) NOT NULL DEFAULT 0,
+  `checked_at` datetime(3) DEFAULT NULL,
+  `fetched_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_peer_votes` (`monitor_uuid`,`node_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `settings` (
   `setting_key` varchar(64) NOT NULL,
   `value` text DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `status_page_groups` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `status_page_id` bigint(20) unsigned NOT NULL,
+  `group_id` bigint(20) unsigned NOT NULL,
+  `display_name` varchar(150) DEFAULT NULL,
+  `sort_order` bigint(20) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_status_page_group` (`status_page_id`,`group_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `status_page_monitors` (
@@ -361,7 +433,7 @@ CREATE TABLE `status_page_monitors` (
   `show_chart` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_status_page_monitor` (`status_page_id`,`monitor_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `status_pages` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -377,13 +449,120 @@ CREATE TABLE `status_pages` (
   `show_uptime` tinyint(1) NOT NULL DEFAULT 1,
   `show_charts` tinyint(1) NOT NULL DEFAULT 1,
   `show_tags` tinyint(1) NOT NULL DEFAULT 0,
+  `show_expiry` tinyint(1) NOT NULL DEFAULT 0,
   `custom_css` text DEFAULT NULL,
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_status_pages_slug` (`slug`),
   UNIQUE KEY `idx_status_pages_uuid` (`uuid`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `sync_conflicts` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `entity` varchar(32) NOT NULL,
+  `uuid` varchar(36) NOT NULL,
+  `kept_origin` varchar(64) DEFAULT NULL,
+  `kept_revision` bigint(20) DEFAULT NULL,
+  `lost_origin` varchar(64) DEFAULT NULL,
+  `lost_revision` bigint(20) DEFAULT NULL,
+  `detected_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_sync_conflicts_uuid` (`uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `sync_dead_letters` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `peer_node_id` varchar(64) NOT NULL,
+  `change_id` bigint(20) NOT NULL,
+  `entity` varchar(32) DEFAULT NULL,
+  `uuid` varchar(36) DEFAULT NULL,
+  `payload_hash` varchar(64) DEFAULT NULL,
+  `attempts` bigint(20) NOT NULL DEFAULT 1,
+  `skipped` tinyint(1) NOT NULL DEFAULT 0,
+  `last_error` varchar(500) DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_sync_dead_letter` (`peer_node_id`,`change_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `sync_objects` (
+  `uuid` varchar(36) NOT NULL,
+  `entity` varchar(32) NOT NULL,
+  `local_id` bigint(20) unsigned NOT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
+  `deleted_at` datetime(3) DEFAULT NULL,
+  `payload` text DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`uuid`),
+  KEY `idx_sync_objects_entity` (`entity`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `sync_outbox` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `entity` varchar(32) NOT NULL,
+  `uuid` varchar(36) NOT NULL,
+  `action` varchar(10) NOT NULL,
+  `origin_node_id` varchar(64) DEFAULT NULL,
+  `revision` bigint(20) NOT NULL DEFAULT 1,
+  `payload` text DEFAULT NULL,
+  `payload_hash` varchar(64) DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_sync_outbox_entity` (`entity`),
+  KEY `idx_sync_outbox_uuid` (`uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `sync_peers` (
+  `peer_node_id` varchar(64) NOT NULL,
+  `peer_name` varchar(150) DEFAULT NULL,
+  `peer_api_url` varchar(255) DEFAULT NULL,
+  `peer_version` varchar(64) DEFAULT NULL,
+  `protocol_version` bigint(20) NOT NULL DEFAULT 0,
+  `status` varchar(20) NOT NULL DEFAULT 'unknown',
+  `last_seen_at` datetime(3) DEFAULT NULL,
+  `last_success_at` datetime(3) DEFAULT NULL,
+  `online_since` datetime(3) DEFAULT NULL,
+  `last_error` longtext DEFAULT NULL,
+  `last_error_at` datetime(3) DEFAULT NULL,
+  `last_change_id` bigint(20) NOT NULL DEFAULT 0,
+  `last_manifest_at` datetime(3) DEFAULT NULL,
+  `last_manifest_ok` tinyint(1) NOT NULL DEFAULT 0,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`peer_node_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `sync_pending_links` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `entity` varchar(32) NOT NULL,
+  `uuid` varchar(36) NOT NULL,
+  `kind` varchar(32) NOT NULL,
+  `missing_uuid` varchar(36) NOT NULL,
+  `attempts` bigint(20) NOT NULL DEFAULT 0,
+  `last_attempt_at` datetime(3) DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_sync_pending_link` (`entity`,`uuid`,`kind`,`missing_uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `whois_parsers` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `tld` varchar(80) NOT NULL,
+  `server` varchar(190) DEFAULT NULL,
+  `expiry_regex` varchar(500) DEFAULT NULL,
+  `date_layouts` varchar(255) DEFAULT NULL,
+  `not_found_pattern` varchar(255) DEFAULT NULL,
+  `min_interval_ms` bigint(20) NOT NULL DEFAULT 0,
+  `enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_whois_parsers_tld` (`tld`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 ```
 
 Notes on the generated DDL:

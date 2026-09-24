@@ -33,6 +33,10 @@ type StatusPage struct {
 	ShowUptime bool `gorm:"not null;default:true" json:"show_uptime"`
 	ShowCharts bool `gorm:"not null;default:true" json:"show_charts"`
 	ShowTags   bool `gorm:"not null;default:false" json:"show_tags"`
+	// ShowExpiry publishes the certificate and domain badges of the monitors on
+	// the page. It is opt-in on purpose: the expiry of a domain is business
+	// information, not a status everybody who can see the page needs.
+	ShowExpiry bool `gorm:"not null;default:false" json:"show_expiry"`
 	// CustomCSS is injected in the public page (advanced users only).
 	CustomCSS string `gorm:"type:text" json:"custom_css"`
 
