@@ -305,6 +305,12 @@ every watched endpoint at the time configured in *Admin > TLD/SSL expiration*:
 - one node of a cluster runs the job (a day-bucket lock elects it), so the
   registries are not queried once per node.
 
+The observation is stored within the column budgets: the subject alternative
+names live in a `TEXT` column (a CDN certificate can list hundreds of them) and
+a pathological list is trimmed from the tail with a warning in the log, so a
+certificate is never silently missing — and with it its reminders — because of
+its size.
+
 ## 10. Domain expiration
 
 The registry counterpart of §9: the same thresholds, the same daily reminder,

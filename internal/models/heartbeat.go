@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+// MaxHeartbeatMessageLen is the width of heartbeats.message. A probe message is
+// clipped to it before the insert so a verbose result (a long DNS answer, an
+// exotic TLS error) can never be lost.
+const MaxHeartbeatMessageLen = 500
+
 // Heartbeat is a single check result produced by one node.
 type Heartbeat struct {
 	ID        uint `gorm:"primaryKey" json:"id"`

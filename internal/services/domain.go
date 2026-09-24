@@ -76,24 +76,27 @@ func (s *DomainService) Record(ctx context.Context, monitorID uint, nodeID strin
 	if err != nil {
 		return false, err
 	}
-	changed := current == nil ||
-		current.Domain != info.Domain ||
-		!current.ExpiresAt.Equal(info.ExpiresAt) ||
-		current.DaysLeft != info.DaysLeft ||
-		current.Status != string(info.Status)
-
+	// The observation is clipped to the column widths before anything else (the
+	// registrar and the error are free text coming from a registry), and the
+	// comparison uses the clipped row so a clipped value cannot look "changed"
+	// on every run.
 	row := models.MonitorDomain{
 		MonitorID:     monitorID,
-		Domain:        info.Domain,
-		Registrar:     info.Registrar,
+		Domain:        trimmed(info.Domain, models.MaxDomainLen),
+		Registrar:     trimmed(info.Registrar, models.MaxDomainRegistrarLen),
 		ExpiresAt:     info.ExpiresAt,
 		Source:        string(info.Source),
 		Status:        string(info.Status),
-		Error:         trimmed(info.Error, 500),
+		Error:         trimmed(info.Error, models.MaxDomainErrorLen),
 		DaysLeft:      info.DaysLeft,
 		CheckedAt:     info.CheckedAt,
 		CheckedByNode: nodeID,
 	}
+	changed := current == nil ||
+		current.Domain != row.Domain ||
+		!current.ExpiresAt.Equal(row.ExpiresAt) ||
+		current.DaysLeft != row.DaysLeft ||
+		current.Status != row.Status
 	// The columns of the notification memory are only set on insert: an update
 	// must not reset them.
 	if current == nil {

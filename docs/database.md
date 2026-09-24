@@ -104,6 +104,16 @@ by every rewrite, exactly like the certificate table.
 `date_layouts` (`;` separated Go layouts), `not_found_pattern`, `min_interval_ms`
 (per-registry rate limit override), `enabled` and `note`.
 
+**Every value that comes from a remote server is clipped before the insert.**
+The columns are dimensioned for the widest realistic answer and the observation
+is trimmed to fit instead of being rejected: `monitor_certificates.dns_names` is
+a `TEXT` (a CDN certificate lists hundreds of subject alternative names, well
+past a `varchar(500)`), a heartbeat message is trimmed to 500 characters, and
+the domain/registrar/error values are bounded. Without that rule a single
+oversized payload fails the whole insert with `Data too long for column` and
+costs the observation *and* its notification (this is exactly what happened to a
+`*.google.com` certificate before `dns_names` was widened).
+
 ## 3. Complete DDL (dumped from a live instance running MariaDB 11.8)
 
 ```sql
@@ -190,7 +200,7 @@ CREATE TABLE `monitor_certificates` (
   `serial` varchar(120) DEFAULT NULL,
   `not_before` datetime(3) DEFAULT NULL,
   `not_after` datetime(3) DEFAULT NULL,
-  `dns_names` varchar(500) DEFAULT NULL,
+  `dns_names` text DEFAULT NULL,
   `days_left` bigint(20) DEFAULT NULL,
   `captured_at` datetime(3) DEFAULT NULL,
   `captured_by_node` varchar(64) DEFAULT NULL,

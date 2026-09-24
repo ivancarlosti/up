@@ -39,6 +39,11 @@ func (s *HeartbeatService) Record(ctx context.Context, heartbeat *models.Heartbe
 	if heartbeat.CreatedAt.IsZero() {
 		heartbeat.CreatedAt = time.Now().UTC()
 	}
+	// The message is diagnostic and the column holds 500 characters: a long DNS
+	// answer or a verbose error must not make the insert fail, because a
+	// heartbeat that is not stored also skips the status evaluation (and with it
+	// the notification of an outage).
+	heartbeat.Message = trimmed(heartbeat.Message, models.MaxHeartbeatMessageLen)
 	if err := s.db.WithContext(ctx).Create(heartbeat).Error; err != nil {
 		return fmt.Errorf("storing heartbeat: %w", err)
 	}

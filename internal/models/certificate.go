@@ -44,6 +44,20 @@ func DaysLeft(notAfter, now time.Time) int {
 	return int(remaining / day)
 }
 
+// Column budgets of monitor_certificates. The observation comes from a remote
+// server, so it is clipped to what the schema can hold: a certificate that lists
+// hundreds of subject alternative names (any CDN or cloud provider) or an absurd
+// subject must never make the whole observation unstorable.
+const (
+	MaxCertSubjectLen = 255
+	MaxCertIssuerLen  = 255
+	MaxCertSerialLen  = 120
+	// MaxCertDNSNames is the byte budget of monitor_certificates.dns_names (a
+	// TEXT column, 65535 bytes). The margin absorbs the separators and the
+	// multi-byte characters a name may contain.
+	MaxCertDNSNames = 60000
+)
+
 // MonitorCertificate is the stored certificate state of a monitor.
 //
 // It lives in its own table (and not in `config`) because it is runtime state: it
@@ -57,7 +71,7 @@ type MonitorCertificate struct {
 	Serial         string    `gorm:"size:120" json:"serial"`
 	NotBefore      time.Time `json:"not_before"`
 	NotAfter       time.Time `json:"not_after"`
-	DNSNames       string    `gorm:"size:500" json:"dns_names"`
+	DNSNames       string    `gorm:"type:text" json:"dns_names"`
 	DaysLeft       int       `json:"days_left"`
 	CapturedAt     time.Time `json:"captured_at"`
 	CapturedByNode string    `gorm:"size:64" json:"captured_by_node"`
@@ -72,6 +86,37 @@ type MonitorCertificate struct {
 
 // TableName keeps the table name stable.
 func (MonitorCertificate) TableName() string { return "monitor_certificates" }
+
+// EncodeDNSNames joins the subject alternative names for storage.
+//
+// A certificate can legitimately list hundreds of names (any CDN or cloud
+// provider), so the entries that do not fit the column budget are dropped from
+// the tail and counted instead of letting the insert fail with "Data too long
+// for column 'dns_names'". A single name is never cut in half.
+func EncodeDNSNames(names []string) (value string, dropped int) {
+	var builder strings.Builder
+	kept := 0
+	for _, name := range names {
+		candidate := strings.TrimSpace(name)
+		if candidate == "" {
+			continue
+		}
+		needed := len(candidate)
+		if kept > 0 {
+			needed++ // the separator
+		}
+		if builder.Len()+needed > MaxCertDNSNames {
+			dropped++
+			continue
+		}
+		if kept > 0 {
+			builder.WriteString(",")
+		}
+		builder.WriteString(candidate)
+		kept++
+	}
+	return builder.String(), dropped
+}
 
 // Info converts the row into the payload exposed to the API and the UI.
 func (c *MonitorCertificate) Info() *CertificateInfo {

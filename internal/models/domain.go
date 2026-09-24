@@ -83,6 +83,15 @@ func (d *DomainInfo) Expired() bool {
 	return d.ExpiresAt.Before(d.CheckedAt)
 }
 
+// Column budgets of monitor_domains. The domain comes from a monitor target and
+// the registrar from a registry response, so both are clipped to what the schema
+// can hold instead of failing the insert.
+const (
+	MaxDomainLen          = 255
+	MaxDomainRegistrarLen = 200
+	MaxDomainErrorLen     = 500
+)
+
 // MonitorDomain is the stored domain expiration state of a monitor.
 //
 // It is the domain counterpart of MonitorCertificate and lives in its own table
@@ -92,7 +101,7 @@ func (d *DomainInfo) Expired() bool {
 type MonitorDomain struct {
 	MonitorID uint `gorm:"primaryKey" json:"monitor_id"`
 	// Domain is the registrable domain the monitor resolves to (eTLD+1).
-	Domain    string    `gorm:"size:190" json:"domain"`
+	Domain    string    `gorm:"size:255" json:"domain"`
 	Registrar string    `gorm:"size:200" json:"registrar"`
 	ExpiresAt time.Time `json:"expires_at"`
 	// Source and Status are stored as the readable strings (manual/rdap/whois,

@@ -70,30 +70,41 @@ func (s *CertificateService) Record(ctx context.Context, monitorID uint, nodeID 
 	if err != nil {
 		return false, err
 	}
-	// The row is written at most once a day per target, and immediately when the
-	// certificate itself changes. A monitor checked every minute used to rewrite
-	// the same row 1440 times a day; the expiry data only ages once a day, so
-	// nothing is lost by skipping the identical writes.
-	changed := current == nil ||
-		!current.NotAfter.Equal(info.NotAfter) ||
-		!strings.EqualFold(current.Serial, info.Serial) ||
-		current.DaysLeft != info.DaysLeft ||
-		dayBucket(current.CapturedAt) != dayBucket(info.CapturedAt)
-	if !changed {
-		return false, nil
-	}
-
+	// The observation is clipped to what the columns can hold before anything
+	// else: a certificate that lists hundreds of subject alternative names is
+	// stored (the tail of the list is dropped and logged) instead of failing the
+	// insert with "Data too long for column 'dns_names'", which used to leave
+	// the monitor without a certificate and without its reminders.
+	dnsNames, droppedNames := models.EncodeDNSNames(info.DNSNames)
 	row := models.MonitorCertificate{
 		MonitorID:      monitorID,
-		Subject:        info.Subject,
-		Issuer:         info.Issuer,
-		Serial:         info.Serial,
+		Subject:        trimmed(info.Subject, models.MaxCertSubjectLen),
+		Issuer:         trimmed(info.Issuer, models.MaxCertIssuerLen),
+		Serial:         trimmed(info.Serial, models.MaxCertSerialLen),
 		NotBefore:      info.NotBefore,
 		NotAfter:       info.NotAfter,
-		DNSNames:       strings.Join(info.DNSNames, ","),
+		DNSNames:       dnsNames,
 		DaysLeft:       info.DaysLeft,
 		CapturedAt:     info.CapturedAt,
 		CapturedByNode: nodeID,
+	}
+	if droppedNames > 0 {
+		s.log.Warn("the certificate lists more subject alternative names than Up stores",
+			"monitor_id", monitorID, "dropped", droppedNames, "budget_bytes", models.MaxCertDNSNames)
+	}
+
+	// The row is written at most once a day per target, and immediately when the
+	// certificate itself changes. A monitor checked every minute used to rewrite
+	// the same row 1440 times a day; the expiry data only ages once a day, so
+	// nothing is lost by skipping the identical writes. The comparison uses the
+	// clipped row, so a clipped value cannot look "changed" on every probe.
+	changed := current == nil ||
+		!current.NotAfter.Equal(row.NotAfter) ||
+		!strings.EqualFold(current.Serial, row.Serial) ||
+		current.DaysLeft != row.DaysLeft ||
+		dayBucket(current.CapturedAt) != dayBucket(row.CapturedAt)
+	if !changed {
+		return false, nil
 	}
 	// The columns of the notification memory are only set on insert: an update
 	// must not reset them.
