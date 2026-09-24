@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +36,20 @@ func (h *Container) syncPing(c *gin.Context) {
 		UptimeSeconds:   int64(time.Since(processStartedAt).Seconds()),
 		ServerTime:      time.Now().UTC(),
 	})
+}
+
+// syncChanges answers a signed peer request: the outbox rows the caller has not
+// seen yet (GET /api/cluster/sync/changes?since=&limit=).
+func (h *Container) syncChanges(c *gin.Context) {
+	since, _ := strconv.ParseInt(strings.TrimSpace(c.Query("since")), 10, 64)
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.Query("limit")))
+
+	response, err := h.Sync.ServeChanges(c.Request.Context(), since, limit)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, response)
 }
 
 // syncStatus is the local admin view of the peer table

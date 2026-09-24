@@ -37,6 +37,8 @@ type Container struct {
 	Sessions         *services.SessionService
 	Scheduler        *scheduler.Scheduler
 	Hub              *ws.Hub
+	// Sync is the federated synchronisation service (nil when it is not wired).
+	Sync *services.SyncService
 	// SPA serves the embedded frontend (assets and index.html fallback).
 	SPA gin.HandlerFunc
 	// OIDC is nil unless AUTH_METHOD=keycloak.
@@ -108,6 +110,7 @@ func (h *Container) Register(engine *gin.Engine) {
 	// control (docs/clustering-federated.md, section 11).
 	peers := engine.Group("/api/cluster/sync", middleware.RequirePeerKey(h.Cluster))
 	peers.GET("/ping", h.syncPing)
+	peers.GET("/changes", h.syncChanges)
 
 	h.registerAdmin(engine)
 }

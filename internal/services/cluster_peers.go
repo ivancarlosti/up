@@ -160,31 +160,40 @@ func (s *ClusterService) pingPeer(ctx context.Context, node models.Node) {
 	s.recordPeerSuccess(ctx, node, response)
 }
 
-// fetchPing signs and sends GET /api/cluster/sync/ping to one peer.
-func (s *ClusterService) fetchPing(ctx context.Context, node models.Node) (*PingResponse, error) {
+// peerRequest signs and sends a GET to one peer, decoding the JSON answer into
+// out (pass nil to ignore the body).
+//
+// Every outbound node to node call goes through here so that the signing, the URL
+// guard, the redirect refusal and the response cap exist once. Two hand rolled
+// clients would eventually diverge, and the divergence would be a security hole
+// rather than a bug report.
+func (s *ClusterService) peerRequest(ctx context.Context, node models.Node, path, query string, out any) error {
 	key, err := s.PrivateKey(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	target, err := peerURL(node.APIURL, "/api/cluster/sync/ping")
+	target, err := peerURL(node.APIURL, path)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	if query != "" {
+		target += "?" + query
 	}
 
 	requestCtx, cancel := context.WithTimeout(ctx, peerRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, fmt.Errorf("invalid peer url %q: %w", node.APIURL, err)
+		return fmt.Errorf("invalid peer url %q: %w", node.APIURL, err)
 	}
 
 	nonce, err := utils.RandomHex(16)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// The signed target is the request URI as sent - not the path we asked for:
-	// a peer published behind a path prefix (http://host/up) sees the prefixed
-	// path, and the signature has to match what it computes.
+	// The signed target is the request URI as sent - not the path we asked for: a
+	// peer published behind a path prefix (http://host/up) sees the prefixed path,
+	// and the signature has to match what it computes.
 	signed := PeerSignatureInput{
 		Method:    http.MethodGet,
 		Target:    req.URL.RequestURI(),
@@ -205,20 +214,31 @@ func (s *ClusterService) fetchPing(ctx context.Context, node models.Node) (*Ping
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, peerMaxResponseBytes))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("peer answered %s: %s", resp.Status, truncateForLog(string(body), 200))
+		return fmt.Errorf("peer answered %s: %s", resp.Status, truncateForLog(string(body), 200))
 	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("peer answered with an unreadable payload: %w", err)
+	}
+	return nil
+}
+
+// fetchPing asks a peer who it is.
+func (s *ClusterService) fetchPing(ctx context.Context, node models.Node) (*PingResponse, error) {
 	var out PingResponse
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("peer answered with an unreadable payload: %w", err)
+	if err := s.peerRequest(ctx, node, "/api/cluster/sync/ping", "", &out); err != nil {
+		return nil, err
 	}
 	if out.NodeID == "" {
 		return nil, fmt.Errorf("peer answered with an empty node identity")

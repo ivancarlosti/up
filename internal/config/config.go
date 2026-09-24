@@ -99,9 +99,27 @@ type Config struct {
 	// duty) from the current holder. It stops a peer blip or a rejoining node
 	// from taking over mid-incident.
 	ClusterLeaderSettleSeconds int
-	NodeID                     string
-	NodeName                   string
-	ClusterPrivateKey          string
+	// --- Synchronisation (federated mode) ---------------------------------
+	// ClusterSyncSeconds is how often a node pulls the changes of each peer.
+	ClusterSyncSeconds int
+	// ClusterSyncBatch caps how many changes one pull may carry.
+	ClusterSyncBatch int
+	// ClusterSyncManifestSeconds is how often the checksums are compared to
+	// detect a divergence the incremental path missed.
+	ClusterSyncManifestSeconds int
+	// ClusterSyncTombstoneDays is how long a deleted identity is remembered. A
+	// peer whose cursor points before the pruned region falls back to a full
+	// snapshot.
+	ClusterSyncTombstoneDays int
+	// ClusterSyncNotifications synchronises the delivery channels and their
+	// links. It defaults to ON in federated mode, because the node that owns the
+	// notification election is the one that sends: a leader without the channel
+	// would drop the alert silently. The payload carries credentials, so the
+	// peers must run over TLS.
+	ClusterSyncNotifications bool
+	NodeID                   string
+	NodeName                 string
+	ClusterPrivateKey        string
 
 	// --- Optional tuning --------------------------------------------------
 	LogLevel string
@@ -160,6 +178,11 @@ func Load() (*Config, error) {
 		ClusterMode:                   strings.ToLower(env("CLUSTER_MODE", ClusterModeShared)),
 		ClusterPeerAPI:                mustBool("CLUSTER_PEER_API", false),
 		ClusterLeaderSettleSeconds:    envInt("CLUSTER_LEADER_SETTLE_SECONDS", 60),
+		ClusterSyncSeconds:            envInt("CLUSTER_SYNC_SECONDS", 15),
+		ClusterSyncBatch:              envInt("CLUSTER_SYNC_BATCH", 500),
+		ClusterSyncManifestSeconds:    envInt("CLUSTER_SYNC_MANIFEST_SECONDS", 600),
+		ClusterSyncTombstoneDays:      envInt("CLUSTER_SYNC_TOMBSTONE_DAYS", 30),
+		ClusterSyncNotifications:      mustBool("CLUSTER_SYNC_NOTIFICATIONS", false),
 		NodeID:                        env("NODE_ID", "up-node-1"),
 		NodeName:                      env("NODE_NAME", "Primary Node"),
 		ClusterPrivateKey:             strings.TrimSpace(env("CLUSTER_PRIVATE_KEY", "")),
@@ -172,6 +195,14 @@ func Load() (*Config, error) {
 		SecurityBypassIPRules:         mustBool("SECURITY_BYPASS_IP_RULES", false),
 		SecurityLoginRateLimit:        envInt("SECURITY_LOGIN_RATE_LIMIT", 20),
 		SecurityPublicRateLimit:       envInt("SECURITY_PUBLIC_RATE_LIMIT", 240),
+	}
+
+	// The channel synchronisation default depends on the mode: federated mode
+	// needs every node to hold the channels, because the leader is the one that
+	// sends and a leader without the channel would drop the alert silently. An
+	// explicit value always wins.
+	if raw := strings.TrimSpace(os.Getenv("CLUSTER_SYNC_NOTIFICATIONS")); raw == "" {
+		cfg.ClusterSyncNotifications = cfg.ClusterMode == ClusterModeFederated
 	}
 
 	cfg.AppTrustProxy = mustBool("APP_TRUST_PROXY", false)

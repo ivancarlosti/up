@@ -135,28 +135,7 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 		if err != nil {
 			return err
 		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.Heartbeat{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorState{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorNotification{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorGroupMember{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.MonitorCertificate{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.NotificationLock{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("monitor_id = ?", id).Delete(&models.StatusPageMonitor{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Delete(&models.Monitor{}, id).Error; err != nil {
+		if err := deleteMonitorCascade(tx, id); err != nil {
 			return err
 		}
 		return s.tombstoneMonitor(ctx, tx, monitorUUID, before)
@@ -167,6 +146,29 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 	s.log.Info("monitor deleted", "id", id)
 	s.publish("monitor.deleted", map[string]any{"id": id})
 	return nil
+}
+
+// deleteMonitorCascade removes everything that belongs to a monitor.
+//
+// It is shared by MonitorService.Delete and by the synchronisation apply path.
+// The apply cannot call the service instead: the service opens its own transaction
+// on a different connection, which would break the atomicity between the applied
+// change and the cursor that records it.
+func deleteMonitorCascade(tx *gorm.DB, id uint) error {
+	for _, model := range []any{
+		&models.Heartbeat{},
+		&models.MonitorState{},
+		&models.MonitorNotification{},
+		&models.MonitorGroupMember{},
+		&models.MonitorCertificate{},
+		&models.NotificationLock{},
+		&models.StatusPageMonitor{},
+	} {
+		if err := tx.Where("monitor_id = ?", id).Delete(model).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Delete(&models.Monitor{}, id).Error
 }
 
 // SetActive pauses or resumes a monitor.

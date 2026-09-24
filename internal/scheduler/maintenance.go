@@ -27,6 +27,17 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	certificates := time.NewTicker(6 * time.Hour)
 	retention := time.NewTicker(6 * time.Hour)
 
+	// The pull loop only exists when this node synchronises with peers. A nil
+	// channel blocks forever, which is exactly what "no loop" means inside a
+	// select.
+	var pullC <-chan time.Time
+	var pull *time.Ticker
+	if s.sync != nil && s.sync.Enabled() {
+		pull = time.NewTicker(s.sync.NextSyncTick())
+		pullC = pull.C
+		s.log.Info("federated synchronisation started", "node_id", s.cfg.NodeID, "every", s.sync.NextSyncTick())
+	}
+
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -35,6 +46,9 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer reconcile.Stop()
 		defer certificates.Stop()
 		defer retention.Stop()
+		if pull != nil {
+			defer pull.Stop()
+		}
 
 		// Run both cluster tasks once at boot so the nodes table is accurate
 		// before the first dashboard request.
@@ -48,6 +62,11 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 			s.log.Warn("node liveness sweep failed", "error", err)
 		}
 		s.purgeRetention(ctx)
+		// The first pull happens right after the boot, so a node that was restarted
+		// catches up without waiting a whole interval.
+		if s.sync != nil {
+			s.sync.PullPeers(ctx)
+		}
 		// A long lived certificate must not wait 6h for its first evaluation.
 		if s.certificates != nil {
 			if err := s.certificates.Refresh(ctx); err != nil {
@@ -80,6 +99,8 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				}
 			case <-retention.C:
 				s.purgeRetention(ctx)
+			case <-pullC:
+				s.sync.PullPeers(ctx)
 			}
 		}
 	}()

@@ -13,7 +13,7 @@ func (c *Config) validate() []string {
 
 	// Boolean typo detection: true/false/yes/no/1/0/on/off are accepted,
 	// anything else that is neither empty nor a boolean token is a mistake.
-	for _, key := range []string{"APP_TRUST_PROXY", "DB_SSL", "CLUSTER_ENABLED", "CLUSTER_PEER_API", "SECURITY_BYPASS_IP_RULES"} {
+	for _, key := range []string{"APP_TRUST_PROXY", "DB_SSL", "CLUSTER_ENABLED", "CLUSTER_PEER_API", "CLUSTER_SYNC_NOTIFICATIONS", "SECURITY_BYPASS_IP_RULES"} {
 		if raw := strings.TrimSpace(os.Getenv(key)); raw != "" && !isBoolToken(raw) {
 			problems = append(problems, fmt.Sprintf("%s must be true or false, got %q", key, raw))
 		}
@@ -169,6 +169,26 @@ func (c *Config) validate() []string {
 	// default value: read it as 0 rather than refusing to boot.
 	if c.ClusterLeaderSettleSeconds < 0 {
 		c.ClusterLeaderSettleSeconds = 0
+	}
+
+	// --- Synchronisation tuning --------------------------------------------
+	// The floors mirror the ones used elsewhere: a pull faster than a few seconds
+	// would only add load, a huge batch would stall a peer, and a manifest pass
+	// more often than every minute is noise.
+	if c.ClusterSyncSeconds < 5 {
+		c.ClusterSyncSeconds = 5
+	}
+	if c.ClusterSyncBatch < 1 {
+		c.ClusterSyncBatch = 500
+	}
+	if c.ClusterSyncBatch > 5000 {
+		c.ClusterSyncBatch = 5000
+	}
+	if c.ClusterSyncManifestSeconds < 60 {
+		c.ClusterSyncManifestSeconds = 60
+	}
+	if c.ClusterSyncTombstoneDays < 1 {
+		c.ClusterSyncTombstoneDays = 30
 	}
 	if strings.ContainsAny(c.NodeID, " \t/\\") {
 		problems = append(problems, fmt.Sprintf("NODE_ID must not contain spaces or slashes, got %q", c.NodeID))

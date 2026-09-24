@@ -233,7 +233,7 @@ func NewSyncEmitter(db *gorm.DB, cfg *config.Config, log *slog.Logger) *SyncEmit
 // writes the same rows, so publishing them to each other would be noise (and a
 // shared node and a federated node exchange nothing by design).
 func (e *SyncEmitter) Enabled() bool {
-	return e.cfg != nil && e.cfg.ClusterMode == config.ClusterModeFederated
+	return e.cfg != nil && e.cfg.SyncEnabled()
 }
 
 // skip reports whether emission must be bypassed: the node is not federated, or
@@ -597,6 +597,9 @@ func (e *SyncEmitter) write(ctx context.Context, tx *gorm.DB, entity string, ide
 		// of leaving an empty component in the ordering key.
 		identity.OriginNodeID = e.cfg.NodeID
 	}
+	if identity.UpdatedAt.IsZero() {
+		identity.UpdatedAt = time.Now().UTC()
+	}
 	outbox := models.SyncOutbox{
 		Entity:       entity,
 		UUID:         identity.UUID,
@@ -627,7 +630,10 @@ func (e *SyncEmitter) track(ctx context.Context, tx *gorm.DB, entity string, ide
 		OriginNodeID: identity.OriginNodeID,
 		Revision:     identity.Revision,
 		DeletedAt:    deletedAt,
-		UpdatedAt:    time.Now().UTC(),
+		// The row's own updated_at, NOT the current time: this timestamp is a
+		// component of the merge order, so stamping it here would make two nodes
+		// disagree about the same change.
+		UpdatedAt: identity.UpdatedAt,
 	}
 	return tx.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "uuid"}},

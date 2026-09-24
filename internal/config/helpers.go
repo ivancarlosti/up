@@ -138,6 +138,31 @@ func (c *Config) CookieDomain() string { return "" }
 // AuthEnabled reports whether the dashboard requires a login.
 func (c *Config) AuthEnabled() bool { return c.AuthMethod != AuthMethodNone }
 
+// SyncEnabled reports whether this node keeps an outbox and pulls from its peers.
+// Federated mode is the only mode that needs one: in shared mode every node
+// already reads and writes the same rows.
+func (c *Config) SyncEnabled() bool { return c.ClusterMode == ClusterModeFederated }
+
+// SyncsNotifications reports whether the delivery channels and their links are
+// part of the synchronised configuration.
+func (c *Config) SyncsNotifications() bool {
+	return c.SyncEnabled() && c.ClusterSyncNotifications
+}
+
+// SyncPeersReportsChannels is the same question asked of the peer API: whether the
+// sync endpoints should serve the channel entity at all.
+func (c *Config) SyncEntityEnabled(entity string) bool {
+	if entity == "notification" {
+		return c.SyncsNotifications()
+	}
+	return c.SyncEnabled()
+}
+
+// SyncsOverTLS reports whether the peer traffic is encrypted in practice. It is
+// used for a boot warning: the channel payload carries credentials, so syncing
+// them over plain HTTP deserves to be said out loud.
+func (c *Config) SyncsOverTLS() bool { return strings.HasPrefix(c.AppURL, "https://") }
+
 // Summary renders the boot banner (never contains secrets).
 func (c *Config) Summary() string {
 	parts := []string{
@@ -158,6 +183,14 @@ func (c *Config) Summary() string {
 	}
 	if c.ClusterEnabled {
 		parts = append(parts, fmt.Sprintf("node_id=%s", c.NodeID), fmt.Sprintf("node_name=%q", c.NodeName))
+	}
+	// The synchronisation tuning only means something in federated mode.
+	if c.SyncEnabled() {
+		parts = append(parts,
+			fmt.Sprintf("sync_seconds=%d", c.ClusterSyncSeconds),
+			fmt.Sprintf("sync_batch=%d", c.ClusterSyncBatch),
+			fmt.Sprintf("sync_notifications=%t", c.ClusterSyncNotifications),
+		)
 	}
 	return strings.Join(parts, " ")
 }

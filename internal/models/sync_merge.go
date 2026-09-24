@@ -112,6 +112,38 @@ func DiffSets(before, now map[string]bool) (added, removed []string) {
 	return added, removed
 }
 
+// IsConflict reports whether a change that lost the merge was a concurrent edit
+// rather than a stale re-delivery.
+//
+// The distinction is what makes the conflict log useful: two nodes editing the
+// same record inside one sync interval is worth telling the operator about, while
+// the same batch arriving twice is not.
+func IsConflict(incoming SyncCandidate, current *SyncObject) bool {
+	if current == nil {
+		return false
+	}
+	// The same revision from a different node means both edits started from the
+	// same base, so one of them had to lose.
+	return incoming.Revision == current.Revision && incoming.OriginNodeID != current.OriginNodeID
+}
+
+// ConflictSides names the winner and the loser of a concurrent edit, whichever
+// way the merge went.
+//
+// Two edits that share a revision have no "incoming" and "local" side: one of them
+// simply wins the tie-break. Reporting only the case where the incoming change
+// loses would make the conflict log miss half of the concurrent edits, and the
+// design promises that the losing value is never silently dropped.
+func ConflictSides(incoming SyncCandidate, current *SyncObject, incomingWon bool) (keptOrigin string, keptRevision int64, lostOrigin string, lostRevision int64) {
+	if current == nil {
+		return incoming.OriginNodeID, incoming.Revision, "", 0
+	}
+	if incomingWon {
+		return incoming.OriginNodeID, incoming.Revision, current.OriginNodeID, current.Revision
+	}
+	return current.OriginNodeID, current.Revision, incoming.OriginNodeID, incoming.Revision
+}
+
 // EntityIdentity is one entry of a manifest checksum: the global identity of a
 // row plus the revision this node holds.
 type EntityIdentity struct {

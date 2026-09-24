@@ -71,6 +71,15 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	cluster.SetNotificationService(notifications)
 	statusPages.SetMonitorService(monitors)
 
+	// --- federated synchronisation ----------------------------------------
+	// The emitter publishes local writes; the sync service pulls the peers. In
+	// any mode but federated the emitter is disabled and pulls do nothing, so
+	// wiring them unconditionally keeps the container simple.
+	syncEmitter := services.NewSyncEmitter(db, cfg, log)
+	monitors.SetSyncEmitter(syncEmitter)
+	syncService := services.NewSyncService(db, cfg, log, cluster, syncEmitter)
+	syncService.SetPublisher(hub)
+
 	if err := cluster.EnsureSelf(ctx); err != nil {
 		return nil, err
 	}
@@ -98,6 +107,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		Stats:            stats,
 		Notifications:    notifications,
 		Cluster:          cluster,
+		Sync:             syncService,
 		StatusPages:      statusPages,
 		Tokens:           tokens,
 		IPRules:          ipRules,
@@ -115,6 +125,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	container.Scheduler = sched
 	sched.SetCertificateService(certificates)
 	sched.SetNotificationService(notifications)
+	sched.SetSyncService(syncService)
 	if err := sched.Start(ctx); err != nil {
 		return nil, err
 	}

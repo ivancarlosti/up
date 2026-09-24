@@ -39,6 +39,8 @@ type Scheduler struct {
 	// is the one notification table that grows over time, and the scheduler owns
 	// the housekeeping loop.
 	notifications *services.NotificationService
+	// sync drives the federated pull loop (nil unless it is wired).
+	sync *services.SyncService
 }
 
 type commandKind int
@@ -102,6 +104,10 @@ func (s *Scheduler) SetCertificateService(c *services.CertificateService) { s.ce
 func (s *Scheduler) SetNotificationService(n *services.NotificationService) {
 	s.notifications = n
 }
+
+// SetSyncService injects the federated synchronisation service, which the
+// maintenance loop drives on its own ticker.
+func (s *Scheduler) SetSyncService(sync *services.SyncService) { s.sync = sync }
 
 // reconcileInterval is how often the worker set is compared with the database.
 func (s *Scheduler) reconcileInterval() time.Duration {

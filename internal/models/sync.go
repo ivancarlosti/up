@@ -55,7 +55,15 @@ type SyncPeer struct {
 	// LastError is the last failure, cleared by a success.
 	LastError   string     `json:"last_error"`
 	LastErrorAt *time.Time `json:"last_error_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// LastChangeID is the cursor of this node into the peer's outbox: the highest
+	// sync_outbox id already applied. It is advanced inside the apply transaction,
+	// so a crash mid-batch re-pulls instead of losing changes.
+	LastChangeID int64 `gorm:"not null;default:0" json:"last_change_id"`
+	// LastManifestAt and LastManifestOK record the healing pass: when the checksums
+	// were last compared and whether they agreed.
+	LastManifestAt *time.Time `json:"last_manifest_at"`
+	LastManifestOK bool       `gorm:"not null;default:false" json:"last_manifest_ok"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // Settled reports whether the peer has been continuously online for at least

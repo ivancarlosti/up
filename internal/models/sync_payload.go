@@ -150,11 +150,16 @@ type SyncChangePayload struct {
 
 // SyncChangesResponse answers GET /api/cluster/sync/changes.
 type SyncChangesResponse struct {
-	Changes         []SyncChangePayload `json:"changes"`
-	NextSince       int64               `json:"next_since"`
-	HasMore         bool                `json:"has_more"`
-	LatestRevision  int64               `json:"latest_revision"`
-	ProtocolVersion int                 `json:"protocol_version"`
+	Changes   []SyncChangePayload `json:"changes"`
+	NextSince int64               `json:"next_since"`
+	HasMore   bool                `json:"has_more"`
+	// CursorExpired is set when the caller's cursor points before the oldest row
+	// still kept (the tombstone prune removed what it needed). The caller must fall
+	// back to a full snapshot: serving the surviving rows would silently skip the
+	// pruned ones forever.
+	CursorExpired   bool  `json:"cursor_expired"`
+	LatestRevision  int64 `json:"latest_revision"`
+	ProtocolVersion int   `json:"protocol_version"`
 }
 
 // SyncSnapshotResponse answers GET /api/cluster/sync/snapshot: the current state
@@ -183,6 +188,25 @@ type SyncManifestEntity struct {
 type SyncManifestResponse struct {
 	ProtocolVersion int                  `json:"protocol_version"`
 	Entities        []SyncManifestEntity `json:"entities"`
+}
+
+// OutboxToChange renders an outbox row as a wire change.
+func OutboxToChange(row SyncOutbox) SyncChangePayload {
+	var payload json.RawMessage
+	if row.Payload != "" {
+		payload = json.RawMessage(row.Payload)
+	}
+	return SyncChangePayload{
+		ID:           int64(row.ID),
+		Entity:       row.Entity,
+		UUID:         row.UUID,
+		Action:       row.Action,
+		OriginNodeID: row.OriginNodeID,
+		Revision:     row.Revision,
+		Payload:      payload,
+		PayloadHash:  row.PayloadHash,
+		UpdatedAt:    row.CreatedAt,
+	}
 }
 
 // SyncedEntities lists every entity the protocol carries, in a stable order.

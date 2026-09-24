@@ -231,6 +231,73 @@ func TestDiffSets(t *testing.T) {
 	}
 }
 
+// TestIsConflict separates a concurrent edit from a stale re-delivery: only the
+// first belongs in the conflict log, and reporting every re-delivery would make
+// the log useless.
+func TestIsConflict(t *testing.T) {
+	current := &SyncObject{
+		UUID: "u", Entity: EntityMonitor, LocalID: 1,
+		OriginNodeID: "up-node-1", Revision: 5, UpdatedAt: testTime(0),
+	}
+
+	cases := []struct {
+		name     string
+		incoming SyncCandidate
+		current  *SyncObject
+		want     bool
+	}{
+		{
+			name:     "the same revision from another node is a concurrent edit",
+			incoming: SyncCandidate{Revision: 5, UpdatedAt: testTime(0), OriginNodeID: "up-node-2"},
+			current:  current,
+			want:     true,
+		},
+		{
+			name:     "the same change delivered again is not a conflict",
+			incoming: SyncCandidate{Revision: 5, UpdatedAt: testTime(0), OriginNodeID: "up-node-1"},
+			current:  current,
+			want:     false,
+		},
+		{
+			name:     "an older revision is just stale",
+			incoming: SyncCandidate{Revision: 4, UpdatedAt: testTime(900), OriginNodeID: "up-node-2"},
+			current:  current,
+			want:     false,
+		},
+		{
+			name:     "nothing applied yet cannot conflict",
+			incoming: SyncCandidate{Revision: 5, UpdatedAt: testTime(0), OriginNodeID: "up-node-2"},
+			current:  nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsConflict(tc.incoming, tc.current); got != tc.want {
+				t.Fatalf("IsConflict = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConflictSides covers both directions of a concurrent edit: whichever side
+// wins, the other one must be named as the loser so the conflict log is complete.
+func TestConflictSides(t *testing.T) {
+	current := &SyncObject{UUID: "u", Entity: EntityMonitor, LocalID: 1, OriginNodeID: "up-node-1", Revision: 5}
+	incoming := SyncCandidate{Revision: 5, UpdatedAt: testTime(0), OriginNodeID: "up-node-2"}
+
+	keptOrigin, keptRevision, lostOrigin, lostRevision := ConflictSides(incoming, current, true)
+	if keptOrigin != "up-node-2" || keptRevision != 5 || lostOrigin != "up-node-1" || lostRevision != 5 {
+		t.Fatalf("incoming won: kept=%s/%d lost=%s/%d", keptOrigin, keptRevision, lostOrigin, lostRevision)
+	}
+
+	keptOrigin, keptRevision, lostOrigin, lostRevision = ConflictSides(incoming, current, false)
+	if keptOrigin != "up-node-1" || keptRevision != 5 || lostOrigin != "up-node-2" || lostRevision != 5 {
+		t.Fatalf("local won: kept=%s/%d lost=%s/%d", keptOrigin, keptRevision, lostOrigin, lostRevision)
+	}
+}
+
 // TestEntityChecksum covers the healing trigger: it must be order independent,
 // must change when a revision changes, and must change when a row appears or
 // disappears.
