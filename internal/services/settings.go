@@ -98,7 +98,14 @@ func (s *SettingService) SetFromPeer(ctx context.Context, key, value string, upd
 	case err != nil:
 		return false, ErrInternal(err)
 	case !updatedAt.After(current.UpdatedAt):
-		// Older or equal: this node already has the newer value.
+		// Older or equal: this node already has the newer value, so nothing is written.
+		// The cache is refreshed from the row just read anyway: the database is the
+		// truth, and a write that bypassed this service (an operator, a migration, the
+		// seed of another process) would otherwise leave this node serving the value it
+		// booted with for ever — the sync finds "equal" and never touches the cache.
+		s.mu.Lock()
+		s.cache[key] = current.Value
+		s.mu.Unlock()
 		return false, nil
 	}
 

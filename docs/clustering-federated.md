@@ -839,8 +839,9 @@ nodes ran with two databases throughout.
 
 ## 23. Exit criteria: what has been verified
 
-Verified against two nodes with two databases, with the boot guard patched for the
-lab build only:
+Verified against **two to four federated nodes, one database each, with the boot guard
+REMOVED** — `CLUSTER_MODE=federated` now boots and refuses only when
+`CLUSTER_PEER_API=true` is missing — every node running the release code:
 
 - A monitor, a group, its memberships, a template, a status page (with its order and
   per-item overrides), a channel (with its configuration) and a channel link created
@@ -857,3 +858,33 @@ lab build only:
 - A corrupt outbox payload is contained: the sender keeps serving, the receiver
   records a dead letter, and the manifest delivers the row from the snapshot.
 - Both nodes report identical live identity sets per entity, and the manifests agree.
+- A monitor created on one node reaches the other in about a second with
+  `CLUSTER_SYNC_PUSH=true`, well inside the pull interval (phase 6, part 2).
+- The settings whitelist converges last-write-wins **keeping the sender's timestamp**,
+  so the two nodes settle instead of overwriting each other on every pass; the per
+  node rate limits and the secrets never cross while `CLUSTER_SYNC_SETTINGS` is the
+  only flag that is on.
+- An **empty** node (0 rows in its own database) needs no seed step: joining is enough
+  for the manifest to disagree and the snapshot to bring the whole configuration,
+  including every monitor (verified with a node added after the cluster was already
+  populated).
+- A peer's registry liveness is refreshed on every ping cycle (measured at ~7 s,
+  against the 120 s grace), so a healthy federated cluster is never swept offline and
+  the vote denominator, the QUORUM denominator and the admin view all keep counting
+  it.
+- A burst of six changes applies with **zero** `1020` errors and no fallback to the
+  one-change-per-transaction path (the cursor ordering of §22.17).
+- A freshly joined node's seeded defaults never overwrite the cluster's settings: it
+  boots at the epoch and adopts the cluster's value, on all four nodes (§22.16).
+- The settings a node *serves* follow its own database even when the row was written
+  outside the service, so an operator editing the table cannot leave a node answering
+  with the value it booted with.
+- The peer surface refuses an unsigned caller: `ping`, `changes` and `settings` all
+  answer `403` without the cluster key, which is what the e2e assertion harness checks
+  on every run.
+
+The one exit criterion that cannot be run on this development machine is the
+`web/scripts/e2e-cluster-federated.mjs` script itself: `scripts/browser.mjs` needs a
+global `WebSocket` (Node 21+), and this environment has Node 18. Its assertions were
+therefore validated through an equivalent request-level harness, which is what
+produced the last two bullets above.
