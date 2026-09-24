@@ -121,15 +121,30 @@ jobs:
           fi
 
           # Tag the version-stamped commit, then push the branch and the tag.
-          git tag -a "${TAG}" -m "Release ${TAG}"
+          # An existing tag is reused (never force-updated), which makes this
+          # manual path idempotent and usable to finish a half published release
+          # (a tag that exists without its GitHub Release).
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists — reusing it."
+            CREATED_TAG=0
+          else
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            CREATED_TAG=1
+          fi
           git push origin main
-          git push origin "${TAG}"
+          if [ "${CREATED_TAG}" -eq 1 ]; then
+            git push origin "${TAG}"
+          fi
 
-          gh release create "${TAG}" \
-            --title "${TAG}" \
-            --notes "Manual release ${TAG}" \
-            --target main
-          echo "✅ GitHub Release ${TAG} created."
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "GitHub Release ${TAG} already exists."
+          else
+            gh release create "${TAG}" \
+              --title "${TAG}" \
+              --notes "Manual release ${TAG}" \
+              --target main
+            echo "✅ GitHub Release ${TAG} created."
+          fi
           echo "Dispatching build.yml for version ${TAG}"
           gh workflow run build.yml -f version="${TAG}"
           DEPLOY_WORKFLOW="${{ steps.deploy.outputs.deploy_workflow }}"
@@ -207,17 +222,71 @@ jobs:
         id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: semantic-release --debug --repository-url "https://github.com/${{ github.repository }}.git"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GitHub occasionally answers "Internal Server Error" on the
+          # `git push refs/notes/semantic-release` that semantic-release performs
+          # right AFTER pushing the tag and BEFORE publishing the GitHub Release.
+          # A single transient 5xx therefore used to abort the run with the tag
+          # already on the remote: no Release, no build dispatch. Retry first.
+          set +e
+          STATUS=1
+          for ATTEMPT in 1 2 3; do
+            semantic-release --debug --repository-url "https://github.com/${{ github.repository }}.git"
+            STATUS=$?
+            if [ "${STATUS}" -eq 0 ]; then
+              break
+            fi
+            echo "::warning::semantic-release failed (attempt ${ATTEMPT}/3). Transient GitHub errors on refs/notes/* are common; retrying."
+            sleep 15
+          done
+          set -e
+
+          # Still failing? Then the notes push (or something else after the tag)
+          # lost the publish step. When HEAD is exactly tagged the version is
+          # already published, so recover the GitHub Release instead of leaving a
+          # half published release behind. The steps below then read the tag,
+          # dispatch build.yml and go green.
+          if [ "${STATUS}" -ne 0 ]; then
+            git fetch --tags
+            TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || true)
+            if [ -z "${TAG}" ]; then
+              echo "::error::semantic-release failed and HEAD is not tagged — nothing to recover."
+              exit "${STATUS}"
+            fi
+            echo "::warning::Recovering ${TAG}: the tag was pushed but the release step was lost."
+            if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::${TAG} is not on the remote either — nothing to recover."
+              exit "${STATUS}"
+            fi
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              echo "GitHub Release ${TAG} already exists."
+            else
+              gh release create "${TAG}" --title "${TAG}" --generate-notes
+              echo "✅ GitHub Release ${TAG} created during the recovery."
+            fi
+          fi
 
       - name: 🔍 Read released version
         if: inputs.version == '' && always() && steps.semantic.outcome == 'success'
         id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Fetch tags to ensure the newly created tag is visible locally
           git fetch --tags
           # Find the most recent tag reachable from HEAD (the one semantic-release just created)
           NEW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
           if [ -n "$NEW_TAG" ]; then
+            # A tag without a GitHub Release is a half published release: a run that
+            # died between the tag push and the publish step (e.g. the transient
+            # 5xx on refs/notes/*). Heal it here so the release page always matches
+            # the tag. On the happy path the release already exists: no-op.
+            if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
+              echo "::warning::No GitHub Release for ${NEW_TAG} — creating it now."
+              gh release create "$NEW_TAG" --title "$NEW_TAG" --generate-notes ||
+                echo "::warning::could not create the release for ${NEW_TAG}; create it manually."
+            fi
             VERSION="${NEW_TAG#v}"
             echo "new_release_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "new_release_published=true" >> "$GITHUB_OUTPUT"
