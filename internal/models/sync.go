@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"sort"
 	"time"
 
@@ -322,6 +324,35 @@ type PeerVote struct {
 
 // TableName keeps the table name stable.
 func (PeerVote) TableName() string { return "peer_votes" }
+
+// RendezvousOwner returns the candidate that owns a key under rendezvous (HRW)
+// hashing, or "" when there is no candidate.
+//
+// Rendezvous is not a detail here: `fnv1a(key) % len(candidates)` reassigns roughly
+// half of the keys whenever the candidate set changes, so a single peer blip would hand
+// most monitors to a different notification owner — and with two nodes believing they
+// own the same monitor, two alerts for one incident. Rendezvous moves only the keys of
+// the node that actually joined or left.
+//
+// The key must be the monitor UUID alone: putting the event or a wall-clock bucket into
+// it would reintroduce both the two-senders problem and a dependency on clocks that
+// disagree.
+func RendezvousOwner(key string, candidates []string) string {
+	best := ""
+	var bestScore uint64
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		digest := sha256.Sum256([]byte(key + "\x00" + candidate))
+		score := binary.BigEndian.Uint64(digest[:8])
+		// Strictly greater, so the answer cannot depend on the input order.
+		if best == "" || score > bestScore {
+			best, bestScore = candidate, score
+		}
+	}
+	return best
+}
 
 func SettledPeers(peers []SyncPeer, now time.Time, settle time.Duration) []SyncPeer {
 	out := make([]SyncPeer, 0, len(peers))

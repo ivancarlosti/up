@@ -35,6 +35,30 @@ const (
 	ClusterModeFederated = "federated"
 )
 
+// Leader derivation (CLUSTER_LEADER_MODE) for federated mode, where `nodes.is_primary`
+// does not exist because there is no shared row to hold it.
+const (
+	// ClusterLeaderLowestID makes the leader the settled node with the smallest
+	// node_id. Every node computes the same winner from its own view.
+	ClusterLeaderLowestID = "lowest_id"
+	// ClusterLeaderExplicit pins the leader to CLUSTER_LEADER_NODE_ID.
+	ClusterLeaderExplicit = "explicit"
+)
+
+// Notification election (CLUSTER_NOTIFY_ELECTION) for federated mode, where the
+// `notification_locks` unique index cannot elect a single sender any more.
+const (
+	// NotifyElectionLeader gives the duty to the derived leader: at most one alert per
+	// transition, and alerting pauses for one settle period when that node dies.
+	NotifyElectionLeader = "leader"
+	// NotifyElectionHash spreads the duty per monitor with rendezvous hashing over the
+	// monitor uuid. A split view can still double-send, so the clocks must agree.
+	NotifyElectionHash = "hash"
+	// NotifyElectionOrigin gives every monitor to the node that created it: no
+	// duplicates from a split view, at the cost of a single alerting point.
+	NotifyElectionOrigin = "origin"
+)
+
 // SupportedLocales and SupportedThemes are the values accepted by
 // DEFAULT_LOCALE / DEFAULT_THEME and by the Admin > Settings page.
 var (
@@ -117,9 +141,19 @@ type Config struct {
 	// would drop the alert silently. The payload carries credentials, so the
 	// peers must run over TLS.
 	ClusterSyncNotifications bool
-	NodeID                   string
-	NodeName                 string
-	ClusterPrivateKey        string
+	// ClusterLeaderMode is how the leader is derived when there is no shared row:
+	// lowest_id (the settled node with the smallest node_id) or explicit
+	// (CLUSTER_LEADER_NODE_ID). It only applies in federated mode.
+	ClusterLeaderMode string
+	// ClusterLeaderNodeID pins the leader when ClusterLeaderMode is explicit.
+	ClusterLeaderNodeID string
+	// ClusterNotifyElection decides which node alerts in federated mode: leader
+	// (the derived leader), hash (rendezvous over the monitor uuid) or origin (the
+	// node that created the monitor). See docs/clustering-federated.md, section 8.
+	ClusterNotifyElection string
+	NodeID                string
+	NodeName              string
+	ClusterPrivateKey     string
 
 	// --- Optional tuning --------------------------------------------------
 	LogLevel string
@@ -178,6 +212,9 @@ func Load() (*Config, error) {
 		ClusterMode:                   strings.ToLower(env("CLUSTER_MODE", ClusterModeShared)),
 		ClusterPeerAPI:                mustBool("CLUSTER_PEER_API", false),
 		ClusterLeaderSettleSeconds:    envInt("CLUSTER_LEADER_SETTLE_SECONDS", 60),
+		ClusterLeaderMode:             strings.ToLower(strings.TrimSpace(env("CLUSTER_LEADER_MODE", ClusterLeaderLowestID))),
+		ClusterLeaderNodeID:           strings.TrimSpace(env("CLUSTER_LEADER_NODE_ID", "")),
+		ClusterNotifyElection:         strings.ToLower(strings.TrimSpace(env("CLUSTER_NOTIFY_ELECTION", NotifyElectionLeader))),
 		ClusterSyncSeconds:            envInt("CLUSTER_SYNC_SECONDS", 15),
 		ClusterSyncBatch:              envInt("CLUSTER_SYNC_BATCH", 500),
 		ClusterSyncManifestSeconds:    envInt("CLUSTER_SYNC_MANIFEST_SECONDS", 600),

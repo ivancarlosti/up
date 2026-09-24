@@ -170,6 +170,25 @@ func (c *Config) validate() []string {
 	if c.ClusterLeaderSettleSeconds < 0 {
 		c.ClusterLeaderSettleSeconds = 0
 	}
+	// The federated leadership and the notification election are derived from the local
+	// view, so a typo in either must fail loudly: falling back silently would leave a
+	// cluster that believes it is alerting while nobody owns anything, or two nodes that
+	// each believe they do.
+	switch c.ClusterLeaderMode {
+	case ClusterLeaderLowestID:
+	case ClusterLeaderExplicit:
+		if strings.TrimSpace(c.ClusterLeaderNodeID) == "" {
+			problems = append(problems, "CLUSTER_LEADER_MODE=explicit requires CLUSTER_LEADER_NODE_ID")
+		}
+	default:
+		problems = append(problems, "CLUSTER_LEADER_MODE must be "+ClusterLeaderLowestID+" or "+ClusterLeaderExplicit)
+	}
+	switch c.ClusterNotifyElection {
+	case NotifyElectionLeader, NotifyElectionHash, NotifyElectionOrigin:
+	default:
+		problems = append(problems,
+			"CLUSTER_NOTIFY_ELECTION must be "+NotifyElectionLeader+", "+NotifyElectionHash+" or "+NotifyElectionOrigin)
+	}
 
 	// --- Synchronisation tuning --------------------------------------------
 	// The floors mirror the ones used elsewhere: a pull faster than a few seconds

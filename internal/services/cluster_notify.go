@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/ivancarlosti/up/internal/config"
 	"github.com/ivancarlosti/up/internal/models"
 )
 
@@ -126,6 +127,9 @@ func (s *ClusterService) claimEvent(ctx context.Context, monitorID uint, event m
 	if err != nil {
 		return false, err
 	}
+	if s.Federated() {
+		return s.claimEventFederated(ctx, monitorID, event, bucket, settings)
+	}
 	if settings.NotificationSender == models.NotificationSenderPrimaryOnly {
 		primary := s.IsPrimary(ctx)
 		if !primary {
@@ -151,6 +155,113 @@ func (s *ClusterService) claimEvent(ctx context.Context, monitorID uint, event m
 	s.log.Debug("notification already dispatched by another node",
 		"monitor_id", monitorID, "event", event, "bucket", bucket)
 	return false, nil
+}
+
+// claimEventFederated elects the sender from this node's own view and de-duplicates
+// locally.
+//
+// The shared unique index cannot elect anybody without a shared table, so ownership is
+// DERIVED: the leader, a rendezvous hash over the monitor uuid, or the node that created
+// the monitor. A node that is not the owner returns without writing anything — the
+// election must be free of side effects for the nodes that lose it, because they will
+// ask again on every evaluation pass.
+//
+// The owner then keeps its OWN lock row: the table stops being the cluster-wide
+// guarantee and becomes a per-node one, which is what stops the owner itself from
+// sending twice inside one window.
+func (s *ClusterService) claimEventFederated(ctx context.Context, monitorID uint, event models.NotificationEvent, bucket int64, settings *models.ClusterSettings) (bool, error) {
+	owner, err := s.notificationOwner(ctx, monitorID, settings.NotificationSender)
+	if err != nil {
+		return false, err
+	}
+	if owner == "" {
+		// Nobody is settled yet (a cluster that is still starting): nobody alerts, which
+		// is the safe direction. The next pass will find an owner.
+		s.log.Debug("notification skipped: no settled node to own it", "monitor_id", monitorID)
+		return false, nil
+	}
+	if owner != s.cfg.NodeID {
+		s.log.Debug("notification skipped: another node owns this monitor",
+			"monitor_id", monitorID, "owner", owner, "this_node", s.cfg.NodeID)
+		return false, nil
+	}
+
+	lock := models.NotificationLock{
+		MonitorID: monitorID,
+		Event:     event,
+		Bucket:    bucket,
+		NodeID:    s.cfg.NodeID,
+		CreatedAt: time.Now().UTC(),
+	}
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&lock)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 1 {
+		return true, nil
+	}
+	s.log.Debug("notification already dispatched for this window",
+		"monitor_id", monitorID, "event", event, "bucket", bucket)
+	return false, nil
+}
+
+// notificationOwner decides which node sends for a monitor, from the local view only.
+func (s *ClusterService) notificationOwner(ctx context.Context, monitorID uint, strategy models.NotificationSenderStrategy) (string, error) {
+	// PRIMARY_ONLY keeps its meaning in both modes: "primary" IS the derived leader when
+	// there is no shared row.
+	if strategy == models.NotificationSenderPrimaryOnly {
+		return s.leaderNodeID(ctx), nil
+	}
+
+	candidates := s.settledNodeIDs(ctx)
+	if len(candidates) == 0 {
+		return "", nil
+	}
+
+	switch s.cfg.ClusterNotifyElection {
+	case config.NotifyElectionHash:
+		identity, err := s.monitorIdentity(ctx, monitorID)
+		if err != nil {
+			return "", err
+		}
+		if identity.UUID == "" {
+			return candidates[0], nil
+		}
+		return models.RendezvousOwner(identity.UUID, candidates), nil
+
+	case config.NotifyElectionOrigin:
+		identity, err := s.monitorIdentity(ctx, monitorID)
+		if err != nil {
+			return "", err
+		}
+		if identity.OriginNodeID == "" {
+			return s.leaderNodeID(ctx), nil
+		}
+		// The origin keeps the duty even while it is down: that is the documented price
+		// of this mode (no duplicates from a split view, alerting for its monitors stops
+		// while it is away), so there is deliberately no fallback here.
+		return identity.OriginNodeID, nil
+
+	default: // leader
+		return s.leaderNodeID(ctx), nil
+	}
+}
+
+// monitorIdentity reads the two fields the election needs from a monitor.
+func (s *ClusterService) monitorIdentity(ctx context.Context, monitorID uint) (struct {
+	UUID         string
+	OriginNodeID string
+}, error) {
+	var identity struct {
+		UUID         string
+		OriginNodeID string
+	}
+	err := s.db.WithContext(ctx).Model(&models.Monitor{}).
+		Select("uuid", "origin_node_id").Where("id = ?", monitorID).Scan(&identity).Error
+	if err != nil {
+		return identity, ErrInternal(err)
+	}
+	return identity, nil
 }
 
 // PurgeExpiredLocks deletes the notification de-duplication rows that no node can

@@ -3,6 +3,8 @@ package models
 import (
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // at returns a pointer to the given time (the columns are nullable).
@@ -37,6 +39,84 @@ func TestSyncedEntitiesCoversEveryEntity(t *testing.T) {
 		if !index[entity] {
 			t.Errorf("%s is not in SyncedEntities: a change of it would be written to the outbox and never served", entity)
 		}
+	}
+}
+
+// TestRendezvousOwnerIsStableWhenTheSetChanges is the property that makes the
+// notification election usable.
+//
+// With a modulo rule (`fnv1a(key) % len(candidates)`) a single peer joining or leaving
+// reassigns roughly half of the monitors, so a blip would move the duty for most
+// monitors at once — and while two nodes each believe they own the same monitor, one
+// incident produces two alerts. Rendezvous only moves the keys of the node that
+// actually changed.
+func TestRendezvousOwnerIsStableWhenTheSetChanges(t *testing.T) {
+	first := []string{"up-node-1", "up-node-2", "up-node-3"}
+	keys := make([]string, 0, 400)
+	for i := 0; i < 400; i++ {
+		keys = append(keys, uuid.NewString())
+	}
+
+	before := map[string]string{}
+	for _, key := range keys {
+		before[key] = RendezvousOwner(key, first)
+	}
+
+	// A node leaves: only ITS keys may move.
+	after := map[string]string{}
+	for _, key := range keys {
+		after[key] = RendezvousOwner(key, []string{"up-node-1", "up-node-3"})
+	}
+	moved, owned := 0, 0
+	for _, key := range keys {
+		if before[key] == "" {
+			continue
+		}
+		if before[key] == "up-node-2" {
+			continue
+		}
+		owned++
+		if before[key] != after[key] {
+			moved++
+		}
+	}
+	if moved != 0 {
+		t.Fatalf("%d of the %d monitors owned by the surviving nodes changed owner after an unrelated node left", moved, owned)
+	}
+}
+
+// TestRendezvousOwnerIsDeterministicAndOrderFree pins the two properties the election
+// depends on: every node must compute the same owner, and the answer must not depend on
+// the order the candidates arrive in (the peers are read from a table).
+func TestRendezvousOwnerIsDeterministicAndOrderFree(t *testing.T) {
+	candidates := []string{"up-node-3", "up-node-1", "up-node-2"}
+	shuffled := []string{"up-node-2", "up-node-3", "up-node-1"}
+	key := "11111111-1111-4111-8111-111111111111"
+
+	owner := RendezvousOwner(key, candidates)
+	if owner == "" {
+		t.Fatal("a non-empty candidate set must elect someone")
+	}
+	for i := 0; i < 10; i++ {
+		if RendezvousOwner(key, candidates) != owner {
+			t.Fatal("the owner must be stable for the same key and candidates")
+		}
+	}
+	if RendezvousOwner(key, shuffled) != owner {
+		t.Fatal("the owner must not depend on the order of the candidates")
+	}
+	if owner != RendezvousOwner(key, append([]string{}, candidates...)) {
+		t.Fatal("the owner must not depend on the slice identity")
+	}
+}
+
+// TestRendezvousOwnerEmpty guards the degenerate cases the caller relies on.
+func TestRendezvousOwnerEmpty(t *testing.T) {
+	if got := RendezvousOwner("key", nil); got != "" {
+		t.Fatalf("no candidates must yield no owner, got %q", got)
+	}
+	if got := RendezvousOwner("key", []string{"", ""}); got != "" {
+		t.Fatalf("empty candidate names must be skipped, got %q", got)
 	}
 }
 

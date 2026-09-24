@@ -31,11 +31,20 @@ type ClusterService struct {
 	// peerAuth verifies the signature of inbound node to node requests
 	// (docs/clustering-federated.md, section 11).
 	peerAuth *PeerAuth
+	// startedAt is when this process came up. Federated leadership is derived from
+	// "how long have I been continuously online", and this is that answer for the local
+	// node: a node cannot take the leader role (nor the alert duty) before it has been
+	// up for the settle time, or a restart loop would move the duty on every boot.
+	startedAt time.Time
 }
 
 // NewClusterService builds the cluster service.
 func NewClusterService(db *gorm.DB, cfg *config.Config, log *slog.Logger, settings *SettingService, stats *StatsService) *ClusterService {
-	return &ClusterService{db: db, cfg: cfg, log: log, settings: settings, stats: stats, peerAuth: NewPeerAuth()}
+	return &ClusterService{
+		db: db, cfg: cfg, log: log, settings: settings, stats: stats,
+		peerAuth:  NewPeerAuth(),
+		startedAt: time.Now().UTC(),
+	}
 }
 
 // SetMonitorService injects the monitor service (used by the evaluator).
