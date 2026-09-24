@@ -293,6 +293,36 @@ type SyncDeadLetter struct {
 // TableName keeps the table name stable.
 func (SyncDeadLetter) TableName() string { return "sync_dead_letters" }
 
+// PeerVote is one node's verdict for one monitor, as another node reported it.
+//
+// It is keyed by monitor UUID and not by a local id: a peer's ids are its own, so the
+// uuid is the only reference the two nodes agree on. The row is replaced on every
+// fetch, because a vote is a snapshot of a measurement and not a history.
+//
+// This is what lets a federated cluster evaluate a status strategy without a shared
+// heartbeats table: every node publishes its own verdicts, fetches the peers', and
+// merges both before aggregating.
+type PeerVote struct {
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	MonitorUUID string `gorm:"size:36;not null;uniqueIndex:idx_peer_votes,priority:1" json:"monitor_uuid"`
+	NodeID      string `gorm:"size:64;not null;uniqueIndex:idx_peer_votes,priority:2" json:"node_id"`
+
+	Status    HeartbeatStatus `gorm:"not null" json:"status"`
+	LatencyMS int64           `json:"latency_ms"`
+	Message   string          `gorm:"size:500" json:"message"`
+	Important bool            `gorm:"not null;default:false" json:"important"`
+	// CheckedAt is when the REPORTING node took the measurement. It is the timestamp
+	// the freshness window is applied to, so a peer's old verdict expires exactly like
+	// a local one.
+	CheckedAt time.Time `json:"checked_at"`
+	// FetchedAt is when this node read it, so a peer that stopped reporting is
+	// distinguishable from one still reporting an old verdict.
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// TableName keeps the table name stable.
+func (PeerVote) TableName() string { return "peer_votes" }
+
 func SettledPeers(peers []SyncPeer, now time.Time, settle time.Duration) []SyncPeer {
 	out := make([]SyncPeer, 0, len(peers))
 	for _, peer := range peers {

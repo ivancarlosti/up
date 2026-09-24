@@ -7,6 +7,21 @@ import (
 	"github.com/ivancarlosti/up/internal/models"
 )
 
+// peerVotes reads the verdicts fetched from the other nodes, for the merge in
+// EvaluateAll.
+//
+// The READ lives here and the WRITE in the sync service on purpose: the evaluator is
+// the only consumer, so the aggregation does not have to know anything about the peer
+// protocol — and the sync service keeps the table bounded (its retention prune), while
+// freshness is decided by the monitor's window right below.
+func (s *ClusterService) peerVotes(ctx context.Context) ([]models.PeerVote, error) {
+	var votes []models.PeerVote
+	if err := s.db.WithContext(ctx).Find(&votes).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	return votes, nil
+}
+
 // voteWindow is how long a heartbeat is considered valid for the voting. It
 // grows with the monitor interval so slow monitors are not marked stale.
 func voteWindow(monitor *models.Monitor) time.Duration {
@@ -65,6 +80,47 @@ func (s *ClusterService) EvaluateAll(ctx context.Context, monitors []*models.Mon
 	}
 
 	now := time.Now().UTC()
+
+	// In federated mode the peers' verdicts are NOT in the heartbeats table: they are
+	// fetched into peer_votes, keyed by the monitor UUID because a peer's local ids are
+	// its own. Merging them here is the only change the mode needs — every rule below
+	// (participation, the freshness window, the aggregation) is untouched, so a shared
+	// and a federated cluster decide with the same code and the same tests.
+	if s.Federated() {
+		peerVotes, err := s.peerVotes(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		byUUID := make(map[string]uint, len(monitors))
+		for _, monitor := range monitors {
+			byUUID[monitor.UUID] = monitor.ID
+		}
+		for _, vote := range peerVotes {
+			localID, ok := byUUID[vote.MonitorUUID]
+			if !ok {
+				// A verdict for a monitor this node does not have (yet): it will be used
+				// as soon as the monitor arrives.
+				continue
+			}
+			if latest[localID] == nil {
+				latest[localID] = map[string]models.Heartbeat{}
+			}
+			if _, measured := latest[localID][vote.NodeID]; measured {
+				// This node's own heartbeat wins: it is the same measurement, only fresher.
+				continue
+			}
+			latest[localID][vote.NodeID] = models.Heartbeat{
+				MonitorID: localID,
+				NodeID:    vote.NodeID,
+				Status:    vote.Status,
+				LatencyMS: vote.LatencyMS,
+				Message:   vote.Message,
+				Important: vote.Important,
+				CreatedAt: vote.CheckedAt,
+			}
+		}
+	}
+
 	for _, monitor := range monitors {
 		window := voteWindow(monitor)
 		votes := make([]models.NodeVote, 0, len(nodes))

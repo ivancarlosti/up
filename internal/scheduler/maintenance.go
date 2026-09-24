@@ -32,9 +32,20 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	// select.
 	var pullC <-chan time.Time
 	var pull *time.Ticker
+	var votesC <-chan time.Time
+	var votes *time.Ticker
 	if s.sync != nil && s.sync.Enabled() {
 		pull = time.NewTicker(s.sync.NextSyncTick())
 		pullC = pull.C
+		// The verdicts are fetched twice as often as the configuration: a peer's vote is
+		// only worth anything while it is fresh, so waiting a whole sync interval for it
+		// would shrink the window the aggregation can use.
+		votesEvery := s.sync.NextSyncTick() / 2
+		if votesEvery < time.Second {
+			votesEvery = time.Second
+		}
+		votes = time.NewTicker(votesEvery)
+		votesC = votes.C
 		s.log.Info("federated synchronisation started", "node_id", s.cfg.NodeID, "every", s.sync.NextSyncTick())
 	}
 
@@ -48,6 +59,9 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer retention.Stop()
 		if pull != nil {
 			defer pull.Stop()
+		}
+		if votes != nil {
+			defer votes.Stop()
 		}
 
 		// Run both cluster tasks once at boot so the nodes table is accurate
@@ -66,6 +80,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		// catches up without waiting a whole interval.
 		if s.sync != nil {
 			s.sync.PullPeers(ctx)
+			s.sync.PullVotes(ctx)
 		}
 		// A long lived certificate must not wait 6h for its first evaluation.
 		if s.certificates != nil {
@@ -101,6 +116,8 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				s.purgeRetention(ctx)
 			case <-pullC:
 				s.sync.PullPeers(ctx)
+			case <-votesC:
+				s.sync.PullVotes(ctx)
 			}
 		}
 	}()

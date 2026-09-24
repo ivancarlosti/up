@@ -38,6 +38,21 @@ func (h *Container) syncPing(c *gin.Context) {
 	})
 }
 
+// syncVotes answers a signed peer request (GET /api/cluster/sync/votes) with THIS
+// node's own verdicts per monitor.
+//
+// It carries only what this node measured: the receiver merges it with its own
+// heartbeats and with the other peers' verdicts, which is what keeps the failure
+// strategies meaningful without a shared heartbeats table.
+func (h *Container) syncVotes(c *gin.Context) {
+	response, err := h.Sync.ServeVotes(c.Request.Context())
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, response)
+}
+
 // syncManifest answers a signed peer request with this node's entity checksums.
 func (h *Container) syncManifest(c *gin.Context) {
 	response, err := h.Sync.ServeManifest(c.Request.Context())

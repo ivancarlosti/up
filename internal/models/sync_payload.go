@@ -153,6 +153,31 @@ type NotificationPayload struct {
 	Config                NotificationConfig `json:"config"`
 }
 
+// PeerVotePayload is the verdict of one monitor, published by the node that took
+// the measurement (GET /api/cluster/sync/votes).
+//
+// The status travels as its stable lower case name, so a peer can reject a value it
+// does not understand instead of silently mapping it to "unknown".
+type PeerVotePayload struct {
+	MonitorUUID string    `json:"monitor_uuid"`
+	Status      string    `json:"status"`
+	LatencyMS   int64     `json:"latency_ms"`
+	Message     string    `json:"message"`
+	Important   bool      `json:"important"`
+	CheckedAt   time.Time `json:"checked_at"`
+}
+
+// SyncVotesResponse answers GET /api/cluster/sync/votes. It carries the verdicts of
+// THIS node only: the receiver merges them with its own heartbeats and with the other
+// peers' votes, which is what keeps `ANY_NODE_FAILS`/`ALL_NODES_FAIL`/`QUORUM`
+// meaningful without a shared heartbeats table.
+type SyncVotesResponse struct {
+	NodeID          string            `json:"node_id"`
+	ProtocolVersion int               `json:"protocol_version"`
+	ServerTime      time.Time         `json:"server_time"`
+	Votes           []PeerVotePayload `json:"votes"`
+}
+
 // SyncChangePayload is one entry of a changes or snapshot batch.
 type SyncChangePayload struct {
 	// ID is the outbox row id: it is the cursor a peer advances, and it is local

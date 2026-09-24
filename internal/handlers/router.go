@@ -113,6 +113,7 @@ func (h *Container) Register(engine *gin.Engine) {
 	peers.GET("/changes", h.syncChanges)
 	peers.GET("/manifest", h.syncManifest)
 	peers.GET("/snapshot", h.syncSnapshot)
+	peers.GET("/votes", h.syncVotes)
 
 	h.registerAdmin(engine)
 }
