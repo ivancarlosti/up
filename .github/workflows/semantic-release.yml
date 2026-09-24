@@ -124,8 +124,13 @@ jobs:
           # An existing tag is reused (never force-updated), which makes this
           # manual path idempotent and usable to finish a half published release
           # (a tag that exists without its GitHub Release).
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "Tag ${TAG} already exists — reusing it."
+          #
+          # The check queries the REMOTE: this job checks out with fetch-depth 1,
+          # which does not fetch tags, so a local `git rev-parse` would miss an
+          # existing tag, recreate it and then fail the push with
+          # "! [rejected] v3.3.0 -> v3.3.0 (already exists)".
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on the remote — reusing it."
             CREATED_TAG=0
           else
             git tag -a "${TAG}" -m "Release ${TAG}"
@@ -138,6 +143,14 @@ jobs:
 
           if gh release view "${TAG}" >/dev/null 2>&1; then
             echo "GitHub Release ${TAG} already exists."
+          elif [ "${CREATED_TAG}" -eq 0 ]; then
+            # The tag is already on the remote (typically a run that died between
+            # the tag push and the publish step): attach the release to it instead
+            # of trying to create the tag again.
+            gh release create "${TAG}" --verify-tag \
+              --title "${TAG}" \
+              --notes "Manual release ${TAG}"
+            echo "✅ GitHub Release ${TAG} created for the existing tag."
           else
             gh release create "${TAG}" \
               --title "${TAG}" \
@@ -262,7 +275,7 @@ jobs:
             if gh release view "${TAG}" >/dev/null 2>&1; then
               echo "GitHub Release ${TAG} already exists."
             else
-              gh release create "${TAG}" --title "${TAG}" --generate-notes
+              gh release create "${TAG}" --verify-tag --title "${TAG}" --generate-notes
               echo "✅ GitHub Release ${TAG} created during the recovery."
             fi
           fi
@@ -284,7 +297,7 @@ jobs:
             # the tag. On the happy path the release already exists: no-op.
             if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
               echo "::warning::No GitHub Release for ${NEW_TAG} — creating it now."
-              gh release create "$NEW_TAG" --title "$NEW_TAG" --generate-notes ||
+              gh release create "$NEW_TAG" --verify-tag --title "$NEW_TAG" --generate-notes ||
                 echo "::warning::could not create the release for ${NEW_TAG}; create it manually."
             fi
             VERSION="${NEW_TAG#v}"
