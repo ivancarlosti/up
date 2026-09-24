@@ -47,6 +47,7 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	templates.PUT("/:id", h.updateMonitorTemplate)
 	templates.DELETE("/:id", h.deleteMonitorTemplate)
 	templates.POST("/:id/apply", h.applyMonitorTemplate)
+	templates.POST("/:id/link-all", h.linkAllMonitorTemplate)
 
 	notifications := admin.Group("/notifications")
 	notifications.GET("", h.listNotifications)

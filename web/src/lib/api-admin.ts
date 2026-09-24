@@ -50,7 +50,12 @@ export const adminApi = {
   clusterHeartbeat: () => post<{ online: ClusterNode[]; offline: ClusterNode[] }>('/api/cluster/heartbeat'),
 
   adminSettings: () => get<AdminSettings>('/api/admin/settings'),
-  updateAdminSettings: (payload: { default_locale?: string; default_theme?: string; app_name?: string }) =>
+  updateAdminSettings: (payload: {
+    default_locale?: string
+    default_theme?: string
+    time_format?: string
+    app_name?: string
+  }) =>
     put<void>('/api/admin/settings', payload),
 
   /** Daily certificate/domain expiration job and the per-TLD WHOIS rules. */

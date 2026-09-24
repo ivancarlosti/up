@@ -13,8 +13,11 @@ const (
 	SettingSessionSecret     = "session_secret"
 	SettingClusterPrivateKey = "cluster_private_key"
 	SettingAppName           = "app_name"
-	SettingRateLogin         = "rate_limit_login"
-	SettingRatePublic        = "rate_limit_public"
+	// SettingTimeFormat is the clock the UI renders: auto (the browser locale),
+	// 12h or 24h. It is a display preference, never a stored timestamp format.
+	SettingTimeFormat = "time_format"
+	SettingRateLogin  = "rate_limit_login"
+	SettingRatePublic = "rate_limit_public"
 	// Expiry job (Admin > TLD/SSL expiration): when the daily certificate and
 	// domain checks run, which registries are queried and how fast.
 	SettingExpiryCheckTime      = "expiry_check_time"

@@ -36,11 +36,20 @@ type MonitorPayload struct {
 	RunOn                  string      `json:"run_on"`
 	NodeID                 string      `json:"node_id"`
 	// RunOnNodes is the subset used by run_on=some, comma separated (see models.Monitor).
-	RunOnNodes   string        `json:"run_on_nodes"`
-	Tags         string        `json:"tags"`
-	CertWatch    bool          `json:"cert_watch"`
-	CertNotify   bool          `json:"cert_notify"`
-	CertWarnDays string        `json:"cert_warn_days"`
+	RunOnNodes   string `json:"run_on_nodes"`
+	Tags         string `json:"tags"`
+	CertWatch    bool   `json:"cert_watch"`
+	CertNotify   bool   `json:"cert_notify"`
+	CertWarnDays string `json:"cert_warn_days"`
+	// The domain expiration watch travels like the certificate switches: a monitor
+	// created on one node has to watch the same things on every other node.
+	DomainWatch     bool       `json:"domain_watch"`
+	DomainNotify    bool       `json:"domain_notify"`
+	DomainWarnDays  string     `json:"domain_warn_days"`
+	DomainExpiresAt *time.Time `json:"domain_expires_at,omitempty"`
+	// TemplateUUID is the template the monitor follows (empty when it follows
+	// none): the template's global uuid, never a local id.
+	TemplateUUID string        `json:"template_uuid,omitempty"`
 	Config       MonitorConfig `json:"config"`
 }
 

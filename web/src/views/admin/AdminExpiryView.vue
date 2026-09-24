@@ -11,14 +11,16 @@ import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
+import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { formatDateTime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
 import type { ExpirySettings, WhoisParser, WhoisParserPayload, WhoisTestResult } from '@/lib/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toasts = useToastStore()
 
 const loading = ref(false)
@@ -99,10 +101,29 @@ function parserPayload(): WhoisParserPayload {
   return { ...parserForm, min_interval_ms: toNumber(parserForm.min_interval_ms, 0) }
 }
 
-const nextRunLabel = computed(() => {
-  if (!nextRun.value) return ''
-  return new Date(nextRun.value).toLocaleString()
+const nextRunLabel = computed(() => (nextRun.value ? formatDateTime(nextRun.value, locale.value) : ''))
+
+/**
+ * The time of day is picked with two explicit selects (00-23 and 00-59): a native
+ * <input type="time"> renders AM/PM or 24h depending on the browser locale, which
+ * cannot be overridden, and the operator wants a predictable clock here.
+ */
+const hourOptions = Array.from({ length: 24 }, (_, index) => {
+  const value = String(index).padStart(2, '0')
+  return { value, label: value }
 })
+const minuteOptions = Array.from({ length: 60 }, (_, index) => {
+  const value = String(index).padStart(2, '0')
+  return { value, label: value }
+})
+const checkHour = computed(() => settingsForm.check_time.split(':')[0] ?? '03')
+const checkMinute = computed(() => settingsForm.check_time.split(':')[1] ?? '00')
+function setCheckHour(value: string): void {
+  settingsForm.check_time = `${value}:${checkMinute.value}`
+}
+function setCheckMinute(value: string): void {
+  settingsForm.check_time = `${checkHour.value}:${value}`
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -243,8 +264,27 @@ onMounted(load)
     <Card :title="t('expiry.settingsTitle')" :description="t('expiry.settingsHelp')">
       <div class="grid gap-3 sm:grid-cols-2">
         <div class="grid gap-1">
-          <Label for="expiry-time" :help="t('expiry.checkTimeHelp')">{{ t('expiry.checkTime') }}</Label>
-          <Input id="expiry-time" v-model="settingsForm.check_time" type="time" />
+          <Label for="expiry-hour" :help="t('expiry.checkTimeHelp')">{{ t('expiry.checkTime') }}</Label>
+          <div class="flex items-center gap-2">
+            <div class="w-20">
+              <Select
+                id="expiry-hour"
+                :model-value="checkHour"
+                :options="hourOptions"
+                @update:model-value="setCheckHour($event as string)"
+              />
+            </div>
+            <span class="text-sm text-muted-foreground">:</span>
+            <div class="w-20">
+              <Select
+                id="expiry-minute"
+                :model-value="checkMinute"
+                :options="minuteOptions"
+                @update:model-value="setCheckMinute($event as string)"
+              />
+            </div>
+            <span class="font-mono text-xs text-muted-foreground">{{ settingsForm.check_time }}</span>
+          </div>
         </div>
         <div class="grid gap-1">
           <Label for="expiry-zone" :help="t('expiry.timezoneHelp')">{{ t('expiry.timezone') }}</Label>

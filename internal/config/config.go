@@ -64,6 +64,16 @@ const (
 var (
 	SupportedLocales = []string{"en-US", "pt-BR", "es-MX"}
 	SupportedThemes  = []string{"system", "light", "dark"}
+	// SupportedTimeFormats is what DEFAULT_TIME_FORMAT and Admin > Settings
+	// accept: auto follows the browser locale, the other two force a clock.
+	SupportedTimeFormats = []string{TimeFormatAuto, TimeFormat12h, TimeFormat24h}
+)
+
+// Clock preferences (TIME_FORMAT).
+const (
+	TimeFormatAuto = "auto"
+	TimeFormat12h  = "12h"
+	TimeFormat24h  = "24h"
 )
 
 // Config is the fully validated runtime configuration.
@@ -101,8 +111,9 @@ type Config struct {
 	KeycloakCallbackPath          string
 
 	// --- I18n & theme defaults -------------------------------------------
-	DefaultLocale string
-	DefaultTheme  string
+	DefaultLocale     string
+	DefaultTheme      string
+	DefaultTimeFormat string
 
 	// --- Clustering -------------------------------------------------------
 	ClusterEnabled bool
@@ -229,6 +240,7 @@ func Load() (*Config, error) {
 		KeycloakPostLogoutRedirectURI: strings.TrimSpace(env("KEYCLOAK_POST_LOGOUT_REDIRECT_URI", "")),
 		DefaultLocale:                 env("DEFAULT_LOCALE", "en-US"),
 		DefaultTheme:                  env("DEFAULT_THEME", "system"),
+		DefaultTimeFormat:             strings.ToLower(env("TIME_FORMAT", TimeFormatAuto)),
 		ClusterEnabled:                mustBool("CLUSTER_ENABLED", false),
 		ClusterMode:                   strings.ToLower(env("CLUSTER_MODE", ClusterModeShared)),
 		ClusterPeerAPI:                mustBool("CLUSTER_PEER_API", false),

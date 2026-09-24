@@ -152,6 +152,11 @@ type Monitor struct {
 	// operator still wants the same reminders.
 	DomainExpiresAt *time.Time `json:"domain_expires_at"`
 
+	// TemplateUUID is the template this monitor follows (empty when it follows
+	// none). The uuid is used instead of the local id because the row is
+	// synchronised: an auto-increment id is only meaningful inside one database.
+	TemplateUUID string `gorm:"size:36;index" json:"template_uuid"`
+
 	Config MonitorConfig `gorm:"serializer:json;type:json" json:"config"`
 
 	CreatedAt time.Time `json:"created_at"`
@@ -177,6 +182,9 @@ type Monitor struct {
 	// Domain is the last registry expiration read for the monitor's registrable
 	// domain (only when the monitor watches its domain).
 	Domain *DomainInfo `gorm:"-" json:"domain,omitempty"`
+	// TemplateName is the name of the template the monitor follows (filled by the
+	// decoration, never stored).
+	TemplateName string `gorm:"-" json:"template_name,omitempty"`
 }
 
 // BeforeCreate fills the sync identity of a new row: the UUID is the global id

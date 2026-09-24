@@ -19,7 +19,7 @@ const toast = useToastStore()
 const app = useAppStore()
 
 const settings = ref<AdminSettings | null>(null)
-const form = ref({ default_locale: 'en-US', default_theme: 'system', app_name: '' })
+const form = ref({ default_locale: 'en-US', default_theme: 'system', time_format: 'auto', app_name: '' })
 const saving = ref(false)
 
 const localeOptions = computed(() =>
@@ -30,6 +30,17 @@ const themeOptions = computed(() => [
   { value: 'light', label: t('settings.themeLight') },
   { value: 'dark', label: t('settings.themeDark') },
 ])
+const timeFormatLabels: Record<string, string> = {
+  auto: 'settings.timeFormatAuto',
+  '12h': 'settings.timeFormat12h',
+  '24h': 'settings.timeFormat24h',
+}
+const timeFormatOptions = computed(() =>
+  (settings.value?.supported_time_formats ?? ['auto', '12h', '24h']).map((value) => ({
+    value,
+    label: t(timeFormatLabels[value] ?? 'settings.timeFormatAuto'),
+  })),
+)
 
 async function load(): Promise<void> {
   try {
@@ -37,6 +48,7 @@ async function load(): Promise<void> {
     form.value = {
       default_locale: settings.value.default_locale,
       default_theme: settings.value.default_theme,
+      time_format: settings.value.time_format ?? 'auto',
       app_name: settings.value.app_name,
     }
   } catch (error) {
@@ -80,6 +92,12 @@ onMounted(load)
         <div class="grid gap-1">
           <Label for="settings-name">{{ t('settings.appName') }}</Label>
           <Input id="settings-name" v-model="form.app_name" />
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-time-format" :help="t('settings.timeFormatHelp')">
+            {{ t('settings.timeFormat') }}
+          </Label>
+          <Select id="settings-time-format" v-model="form.time_format" :options="timeFormatOptions" />
         </div>
       </div>
 

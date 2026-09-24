@@ -40,7 +40,6 @@ const SAFE_FIELDS = [
   'resend_interval_seconds',
   'run_on',
   'node_id',
-  'tags',
 ]
 
 const ALL_FIELDS = [
@@ -48,7 +47,6 @@ const ALL_FIELDS = [
   'active',
   'config',
   'notification_ids',
-  'group_ids',
   'cert_watch',
   'cert_notify',
   'cert_warn_days',
@@ -82,11 +80,9 @@ const fieldLabels: Record<string, string> = {
   resend_interval_seconds: 'monitor.resendInterval',
   run_on: 'monitor.runOn',
   node_id: 'monitor.targetNode',
-  tags: 'common.tags',
   active: 'common.active',
   config: 'monitor.probeOptions',
   notification_ids: 'monitor.notificationsSection',
-  group_ids: 'groups.title',
   cert_watch: 'monitor.certWatch',
   cert_notify: 'monitor.certNotify',
   cert_warn_days: 'monitor.certWarnDays',

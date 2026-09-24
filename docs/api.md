@@ -143,7 +143,9 @@ monitor carries a `domain` object (`domain`, `registrar`, `expires_at`, `source`
 `status`, `days_left`, `checked_at`), and an incoherent configuration answers
 `400 ERR_MONITOR_DOMAIN_INVALID`. Response `201` with the decorated monitor.
 Validation errors use
-`ERR_MONITOR_CONFIG_INVALID` / `ERR_MONITOR_TYPE_INVALID` / `ERR_VALIDATION`
+`template_uuid` links the monitor to the template it follows (`template_name` is
+filled by the decoration) and must match the template type. Validation errors use
+`ERR_MONITOR_CONFIG_INVALID` / `ERR_MONITOR_TYPE_INVALID` / `ERR_MONITOR_TEMPLATE_INVALID` / `ERR_VALIDATION`
 (see `docs/monitors.md` for every field).
 
 ### `PUT /api/monitors/:id`
@@ -214,13 +216,17 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | GET | `/api/monitor-templates` | list |
 | POST | `/api/monitor-templates` | create (`{name, type, config, defaults}`) |
 | GET | `/api/monitor-templates/:id` | single template |
-| PUT | `/api/monitor-templates/:id` | update |
+| PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
+| POST | `/api/monitor-templates/:id/link-all` | attach every monitor of the template type: `{dry_run?}` -> `{monitors, linked, updated, dry_run}` |
 | POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_ids?, active?, dry_run?}` |
 
 A **template** is a monitor without a target: `type`, `config` and `defaults`
-(interval, timeout, retries, re-notification, `run_on`, tags, channels, groups).
+(interval, timeout, retries, re-notification, `run_on`, channels and the
+certificate/domain watches; never the groups or the tags). A monitor can **follow**
+a template through `template_uuid` (the template's global uuid), and editing the
+template pushes its defaults to every follower unless `propagate` is false.
 The `apply` endpoint only writes the fields listed in `fields` (empty = every
 default field) and returns the diff per monitor; it **never touches the target**
 of a monitor, not even when `config` is applied. `monitor_ids` and an unknown
@@ -317,8 +323,8 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/admin/settings` | locale/theme defaults + instance info |
-| PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","app_name":"Up"}` -> `204` |
+| GET | `/api/admin/settings` | locale/theme/clock defaults + instance info |
+| PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","app_name":"Up"}` -> `204` (`time_format` is `auto`, `12h` or `24h`) |
 | GET | `/api/tokens` | API tokens (never the secret) |
 | POST | `/api/tokens` | `{"name":"ci","scopes":["read"],"expires_in_days":30}` -> the plain token **once** |
 | PUT | `/api/tokens/:id` | rename / rescope / change expiry |

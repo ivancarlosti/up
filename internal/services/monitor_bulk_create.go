@@ -154,14 +154,16 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		RunOn:                  template.Defaults.RunOn,
 		RunOnNodes:             template.Defaults.RunOnNodes,
 		NodeID:                 template.Defaults.NodeID,
-		Tags:                   template.Defaults.Tags,
 		CertWatch:              template.Defaults.CertWatch,
 		CertNotify:             template.Defaults.CertNotify,
 		CertWarnDays:           template.Defaults.CertWarnDays,
 		DomainWatch:            template.Defaults.DomainWatch,
 		DomainNotify:           template.Defaults.DomainNotify,
 		DomainWarnDays:         template.Defaults.DomainWarnDays,
-		Config:                 config,
+		// A monitor imported from a template follows it, so a later template edit
+		// reaches it too.
+		TemplateUUID: template.UUID,
+		Config:       config,
 	}
 	if template.Defaults.Active != nil {
 		monitor.Active = *template.Defaults.Active

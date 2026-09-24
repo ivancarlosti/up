@@ -2,18 +2,29 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, RefreshCw } from 'lucide-vue-next'
+import { ArrowLeft, Pencil, RefreshCw } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import StatCard from '@/components/ui/StatCard.vue'
 import HeartbeatBar from '@/components/monitors/HeartbeatBar.vue'
+import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime, formatLatency, formatUptime, statusColor } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { CertificateInfo, DomainInfo, Heartbeat, Monitor, UptimeStats } from '@/lib/types'
+import type {
+  CertificateInfo,
+  DomainInfo,
+  Heartbeat,
+  Monitor,
+  MonitorGroup,
+  MonitorPayload,
+  MonitorTemplate,
+  Notification,
+  UptimeStats,
+} from '@/lib/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,6 +36,14 @@ const stats = ref<UptimeStats | null>(null)
 const heartbeats = ref<Heartbeat[]>([])
 const hours = ref(24)
 const loading = ref(false)
+
+// The edit dialog is the same form as the monitors page: it needs the channel,
+// group and template lists for its pickers.
+const formOpen = ref(false)
+const saving = ref(false)
+const notifications = ref<Notification[]>([])
+const groups = ref<MonitorGroup[]>([])
+const templates = ref<MonitorTemplate[]>([])
 
 const monitorId = computed(() => Number(route.params.id))
 
@@ -90,6 +109,14 @@ function target(): string {
   }
 }
 
+/** targetHref turns the target into a link when it is an URL. */
+const targetHref = computed(() => {
+  const type = monitor.value?.type
+  if (type !== 'http' && type !== 'keyword') return ''
+  const url = monitor.value?.config?.url ?? ''
+  return /^https?:\/\//i.test(url) ? url : ''
+})
+
 /** certificateVariant colours the validity badge by urgency. */
 function certificateVariant(daysLeft: number): 'success' | 'warning' | 'danger' | 'secondary' {
   if (daysLeft <= 0) return 'danger'
@@ -116,7 +143,43 @@ function domainVariant(domain: DomainInfo): 'success' | 'warning' | 'danger' | '
   return certificateVariant(domain.days_left)
 }
 
+/** loadFormOptions fills the lists the edit dialog needs. */
+async function loadFormOptions(): Promise<void> {
+  try {
+    const [channelList, groupList, templateList] = await Promise.all([
+      api.notifications(),
+      api.monitorGroups(),
+      api.monitorTemplates(),
+    ])
+    notifications.value = channelList
+    groups.value = groupList
+    templates.value = templateList
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  }
+}
+
+function openEdit(): void {
+  formOpen.value = true
+}
+
+async function submit(payload: MonitorPayload): Promise<void> {
+  if (!monitor.value) return
+  saving.value = true
+  try {
+    await api.updateMonitor(monitor.value.id, payload)
+    formOpen.value = false
+    toasts.success(t('common.saved'))
+    await load()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    saving.value = false
+  }
+}
+
 onMounted(load)
+onMounted(loadFormOptions)
 watch(hours, load)
 </script>
 
@@ -128,8 +191,20 @@ watch(hours, load)
       </Button>
       <div class="min-w-0">
         <h1 class="truncate text-lg font-semibold">{{ monitor.name }}</h1>
-        <p class="truncate text-xs text-muted-foreground">{{ target() }}</p>
+        <a
+          v-if="targetHref"
+          class="block truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+          :href="targetHref"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {{ target() }}
+        </a>
+        <p v-else class="truncate text-xs text-muted-foreground">{{ target() }}</p>
       </div>
+      <Badge v-if="monitor.template_name" variant="outline" :title="t('monitor.templateSection')">
+        {{ monitor.template_name }}
+      </Badge>
       <StatusBadge :status="monitor.status" pulse class="ml-2" />
       <Badge
         v-if="monitor.certificate"
@@ -153,6 +228,10 @@ watch(hours, load)
         <template v-else>{{ t('domain.unavailable') }}</template>
       </Badge>
       <div class="ml-auto flex items-center gap-2">
+        <Button variant="outline" size="sm" @click="openEdit">
+          <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('common.edit') }}
+        </Button>
         <Button variant="outline" size="sm" :loading="loading" @click="load">
           <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('common.refresh') }}
@@ -251,6 +330,16 @@ watch(hours, load)
         </ul>
       </Card>
     </div>
+
+    <MonitorForm
+      v-model="formOpen"
+      :monitor="monitor"
+      :notifications="notifications"
+      :groups="groups"
+      :templates="templates"
+      :saving="saving"
+      @submit="submit"
+    />
   </div>
 </template>
 

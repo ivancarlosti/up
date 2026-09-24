@@ -60,14 +60,16 @@ func TestPlanApply(t *testing.T) {
 	if _, ok := byField["timeout_seconds"]; ok {
 		t.Fatal("an identical value must not be reported as a change")
 	}
-	if change, ok := byField["tags"]; !ok || change.To != "new" {
-		t.Fatalf("tags change = %+v", change)
-	}
 	if change, ok := byField["notification_ids"]; !ok || change.From != "1" || change.To != "1,2" {
 		t.Fatalf("notification_ids change = %+v", change)
 	}
-	if change, ok := byField["group_ids"]; !ok || change.From != "" || change.To != "7" {
-		t.Fatalf("group_ids change = %+v", change)
+	// Groups and tags belong to the monitor, never to the template: two monitors
+	// can follow the same template and live in different groups with different
+	// tags, so neither is ever part of the diff.
+	for _, field := range []string{"tags", "group_ids"} {
+		if _, ok := byField[field]; ok {
+			t.Fatalf("%s must not be part of the template fields", field)
+		}
 	}
 	if change, ok := byField["config.method"]; !ok || change.From != "GET" || change.To != "HEAD" {
 		t.Fatalf("config.method change = %+v", change)
@@ -108,7 +110,7 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 		},
 	}
 
-	updated, notificationIDs, groupIDs := applyTemplate(monitor, template, []string{"config", "interval_seconds", "notification_ids", "group_ids"})
+	updated, notificationIDs, groupIDs := applyTemplate(monitor, template, []string{"config", "interval_seconds", "notification_ids"})
 	if updated.Config.URL != "https://api.example.com/health" {
 		t.Fatalf("the target changed to %q", updated.Config.URL)
 	}
@@ -118,8 +120,8 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	if updated.IntervalSeconds != 30 {
 		t.Fatalf("interval = %d", updated.IntervalSeconds)
 	}
-	if len(notificationIDs) != 1 || len(groupIDs) != 2 {
-		t.Fatalf("links not applied: notifications=%v groups=%v", notificationIDs, groupIDs)
+	if len(notificationIDs) != 1 || groupIDs != nil {
+		t.Fatalf("links: notifications=%v groups=%v (the groups must be left alone)", notificationIDs, groupIDs)
 	}
 	// The original monitor is not mutated (the diff was computed from it).
 	if monitor.Config.Method != "GET" || monitor.IntervalSeconds != 0 {

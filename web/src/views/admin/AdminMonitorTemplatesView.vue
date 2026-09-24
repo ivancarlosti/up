@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FileCog, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { FileCog, Link2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -18,7 +18,7 @@ import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { useToastStore } from '@/stores/toast'
-import type { MonitorConfig, MonitorGroup, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification } from '@/lib/types'
+import type { MonitorConfig, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
 
 /** TemplateForm mirrors a template without optional fields (the form always has them). */
 type TemplateForm = {
@@ -27,6 +27,7 @@ type TemplateForm = {
   type: MonitorType
   config: MonitorConfig
   defaults: MonitorTemplatePayload['defaults'] & Record<string, unknown>
+  propagate: boolean
 }
 
 /**
@@ -39,7 +40,6 @@ const toasts = useToastStore()
 
 const templates = ref<MonitorTemplate[]>([])
 const notifications = ref<Notification[]>([])
-const groups = ref<MonitorGroup[]>([])
 const loading = ref(false)
 const saving = ref(false)
 
@@ -48,6 +48,13 @@ const editing = ref<MonitorTemplate | null>(null)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<MonitorTemplate | null>(null)
 
+// "Link every monitor of this type": a dry run fills the preview the
+// confirmation dialog shows, the real run writes the link and the defaults.
+const linkOpen = ref(false)
+const linking = ref(false)
+const linkTarget = ref<MonitorTemplate | null>(null)
+const linkPreview = ref<TemplateLinkResult | null>(null)
+
 const form = reactive<TemplateForm>(blank())
 
 function blank(): TemplateForm {
@@ -55,6 +62,7 @@ function blank(): TemplateForm {
     name: '',
     description: '',
     type: 'http',
+    propagate: true,
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', headers: [] },
     defaults: {
       interval_seconds: 60,
@@ -65,10 +73,8 @@ function blank(): TemplateForm {
       run_on: 'all',
       run_on_nodes: '',
       node_id: '',
-      tags: '',
       description: '',
       notification_ids: [],
-      group_ids: [],
       cert_watch: false,
       cert_notify: false,
       cert_warn_days: '',
@@ -98,14 +104,12 @@ const config = computed(() => form.config ?? {})
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [templateList, channelList, groupList] = await Promise.all([
+    const [templateList, channelList] = await Promise.all([
       api.monitorTemplates(),
       api.notifications(),
-      api.monitorGroups(),
     ])
     templates.value = templateList
     notifications.value = channelList
-    groups.value = groupList
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   } finally {
@@ -135,13 +139,6 @@ function toggleNotification(id: number, value: boolean): void {
   form.defaults.notification_ids = [...set]
 }
 
-function toggleGroup(id: number, value: boolean): void {
-  const set = new Set(form.defaults.group_ids ?? [])
-  if (value) set.add(id)
-  else set.delete(id)
-  form.defaults.group_ids = [...set]
-}
-
 async function save(): Promise<void> {
   saving.value = true
   try {
@@ -149,6 +146,7 @@ async function save(): Promise<void> {
       name: form.name.trim(),
       description: form.description,
       type: form.type,
+      propagate: Boolean(form.propagate),
       config: { ...form.config },
       defaults: {
         ...form.defaults,
@@ -181,6 +179,33 @@ async function save(): Promise<void> {
     toasts.error(t('common.error'), translateError(error))
   } finally {
     saving.value = false
+  }
+}
+
+async function openLink(template: MonitorTemplate): Promise<void> {
+  linkTarget.value = template
+  linkPreview.value = null
+  linkOpen.value = true
+  try {
+    linkPreview.value = await api.linkAllMonitorTemplate(template.id, true)
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+    linkOpen.value = false
+  }
+}
+
+async function confirmLink(): Promise<void> {
+  if (!linkTarget.value) return
+  linking.value = true
+  try {
+    const result = await api.linkAllMonitorTemplate(linkTarget.value.id)
+    toasts.success(t('templates.linkAllDone', { linked: result.linked, updated: result.updated }))
+    linkOpen.value = false
+    await load()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    linking.value = false
   }
 }
 
@@ -233,10 +258,18 @@ onMounted(load)
             <Badge variant="outline">{{ t('common.interval') }}: {{ template.defaults?.interval_seconds }}s</Badge>
             <Badge variant="outline">{{ t('common.timeout') }}: {{ template.defaults?.timeout_seconds }}s</Badge>
             <Badge variant="outline">{{ t('monitor.runOn') }}: {{ template.defaults?.run_on }}</Badge>
-            <Badge v-if="template.defaults?.tags" variant="outline">{{ template.defaults.tags }}</Badge>
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            :title="t('templates.linkAll')"
+            :aria-label="t('templates.linkAll')"
+            @click="openLink(template)"
+          >
+            <Link2 class="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
           <Button variant="ghost" size="sm" :title="t('common.edit')" :aria-label="t('common.edit')" @click="openEdit(template)">
             <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
@@ -306,10 +339,6 @@ onMounted(load)
             <Label for="template-nodes" :help="t('monitor.runOnSomeHelp')">{{ t('monitor.targetNodes') }}</Label>
             <Input id="template-nodes" v-model="form.defaults!.run_on_nodes" placeholder="up-node-1, up-node-2" />
           </div>
-          <div class="grid gap-1">
-            <Label for="template-tags">{{ t('common.tags') }}</Label>
-            <Input id="template-tags" v-model="form.defaults!.tags" />
-          </div>
           <div class="flex items-end pb-1">
             <Switch v-model="form.defaults!.active as boolean">{{ t('common.active') }}</Switch>
           </div>
@@ -359,24 +388,35 @@ onMounted(load)
           </div>
         </section>
 
-        <section v-if="groups.length" class="grid gap-2">
-          <Label>{{ t('templates.groups') }}</Label>
-          <div class="flex flex-wrap gap-4">
-            <Checkbox
-              v-for="group in groups"
-              :key="group.id"
-              :model-value="(form.defaults?.group_ids ?? []).includes(group.id)"
-              @update:model-value="toggleGroup(group.id, $event)"
-            >
-              {{ group.name }}
-            </Checkbox>
-          </div>
+        <section class="grid gap-2 border-t border-border pt-4">
+          <Switch v-model="form.propagate as boolean">{{ t('templates.propagate') }}</Switch>
+          <p class="text-[11px] text-muted-foreground">{{ t('templates.propagateHelp') }}</p>
         </section>
       </div>
 
       <template #footer>
         <Button variant="outline" @click="dialogOpen = false">{{ t('common.cancel') }}</Button>
         <Button :loading="saving" @click="save">{{ t('common.save') }}</Button>
+      </template>
+    </Dialog>
+
+    <Dialog v-model="linkOpen" :title="t('templates.linkAllTitle')" :description="t('templates.linkAllWarning')">
+      <div class="grid gap-3 text-xs">
+        <p v-if="linkTarget" class="font-mono">{{ linkTarget.name }} · {{ linkTarget.type }}</p>
+        <p v-if="linkPreview">
+          {{
+            t('templates.linkAllPreview', {
+              monitors: linkPreview.monitors,
+              linked: linkPreview.linked,
+              updated: linkPreview.updated,
+            })
+          }}
+        </p>
+        <p v-else class="text-muted-foreground">{{ t('common.loading') }}</p>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="linkOpen = false">{{ t('common.cancel') }}</Button>
+        <Button :loading="linking" @click="confirmLink">{{ t('templates.linkAllConfirm') }}</Button>
       </template>
     </Dialog>
 

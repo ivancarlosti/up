@@ -145,8 +145,22 @@ func (s *SettingService) DefaultTheme() string {
 	return s.GetOr(models.SettingDefaultTheme, s.cfg.DefaultTheme)
 }
 
-// SetDefaults stores the locale/theme defaults edited in Admin > Settings.
-func (s *SettingService) SetDefaults(ctx context.Context, locale, theme string) error {
+// TimeFormat returns the clock the UI renders (auto, 12h or 24h).
+func (s *SettingService) TimeFormat() string {
+	fallback := strings.ToLower(strings.TrimSpace(s.cfg.DefaultTimeFormat))
+	if !containsString(config.SupportedTimeFormats, fallback) {
+		fallback = config.TimeFormatAuto
+	}
+	value := s.GetOr(models.SettingTimeFormat, fallback)
+	if !containsString(config.SupportedTimeFormats, value) {
+		return config.TimeFormatAuto
+	}
+	return value
+}
+
+// SetDefaults stores the locale/theme/time-format defaults edited in
+// Admin > Settings.
+func (s *SettingService) SetDefaults(ctx context.Context, locale, theme, timeFormat string) error {
 	if locale != "" {
 		if !containsString(config.SupportedLocales, locale) {
 			return errors.New("unsupported locale " + locale)
@@ -160,6 +174,14 @@ func (s *SettingService) SetDefaults(ctx context.Context, locale, theme string) 
 			return errors.New("unsupported theme " + theme)
 		}
 		if err := s.Set(ctx, models.SettingDefaultTheme, theme); err != nil {
+			return err
+		}
+	}
+	if timeFormat != "" {
+		if !containsString(config.SupportedTimeFormats, timeFormat) {
+			return errors.New("unsupported time format " + timeFormat)
+		}
+		if err := s.Set(ctx, models.SettingTimeFormat, timeFormat); err != nil {
 			return err
 		}
 	}

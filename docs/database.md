@@ -99,6 +99,17 @@ default `shared` mode they stay empty.
 `last_notified_day`. The last two are the notification memory and are preserved
 by every rewrite, exactly like the certificate table.
 
+`monitors.template_uuid` is the template a monitor follows (the template's uuid,
+not its local id, because the row is synchronised) and `monitor_templates.propagate`
+says whether editing a template pushes its defaults to the monitors that follow it.
+The synchronisation payload carries the template link and the domain switches next
+to the certificate ones, so a monitor created on one node behaves the same on the
+others (see `internal/models/sync_payload.go`).
+
+`settings` keeps the clock preference of the UI under `time_format` (`auto`,
+`12h` or `24h`); it only affects rendering, never a stored timestamp (everything in
+the database is UTC).
+
 `whois_parsers` stores one rule per TLD: `tld` (unique, e.g. `br` or `com.br`),
 `server` (optional registry override), `expiry_regex` (RE2 with a capture group),
 `date_layouts` (`;` separated Go layouts), `not_found_pattern`, `min_interval_ms`

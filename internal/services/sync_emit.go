@@ -73,6 +73,11 @@ func BuildMonitorPayload(m *models.Monitor) ([]byte, error) {
 		CertWatch:              m.CertWatch,
 		CertNotify:             m.CertNotify,
 		CertWarnDays:           m.CertWarnDays,
+		DomainWatch:            m.DomainWatch,
+		DomainNotify:           m.DomainNotify,
+		DomainWarnDays:         m.DomainWarnDays,
+		DomainExpiresAt:        m.DomainExpiresAt,
+		TemplateUUID:           m.TemplateUUID,
 		Config:                 m.Config,
 	})
 }

@@ -16,6 +16,7 @@ import type {
   MonitorPayload,
   MonitorTemplate,
   MonitorTemplatePayload,
+  TemplateLinkResult,
   Notification,
   NotificationLog,
   PublicSettings,
@@ -77,6 +78,9 @@ export const coreApi = {
   deleteMonitorTemplate: (id: number) => del<void>(`/api/monitor-templates/${id}`),
   applyMonitorTemplate: (id: number, options: ApplyTemplateOptions) =>
     post<{ dry_run: boolean; results: ApplyResult[] }>(`/api/monitor-templates/${id}/apply`, options),
+  /** linkAllMonitorTemplate attaches every monitor of the template type to it. */
+  linkAllMonitorTemplate: (id: number, dryRun = false) =>
+    post<TemplateLinkResult>(`/api/monitor-templates/${id}/link-all`, { dry_run: dryRun }),
   bulkCreateMonitors: (options: BulkOptions) => post<BulkReport>('/api/monitors/bulk', options),
 
   notifications: () => get<Notification[]>('/api/notifications'),

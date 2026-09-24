@@ -56,7 +56,25 @@ export function formatLatency(milliseconds: number): string {
   return `${(milliseconds / 1000).toFixed(2)} s`
 }
 
-/** formatDateTime renders an ISO timestamp using the active locale. */
+/**
+ * hour12Preference is the administrator clock choice (Admin > Settings). It is
+ * undefined in "auto" mode, which lets Intl follow the browser locale.
+ */
+let hour12Preference: boolean | undefined
+
+/** setHour12Preference applies the administrator's 12/24 hour choice. */
+export function setHour12Preference(value: boolean | undefined): void {
+  hour12Preference = value
+}
+
+/** hour12FromSetting maps the stored time_format to the Intl option. */
+export function hour12FromSetting(value?: string): boolean | undefined {
+  if (value === '12h') return true
+  if (value === '24h') return false
+  return undefined
+}
+
+/** formatDateTime renders an ISO timestamp using the active locale and clock. */
 export function formatDateTime(value?: string | null, locale = 'en-US'): string {
   if (!value) return '—'
   const date = new Date(value)
@@ -64,6 +82,7 @@ export function formatDateTime(value?: string | null, locale = 'en-US'): string 
   return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'medium',
+    hour12: hour12Preference,
   }).format(date)
 }
 

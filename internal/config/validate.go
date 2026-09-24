@@ -123,6 +123,10 @@ func (c *Config) validate() []string {
 		problems = append(problems, fmt.Sprintf("DEFAULT_THEME must be one of %s, got %q",
 			strings.Join(SupportedThemes, ", "), c.DefaultTheme))
 	}
+	if !contains(SupportedTimeFormats, c.DefaultTimeFormat) {
+		problems = append(problems, fmt.Sprintf("TIME_FORMAT must be one of %s (got %q)",
+			strings.Join(SupportedTimeFormats, ", "), c.DefaultTimeFormat))
+	}
 
 	// --- Clustering --------------------------------------------------------
 	switch c.ClusterMode {

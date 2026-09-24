@@ -1,8 +1,11 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+
+	"gorm.io/gorm"
 
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
@@ -100,6 +103,23 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 		monitor.DomainNotify = false
 		monitor.DomainWarnDays = ""
 		monitor.DomainExpiresAt = nil
+	}
+
+	// The template link: the template must exist and describe the same kind of
+	// probe (a template never reshapes a monitor of another type). A link that
+	// points nowhere — the template was deleted on another node — is cleared
+	// instead of blocking the edit, so a dangling reference heals itself.
+	if uuid := strings.TrimSpace(monitor.TemplateUUID); uuid != "" {
+		var template models.MonitorTemplate
+		switch err := s.db.Where("uuid = ?", uuid).First(&template).Error; {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			monitor.TemplateUUID = ""
+		case err != nil:
+			return ErrInternal(err)
+		case template.Type != monitor.Type:
+			return ErrBadRequest(i18n.CodeMonitorTemplateInvalid,
+				"the template type must match the monitor type")
+		}
 	}
 	return nil
 }

@@ -219,17 +219,46 @@ Rules that matter in practice:
 
 A template is a monitor without a target: the probe type and its options plus the
 defaults (interval, timeout, retries, re-notification, `run_on` / `run_on_nodes`,
-tags, channels and groups). It exists for two jobs:
+channels and the certificate/domain watches). The **groups and the tags are never
+part of a template**: two monitors can follow the same template and live in
+different groups with different tags. A template exists for three jobs:
 
 1. **Add monitors in bulk** (Admin > Monitors > *Add in bulk*): paste one monitor
    per line and pick the template. The server parses the paste, validates every
-   line and reports what it did, line by line.
+   line and reports what it did, line by line. The created monitors **follow** the
+   template.
 2. **Bulk edit** (Admin > Monitors > *Apply template*): overwrite the fields of
    many monitors at once, with a preview of the diff.
+3. **Be followed** by the monitors linked to it (see below).
 
-`internal/services/monitor_template*.go` implements both; the bulk edit **never
-touches the target** of a monitor even when the probe options are applied, so
-applying a template to 40 monitors cannot repoint them at the same address.
+`internal/services/monitor_template*.go` implements all three; the bulk edit
+**never touches the target** of a monitor even when the probe options are applied,
+so applying a template to 40 monitors cannot repoint them at the same address.
+
+### Following a template
+
+A monitor can be **linked** to a template (`template_uuid`): the monitor form has a
+*Template* selector, the monitors created by the bulk importer are linked
+automatically, and both the monitors table and the monitor page show the name of
+the template a monitor follows.
+
+- Editing a template **pushes its defaults to every linked monitor**; only the
+  monitors whose values actually differ are written, and the push is controlled by
+  the template's *Update the linked monitors when this template changes* switch
+  (on by default).
+- The link stores the template **uuid**, never its numeric id, because a monitor
+  row is synchronised between the cluster nodes
+  ([clustering-modes.md](clustering-modes.md)).
+- The type must match: a template never reshapes a monitor of another type, and a
+  link whose template disappeared is cleared on the next save of that monitor.
+- **Groups and tags are never pushed**, and a template that lists no notification
+  channel never clears the channels of its monitors.
+- Deleting a template clears the links: the monitors keep working, they simply stop
+  following it.
+- **Link every monitor of this type** (the link icon on the templates page) attaches
+  every monitor of the template type in one action and applies the defaults, after a
+  dry-run preview. That is how an existing installation is gathered under a newly
+  created template.
 
 ### The bulk text format
 

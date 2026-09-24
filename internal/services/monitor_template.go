@@ -153,6 +153,22 @@ func (s *MonitorTemplateService) Update(ctx context.Context, template *models.Mo
 	}
 	s.log.Info("monitor template updated", "id", template.ID, "name", template.Name)
 	s.publish("monitor.template.updated", template)
+
+	// A template is a contract: the monitors that follow it are brought in line with
+	// the new defaults. The stored row decides whether to propagate, not the
+	// request body, so an API client that omits the field cannot switch it off by
+	// accident.
+	if stored, loadErr := s.Get(ctx, template.ID); loadErr != nil {
+		s.log.Warn("could not reload the updated template", "id", template.ID, "error", loadErr)
+	} else if stored.Propagate {
+		updated, propagateErr := s.Propagate(ctx, stored.ID)
+		if propagateErr != nil {
+			s.log.Warn("could not propagate the template to its monitors", "id", template.ID, "error", propagateErr)
+		} else if updated > 0 {
+			s.log.Info("monitor template propagated", "id", template.ID, "name", template.Name, "monitors", updated)
+			s.publish("monitor.template.propagated", map[string]any{"template_id": template.ID, "monitors": updated})
+		}
+	}
 	return nil
 }
 
@@ -171,6 +187,15 @@ func (s *MonitorTemplateService) Delete(ctx context.Context, id uint) error {
 		}
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
+		}
+		// The monitors that followed the template keep working, they simply stop
+		// having one: a link to a row that no longer exists would show an empty badge
+		// and block the next edit of those monitors.
+		if uuid != "" {
+			if err := tx.Model(&models.Monitor{}).Where("template_uuid = ?", uuid).
+				Updates(map[string]any{"template_uuid": ""}).Error; err != nil {
+				return err
+			}
 		}
 		return s.tombstoneTemplate(ctx, tx, uuid)
 	})

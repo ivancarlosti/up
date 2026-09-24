@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/lib/api'
 import { detectLocale, i18n, isSupportedLocale, LOCALE_STORAGE_KEY } from '@/i18n'
+import { hour12FromSetting, setHour12Preference } from '@/lib/format'
 import { useThemeStore } from '@/stores/theme'
 import type { Identity, PublicSettings, SessionResponse } from '@/lib/types'
 
@@ -36,6 +37,7 @@ export const useAppStore = defineStore('app', () => {
 
       setLocale(detectLocale(publicSettings.default_locale ?? 'en-US'))
       theme.applyDefault(publicSettings.default_theme ?? 'system')
+      setHour12Preference(hour12FromSetting(publicSettings.time_format))
     } catch (error) {
       fatalError.value = error instanceof Error ? error.message : String(error)
     } finally {

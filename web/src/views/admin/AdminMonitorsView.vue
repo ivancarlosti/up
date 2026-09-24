@@ -255,6 +255,9 @@ onMounted(load)
               <button class="text-left hover:underline" @click="router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })">
                 {{ monitor.name }}
               </button>
+              <Badge v-if="monitor.template_name" variant="outline" class="ml-1">
+                {{ monitor.template_name }}
+              </Badge>
             </td>
             <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
             <td>
@@ -273,7 +276,7 @@ onMounted(load)
               >
                 {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
               </Badge>
-              <span v-else-if="monitor.cert_watch" class="text-muted-foreground">{{ t('certificate.pending') }}</span>
+              <Badge v-else-if="monitor.cert_watch" variant="secondary">{{ t('certificate.pending') }}</Badge>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td v-if="hasDomains">
@@ -299,7 +302,7 @@ onMounted(load)
               <Badge v-else-if="monitor.domain" variant="secondary" :title="monitor.domain.error || ''">
                 {{ t('domain.unavailable') }}
               </Badge>
-              <span v-else-if="monitor.domain_watch" class="text-muted-foreground">{{ t('domain.pending') }}</span>
+              <Badge v-else-if="monitor.domain_watch" variant="secondary">{{ t('domain.pending') }}</Badge>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td><StatusBadge :status="monitor.status" /></td>
@@ -333,6 +336,7 @@ onMounted(load)
       :monitor="editing"
       :notifications="notifications"
       :groups="groups"
+      :templates="templates"
       :saving="saving"
       @submit="submit"
     />

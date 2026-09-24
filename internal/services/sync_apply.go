@@ -429,6 +429,11 @@ func (s *SyncService) writeMonitor(ctx context.Context, tx *gorm.DB, payload mod
 		"cert_watch":               payload.CertWatch,
 		"cert_notify":              payload.CertNotify,
 		"cert_warn_days":           payload.CertWarnDays,
+		"domain_watch":             payload.DomainWatch,
+		"domain_notify":            payload.DomainNotify,
+		"domain_warn_days":         payload.DomainWarnDays,
+		"domain_expires_at":        payload.DomainExpiresAt,
+		"template_uuid":            payload.TemplateUUID,
 		"updated_at":               payload.UpdatedAt,
 	}
 	// The config column is stored as JSON, like MonitorService writes it: GORM

@@ -249,8 +249,10 @@ export interface PublicSettings {
   recaptcha_client_id: string
   default_locale: string
   default_theme: ThemeMode
+  time_format: string
   supported_locales: string[]
   supported_themes: ThemeMode[]
+  supported_time_formats: string[]
   cluster_enabled: boolean
   node_id: string
   node_name: string
@@ -270,6 +272,8 @@ export interface SessionResponse {
 export interface AdminSettings {
   default_locale: string
   default_theme: ThemeMode
+  time_format: string
+  supported_time_formats: string[]
   app_name: string
   app_url: string
   supported_locales: string[]

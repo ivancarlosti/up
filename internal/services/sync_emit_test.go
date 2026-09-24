@@ -3,6 +3,7 @@ package services
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ivancarlosti/up/internal/models"
 )
@@ -12,6 +13,7 @@ import (
 // `"id":42` would either clash with one of its own rows or, worse, silently
 // overwrite an unrelated one.
 func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
+	expiresAt := time.Date(2028, 1, 9, 19, 2, 41, 0, time.UTC)
 	monitor := &models.Monitor{
 		ID:              42,
 		UUID:            "11111111-1111-4111-8111-111111111111",
@@ -29,6 +31,15 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		Votes:           []models.NodeVote{{NodeID: "up-node-1", Online: true}},
 		LastLatencyMS:   120,
 		Config:          models.MonitorConfig{URL: "https://example.com/health"},
+		// The expiration watches and the template link must survive the trip: a
+		// monitor that arrives without them would silently stop alerting here.
+		CertWatch:       true,
+		CertWarnDays:    "30,14,7,1",
+		DomainWatch:     true,
+		DomainNotify:    true,
+		DomainWarnDays:  "60,30",
+		DomainExpiresAt: &expiresAt,
+		TemplateUUID:    "44444444-4444-4444-8444-444444444444",
 	}
 	payload, err := BuildMonitorPayload(monitor)
 	if err != nil {
@@ -59,6 +70,11 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		`"revision":3`,
 		`"origin_node_id":"up-node-1"`,
 		`"url":"https://example.com/health"`,
+		`"domain_watch":true`,
+		`"domain_notify":true`,
+		`"domain_warn_days":"60,30"`,
+		`"domain_expires_at":"2028-01-09T19:02:41Z"`,
+		`"template_uuid":"44444444-4444-4444-8444-444444444444"`,
 	} {
 		if !strings.Contains(wire, required) {
 			t.Errorf("the payload must carry %s:\n%s", required, wire)

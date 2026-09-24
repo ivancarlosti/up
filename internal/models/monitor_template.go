@@ -28,6 +28,9 @@ type MonitorTemplate struct {
 	Type         MonitorType      `gorm:"size:20;not null" json:"type"`
 	Config       MonitorConfig    `gorm:"serializer:json;type:json" json:"config"`
 	Defaults     TemplateDefaults `gorm:"serializer:json;type:json" json:"defaults"`
+	// Propagate pushes the defaults to every monitor that follows this template
+	// each time it is edited (see MonitorTemplateService.Propagate).
+	Propagate bool `gorm:"not null;default:true" json:"propagate"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -55,7 +58,10 @@ type TemplateDefaults struct {
 	RunOn                  string `json:"run_on"`
 	NodeID                 string `json:"node_id"`
 	// RunOnNodes is the subset used by run_on=some, comma separated.
-	RunOnNodes  string `json:"run_on_nodes"`
+	RunOnNodes string `json:"run_on_nodes"`
+	// Tags is kept for compatibility with templates stored before the link
+	// feature: the tags of a monitor belong to the operator, a template never sets
+	// them (two monitors can follow one template with different tags).
 	Tags        string `json:"tags"`
 	Description string `json:"description"`
 	// Active is a pointer so an omitted value keeps the monitor default (true).
@@ -73,7 +79,9 @@ type TemplateDefaults struct {
 	DomainWarnDays string `json:"domain_warn_days"`
 	// NotificationIDs and GroupIDs are the links applied to the new monitors.
 	NotificationIDs []uint `json:"notification_ids"`
-	GroupIDs        []uint `json:"group_ids"`
+	// GroupIDs is kept for compatibility for the same reason: the groups of a
+	// monitor are the operator's choice.
+	GroupIDs []uint `json:"group_ids"`
 }
 
 // TemplateDefaultFields lists the fields that can be applied to existing
@@ -82,8 +90,8 @@ type TemplateDefaults struct {
 func TemplateDefaultFields() []string {
 	return []string{
 		"description", "interval_seconds", "retries", "retries_interval_seconds",
-		"timeout_seconds", "resend_interval_seconds", "run_on", "run_on_nodes", "node_id", "tags",
-		"active", "notification_ids", "group_ids", "config",
+		"timeout_seconds", "resend_interval_seconds", "run_on", "run_on_nodes", "node_id",
+		"active", "notification_ids", "config",
 		"cert_watch", "cert_notify", "cert_warn_days",
 		"domain_watch", "domain_notify", "domain_warn_days",
 	}

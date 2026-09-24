@@ -49,19 +49,21 @@ func (h *Container) version(c *gin.Context) {
 // auth method is active, which defaults to apply and what the instance is.
 func (h *Container) publicSettings(c *gin.Context) {
 	api.OK(c, gin.H{
-		"app_name":            h.Settings.GetOr(models.SettingAppName, "Up"),
-		"version":             version.Version,
-		"auth_method":         string(h.Cfg.AuthMethod),
-		"auth_enabled":        h.Cfg.AuthEnabled(),
-		"recaptcha_enabled":   h.Cfg.RecaptchaEnabled,
-		"recaptcha_client_id": h.Cfg.RecaptchaClientID,
-		"default_locale":      h.Settings.DefaultLocale(),
-		"default_theme":       h.Settings.DefaultTheme(),
-		"supported_locales":   config.SupportedLocales,
-		"supported_themes":    config.SupportedThemes,
-		"cluster_enabled":     h.Cfg.ClusterEnabled,
-		"node_id":             h.Cfg.NodeID,
-		"node_name":           h.Cfg.NodeName,
+		"app_name":               h.Settings.GetOr(models.SettingAppName, "Up"),
+		"version":                version.Version,
+		"auth_method":            string(h.Cfg.AuthMethod),
+		"auth_enabled":           h.Cfg.AuthEnabled(),
+		"recaptcha_enabled":      h.Cfg.RecaptchaEnabled,
+		"recaptcha_client_id":    h.Cfg.RecaptchaClientID,
+		"default_locale":         h.Settings.DefaultLocale(),
+		"default_theme":          h.Settings.DefaultTheme(),
+		"time_format":            h.Settings.TimeFormat(),
+		"supported_locales":      config.SupportedLocales,
+		"supported_themes":       config.SupportedThemes,
+		"supported_time_formats": config.SupportedTimeFormats,
+		"cluster_enabled":        h.Cfg.ClusterEnabled,
+		"node_id":                h.Cfg.NodeID,
+		"node_name":              h.Cfg.NodeName,
 	})
 }
 
@@ -151,16 +153,18 @@ func (h *Container) dashboard(c *gin.Context) {
 // adminSettings returns the runtime settings managed from Admin > Settings.
 func (h *Container) adminSettings(c *gin.Context) {
 	api.OK(c, gin.H{
-		"default_locale":    h.Settings.DefaultLocale(),
-		"default_theme":     h.Settings.DefaultTheme(),
-		"app_name":          h.Settings.GetOr(models.SettingAppName, "Up"),
-		"app_url":           h.Cfg.AppURL,
-		"supported_locales": config.SupportedLocales,
-		"supported_themes":  config.SupportedThemes,
-		"auth_method":       string(h.Cfg.AuthMethod),
-		"cluster_enabled":   h.Cfg.ClusterEnabled,
-		"version":           version.Version,
-		"settings":          h.Settings.All(),
+		"default_locale":         h.Settings.DefaultLocale(),
+		"default_theme":          h.Settings.DefaultTheme(),
+		"time_format":            h.Settings.TimeFormat(),
+		"app_name":               h.Settings.GetOr(models.SettingAppName, "Up"),
+		"app_url":                h.Cfg.AppURL,
+		"supported_locales":      config.SupportedLocales,
+		"supported_themes":       config.SupportedThemes,
+		"supported_time_formats": config.SupportedTimeFormats,
+		"auth_method":            string(h.Cfg.AuthMethod),
+		"cluster_enabled":        h.Cfg.ClusterEnabled,
+		"version":                version.Version,
+		"settings":               h.Settings.All(),
 	})
 }
 
@@ -169,12 +173,13 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 	var payload struct {
 		DefaultLocale string `json:"default_locale"`
 		DefaultTheme  string `json:"default_theme"`
+		TimeFormat    string `json:"time_format"`
 		AppName       string `json:"app_name"`
 	}
 	if !bindJSON(c, &payload) {
 		return
 	}
-	if err := h.Settings.SetDefaults(c.Request.Context(), payload.DefaultLocale, payload.DefaultTheme); err != nil {
+	if err := h.Settings.SetDefaults(c.Request.Context(), payload.DefaultLocale, payload.DefaultTheme, payload.TimeFormat); err != nil {
 		api.WriteError(c, http.StatusBadRequest, i18n.CodeValidation, err.Error())
 		return
 	}

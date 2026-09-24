@@ -33,7 +33,7 @@ cluster of nodes that vote on the real status.
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
 | **Dashboard** | live status via WebSocket, 24 h uptime, latency, heartbeat bars, per-node breakdown, monitor detail with statistics and event log |
 | **Groups & clones** | named groups of monitors (filter, shallow/deep clone), monitor clone, groups drive the status pages |
-| **Templates & bulk** | reusable monitor templates, add monitors by pasting `name,url` (per row report, duplicates skipped) and a bulk edit with a diff preview |
+| **Templates & bulk** | reusable monitor templates, add monitors by pasting `name,url` (per row report, duplicates skipped), a bulk edit with a diff preview and monitors that **follow** a template (editing it pushes the defaults to every linked monitor; groups and tags stay untouched) |
 | **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Domain expiration** | registry watching for the monitor's domain: RDAP first, per-TLD WHOIS parsers (Admin > TLD/SSL expiration) and a manual date for the TLDs that publish none; free thresholds and daily `domain_expiring`/`domain_expired` reminders |
 | **Expiry scheduling** | one daily, configurable-time check for certificates and domains, **deduplicated by target** (many monitors on the same host/domain = one lookup) with an admin rate limit per registry |
@@ -42,7 +42,7 @@ cluster of nodes that vote on the real status.
 | **Cluster** | two modes. **`shared`** (default): several nodes on the same external database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting and `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. **`federated`**: one database per node, the configuration, the votes and the notification ownership synchronised over the signed peer API (`CLUSTER_PEER_API`), with a derived leader, a notification election (`leader`/`hash`/`origin`), `run_on=some`, opt-in channel/settings/session-secret sync and push. See [clustering.md](docs/clustering.md) and [clustering-modes.md](docs/clustering-modes.md) |
 | **Public status pages** | per-slug pages with theme, monitor selection, uptime/charts and a README badge |
 | **Public REST API** | scoped bearer tokens (`read`/`write`), IP allow/deny rules, rate limiting |
-| **i18n & theme** | en-US, pt-BR, es-MX and light/dark/system in the header, configurable default for new visitors |
+| **i18n & theme** | en-US, pt-BR, es-MX, light/dark/system and a 12/24-hour clock preference, with configurable defaults for new visitors |
 
 ## Quick start (Docker + external MariaDB)
 

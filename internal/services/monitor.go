@@ -207,6 +207,11 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 		return err
 	}
 
+	templates, err := s.templateNamesFor(ctx, monitors)
+	if err != nil {
+		return err
+	}
+
 	for _, m := range monitors {
 		if stats, ok := windows[m.ID]; ok {
 			m.Uptime24h = stats.Uptime
@@ -247,8 +252,38 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 				m.Domain = info
 			}
 		}
+		if name, ok := templates[m.TemplateUUID]; ok {
+			m.TemplateName = name
+		}
 	}
 	return nil
+}
+
+// templateNamesFor maps the template uuid of a monitor to its name (one query for
+// a whole listing).
+func (s *MonitorService) templateNamesFor(ctx context.Context, monitors []*models.Monitor) (map[string]string, error) {
+	out := map[string]string{}
+	uuids := make([]string, 0, len(monitors))
+	for _, monitor := range monitors {
+		if uuid := strings.TrimSpace(monitor.TemplateUUID); uuid != "" {
+			uuids = append(uuids, uuid)
+		}
+	}
+	if len(uuids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		UUID string
+		Name string
+	}
+	if err := s.db.WithContext(ctx).Model(&models.MonitorTemplate{}).
+		Select("uuid", "name").Where("uuid IN ?", uuids).Scan(&rows).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	for _, row := range rows {
+		out[row.UUID] = row.Name
+	}
+	return out, nil
 }
 
 // domainsFor returns the stored domain expiration of every monitor that watches

@@ -140,3 +140,32 @@ func (h *Container) applyMonitorTemplate(c *gin.Context) {
 	}
 	api.OK(c, gin.H{"dry_run": payload.DryRun, "results": results})
 }
+
+// linkAllMonitorTemplate attaches every monitor of the template type to the
+// template and applies its defaults to them. dry_run returns the same counts
+// without writing, which is what the confirmation dialog shows.
+func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		DryRun bool `json:"dry_run"`
+	}
+	// A wet run may be sent with an empty body.
+	if c.Request.ContentLength > 0 {
+		if !bindJSON(c, &payload) {
+			return
+		}
+	}
+	result, err := h.MonitorTemplates.LinkAll(c.Request.Context(), id, payload.DryRun)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	if !payload.DryRun {
+		// The linked monitors may have a new interval or probe configuration.
+		h.scheduleReload()
+	}
+	api.OK(c, result)
+}

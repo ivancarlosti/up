@@ -111,8 +111,10 @@ func TestMonitorFromBulkRow(t *testing.T) {
 	if monitor.Config.Method != "HEAD" {
 		t.Fatalf("the template config must be kept, method = %q", monitor.Config.Method)
 	}
-	if monitor.Tags != "from-template" {
-		t.Fatalf("tags from the template = %q", monitor.Tags)
+	// A template no longer sets the tags: they belong to the monitor, so two
+	// monitors can follow one template with different tags.
+	if monitor.Tags != "" {
+		t.Fatalf("a template must not set the tags, got %q", monitor.Tags)
 	}
 
 	// The url of an HTTP monitor must be absolute: a bare host would make every

@@ -38,6 +38,17 @@ const target = computed(() => {
       return config.url ?? ''
   }
 })
+
+/**
+ * targetHref makes the target clickable for the types that are an URL. It lives
+ * outside the button that opens the detail view: an anchor inside a button is
+ * invalid HTML and the click would be ambiguous.
+ */
+const targetHref = computed(() => {
+  if (props.monitor.type !== 'http' && props.monitor.type !== 'keyword') return ''
+  const url = props.monitor.config?.url ?? ''
+  return /^https?:\/\//i.test(url) ? url : ''
+})
 </script>
 
 <template>
@@ -45,10 +56,21 @@ const target = computed(() => {
     class="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40"
   >
     <div class="flex items-start justify-between gap-3">
-      <button class="min-w-0 text-left" @click="emit('open', monitor)">
-        <h3 class="truncate text-sm font-semibold">{{ monitor.name }}</h3>
-        <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ target }}</p>
-      </button>
+      <div class="min-w-0">
+        <button class="block max-w-full text-left" @click="emit('open', monitor)">
+          <h3 class="truncate text-sm font-semibold">{{ monitor.name }}</h3>
+        </button>
+        <a
+          v-if="targetHref"
+          class="mt-0.5 block truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+          :href="targetHref"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {{ target }}
+        </a>
+        <p v-else class="mt-0.5 truncate text-xs text-muted-foreground">{{ target }}</p>
+      </div>
       <StatusBadge :status="monitor.status" pulse />
     </div>
 

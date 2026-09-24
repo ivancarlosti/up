@@ -149,6 +149,13 @@ export interface Monitor {
   domain_expires_at: string | null
   /** Last registry expiration read (only when domain_watch is on). */
   domain?: DomainInfo
+  /**
+   * The template this monitor follows (its uuid), empty when it follows none.
+   * Editing the template pushes its defaults to every linked monitor.
+   */
+  template_uuid: string
+  /** Name of the linked template, filled by the backend decoration. */
+  template_name?: string
 }
 
 export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
@@ -201,11 +208,9 @@ export interface TemplateDefaults {
   /** The subset used by run_on=some: comma separated node ids. */
   run_on_nodes: string
   node_id: string
-  tags: string
   description: string
   active?: boolean
   notification_ids: number[]
-  group_ids: number[]
   /** Certificate watching applied to the monitors created from the template. */
   cert_watch: boolean
   cert_notify: boolean
@@ -229,11 +234,21 @@ export interface MonitorTemplate {
   type: MonitorType
   config: MonitorConfig
   defaults: TemplateDefaults
+  /** Push the defaults to the linked monitors whenever the template is edited. */
+  propagate: boolean
   created_at: string
   updated_at: string
 }
 
 export type MonitorTemplatePayload = Partial<MonitorTemplate>
+
+/** What a "link every monitor of this type" run reports. */
+export interface TemplateLinkResult {
+  monitors: number
+  linked: number
+  updated: number
+  dry_run: boolean
+}
 
 /** FieldChange is one difference between a monitor and a template. */
 export interface FieldChange {

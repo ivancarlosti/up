@@ -65,6 +65,8 @@ func (s *MonitorService) Clone(ctx context.Context, id uint, opts MonitorCloneOp
 		DomainNotify:    source.DomainNotify,
 		DomainWarnDays:  source.DomainWarnDays,
 		DomainExpiresAt: source.DomainExpiresAt,
+		// The copy follows the same template as its source.
+		TemplateUUID: source.TemplateUUID,
 	}
 	if opts.Active != nil {
 		clone.Active = *opts.Active

@@ -9,13 +9,14 @@ import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
-import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, MonitorGroup, Notification } from '@/lib/types'
+import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, MonitorGroup, MonitorTemplate, Notification } from '@/lib/types'
 
 const props = defineProps<{
   modelValue: boolean
   monitor: Monitor | null
   notifications: Notification[]
   groups?: MonitorGroup[]
+  templates?: MonitorTemplate[]
   saving?: boolean
 }>()
 
@@ -42,6 +43,7 @@ function emptyForm(): MonitorPayload {
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', headers: [] },
     notification_ids: [],
     group_ids: [],
+    template_uuid: '',
     cert_watch: false,
     cert_notify: false,
     cert_warn_days: '',
@@ -93,6 +95,65 @@ const runOnOptions = computed(() => [
 ])
 
 const isHttpLike = computed(() => type.value === 'http' || type.value === 'keyword')
+
+/** Template options: a monitor can follow a reusable blueprint. */
+const templateOptions = computed(() => [
+  { value: '', label: t('monitor.templateNone') },
+  ...(props.templates ?? []).map((template) => ({
+    value: template.uuid,
+    label: `${template.name} (${template.type})`,
+  })),
+])
+
+/**
+ * withProbeTarget copies the template probe options but keeps the target of the
+ * monitor, exactly like the backend does: applying a template never repoints a
+ * monitor at another address.
+ */
+function withProbeTarget(config: MonitorConfig, target: MonitorConfig, monitorType: MonitorType): MonitorConfig {
+  const next: MonitorConfig = { ...config }
+  switch (monitorType) {
+    case 'http':
+    case 'keyword':
+      next.url = target.url
+      break
+    case 'tcp':
+      next.host = target.host
+      next.port = target.port
+      break
+    case 'dns':
+      next.hostname = target.hostname
+      break
+  }
+  return next
+}
+
+/** onTemplateChange links the monitor and prefills the blueprint defaults. */
+function onTemplateChange(uuid: string): void {
+  form.template_uuid = uuid
+  const template = (props.templates ?? []).find((candidate) => candidate.uuid === uuid)
+  if (!template) return
+  const defaults = template.defaults
+  form.type = template.type
+  form.config = withProbeTarget(template.config, config.value, template.type)
+  form.interval_seconds = defaults.interval_seconds
+  form.retries = defaults.retries
+  form.retries_interval_seconds = defaults.retries_interval_seconds
+  form.timeout_seconds = defaults.timeout_seconds
+  form.resend_interval_seconds = defaults.resend_interval_seconds
+  form.run_on = defaults.run_on
+  form.run_on_nodes = defaults.run_on_nodes
+  form.node_id = defaults.node_id
+  if (defaults.description) form.description = defaults.description
+  if (defaults.active !== undefined && defaults.active !== null) form.active = defaults.active
+  form.notification_ids = [...(defaults.notification_ids ?? [])]
+  form.cert_watch = defaults.cert_watch
+  form.cert_notify = defaults.cert_notify
+  form.cert_warn_days = defaults.cert_warn_days
+  form.domain_watch = defaults.domain_watch
+  form.domain_notify = defaults.domain_notify
+  form.domain_warn_days = defaults.domain_warn_days
+}
 
 function toggleNotification(id: number, value: boolean): void {
   const ids = new Set(form.notification_ids ?? [])
@@ -162,6 +223,22 @@ function submit(): void {
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div class="grid gap-5">
+      <!-- Template link -->
+      <section v-if="props.templates?.length" class="grid gap-2">
+        <Label for="monitor-template" :help="t('monitor.templateHelp')">
+          {{ t('monitor.templateSection') }}
+        </Label>
+        <Select
+          id="monitor-template"
+          :model-value="form.template_uuid ?? ''"
+          :options="templateOptions"
+          @update:model-value="onTemplateChange($event as string)"
+        />
+        <p v-if="form.template_uuid" class="text-[11px] text-muted-foreground">
+          {{ t('monitor.templateLinked') }}
+        </p>
+      </section>
+
       <!-- General -->
       <section class="grid gap-3 sm:grid-cols-2">
         <div class="grid gap-1">

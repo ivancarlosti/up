@@ -119,16 +119,12 @@ func planApply(monitor *models.Monitor, template *models.MonitorTemplate, fields
 			addChange(&changes, field, monitor.RunOnNodes, template.Defaults.RunOnNodes)
 		case "node_id":
 			addChange(&changes, field, monitor.NodeID, template.Defaults.NodeID)
-		case "tags":
-			addChange(&changes, field, monitor.Tags, template.Defaults.Tags)
 		case "active":
 			if template.Defaults.Active != nil {
 				addChange(&changes, field, strconv.FormatBool(monitor.Active), strconv.FormatBool(*template.Defaults.Active))
 			}
 		case "notification_ids":
 			addChange(&changes, field, idsLabel(monitor.NotificationIDs), idsLabel(template.Defaults.NotificationIDs))
-		case "group_ids":
-			addChange(&changes, field, idsLabel(monitor.GroupIDs), idsLabel(template.Defaults.GroupIDs))
 		case "config":
 			changes = append(changes, configChanges(monitor, template)...)
 		case "cert_watch":
@@ -199,8 +195,6 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 			updated.RunOn = template.Defaults.RunOn
 		case "node_id":
 			updated.NodeID = template.Defaults.NodeID
-		case "tags":
-			updated.Tags = template.Defaults.Tags
 		case "active":
 			if template.Defaults.Active != nil {
 				updated.Active = *template.Defaults.Active
@@ -209,11 +203,6 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 			notificationIDs = template.Defaults.NotificationIDs
 			if notificationIDs == nil {
 				notificationIDs = []uint{}
-			}
-		case "group_ids":
-			groupIDs = template.Defaults.GroupIDs
-			if groupIDs == nil {
-				groupIDs = []uint{}
 			}
 		case "config":
 			updated.Config = withProbeTarget(template.Config, monitor.Config, monitor.Type)

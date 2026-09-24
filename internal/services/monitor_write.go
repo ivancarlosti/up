@@ -84,6 +84,7 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		"domain_notify":            monitor.DomainNotify,
 		"domain_warn_days":         monitor.DomainWarnDays,
 		"domain_expires_at":        monitor.DomainExpiresAt,
+		"template_uuid":            monitor.TemplateUUID,
 		"config":                   string(configJSON),
 		// Every edit advances the revision: it is the primary component of the
 		// merge order, so a wrong clock cannot make an old edit win. It is bumped
