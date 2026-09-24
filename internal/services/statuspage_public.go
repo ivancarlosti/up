@@ -18,27 +18,8 @@ func (s *StatusPageService) SetMonitors(ctx context.Context, pageID uint, monito
 		return err
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("status_page_id = ?", pageID).Delete(&models.StatusPageMonitor{}).Error; err != nil {
+		if err := writeMonitorSelection(tx, pageID, monitorIDs); err != nil {
 			return err
-		}
-		seen := map[uint]bool{}
-		order := 0
-		for _, monitorID := range monitorIDs {
-			if monitorID == 0 || seen[monitorID] {
-				continue
-			}
-			seen[monitorID] = true
-			item := models.StatusPageMonitor{
-				StatusPageID: pageID,
-				MonitorID:    monitorID,
-				SortOrder:    order,
-				ShowUptime:   true,
-				ShowChart:    true,
-			}
-			if err := tx.Create(&item).Error; err != nil {
-				return err
-			}
-			order++
 		}
 		// The selection is part of the page payload, so it is a new version of the
 		// page: the revision must advance or a peer would skip the change.
@@ -48,6 +29,38 @@ func (s *StatusPageService) SetMonitors(ctx context.Context, pageID uint, monito
 		return ErrInternal(fmt.Errorf("saving the status page monitors: %w", err))
 	}
 	s.log.Info("status page monitors updated", "status_page_id", pageID, "monitors", len(monitorIDs))
+	return nil
+}
+
+// writeMonitorSelection replaces the explicit monitor selection of a page.
+//
+// It is shared by the create and by the selection endpoint so the two cannot write a
+// different set of columns, and so creating a page with monitors is ONE version of it
+// (the create used to be followed by a separate selection edit, which published the
+// page twice).
+func writeMonitorSelection(tx *gorm.DB, pageID uint, monitorIDs []uint) error {
+	if err := tx.Where("status_page_id = ?", pageID).Delete(&models.StatusPageMonitor{}).Error; err != nil {
+		return err
+	}
+	seen := map[uint]bool{}
+	order := 0
+	for _, monitorID := range monitorIDs {
+		if monitorID == 0 || seen[monitorID] {
+			continue
+		}
+		seen[monitorID] = true
+		item := models.StatusPageMonitor{
+			StatusPageID: pageID,
+			MonitorID:    monitorID,
+			SortOrder:    order,
+			ShowUptime:   true,
+			ShowChart:    true,
+		}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+		order++
+	}
 	return nil
 }
 

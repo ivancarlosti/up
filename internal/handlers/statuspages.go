@@ -88,15 +88,9 @@ func (h *Container) createStatusPage(c *gin.Context) {
 	if !bindJSON(c, &payload) {
 		return
 	}
-	if err := h.StatusPages.Create(c.Request.Context(), &payload.StatusPage); err != nil {
+	if err := h.StatusPages.Create(c.Request.Context(), &payload.StatusPage, payload.MonitorIDs); err != nil {
 		api.WriteServiceError(c, err)
 		return
-	}
-	if len(payload.MonitorIDs) > 0 {
-		if err := h.StatusPages.SetMonitors(c.Request.Context(), payload.StatusPage.ID, payload.MonitorIDs); err != nil {
-			api.WriteServiceError(c, err)
-			return
-		}
 	}
 	api.Created(c, payload.StatusPage)
 }

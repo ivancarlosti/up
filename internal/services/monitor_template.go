@@ -100,6 +100,9 @@ func (s *MonitorTemplateService) Create(ctx context.Context, template *models.Mo
 	if err := s.validateName(ctx, template.Name, 0); err != nil {
 		return err
 	}
+	// The identity is stamped here rather than by a later update, so the row, the
+	// payload and the response all name the same creator from the start.
+	template.OriginNodeID = s.cfg.NodeID
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(template).Error; err != nil {
 			return err

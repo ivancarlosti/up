@@ -125,6 +125,9 @@ func (s *NotificationService) Create(ctx context.Context, notification *models.N
 	if problem := notification.Validate(); problem != "" {
 		return ErrBadRequest(i18n.CodeNotificationConfig, problem)
 	}
+	// The identity is stamped here rather than by a later update, so the row, the
+	// payload and the response all name the same creator from the start.
+	notification.OriginNodeID = s.cfg.NodeID
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(notification).Error; err != nil {
 			return err

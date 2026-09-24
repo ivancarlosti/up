@@ -18,6 +18,9 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 	if err := s.Validate(monitor); err != nil {
 		return err
 	}
+	// The identity is stamped here rather than by a later update, so the row, the
+	// payload and the response all name the same creator from the start.
+	monitor.OriginNodeID = s.cfg.NodeID
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(monitor).Error; err != nil {
 			return err

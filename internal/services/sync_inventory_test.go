@@ -184,6 +184,10 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		"replaceMonitorGroupMembers":  "caller publishes the membership diff",
 		"replaceMonitorGroups":        "caller publishes the membership diff",
 		"replaceMonitorNotifications": "caller publishes the link diff",
+		// The selection lives inside the page payload, so the caller is what turns it
+		// into a version: touchStatusPage (the selection endpoint) or publishStatusPage
+		// (the create, which writes the selection and the page as ONE version).
+		"writeMonitorSelection": "caller publishes the page",
 	}
 
 	checked := 0

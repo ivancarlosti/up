@@ -174,6 +174,9 @@ func (s *MonitorGroupService) Create(ctx context.Context, group *models.MonitorG
 	if err := s.validate(ctx, group, 0); err != nil {
 		return err
 	}
+	// The identity is stamped here rather than by a later update, so the row, the
+	// payload and the response all name the same creator from the start.
+	group.OriginNodeID = s.cfg.NodeID
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(group).Error; err != nil {
 			return err
@@ -252,11 +255,14 @@ func (s *MonitorGroupService) SetMonitors(ctx context.Context, id uint, monitorI
 		if err := replaceMonitorGroupMembers(tx, id, monitorIDs); err != nil {
 			return err
 		}
-		// A membership is its own entity with its own revision, so this edit moves
-		// members and not the group row: the group is republished with the identity
-		// it already has (which a peer skips as not newer), and only the members
-		// that actually changed produce a change.
-		return s.publishGroup(ctx, tx, id, before)
+		// Only the members moved. A membership is its own entity with its own
+		// revision, so the group ROW is not republished: that would add an outbox row
+		// which every peer then skips as not newer (same revision, same timestamp) —
+		// pure noise per save. publishGroup is for the paths where the row changed.
+		if s.emit == nil {
+			return nil
+		}
+		return s.emit.PublishGroupLinks(ctx, tx, id, before)
 	}); err != nil {
 		return nil, ErrInternal(fmt.Errorf("updating the members of group %d: %w", id, err))
 	}

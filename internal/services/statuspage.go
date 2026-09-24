@@ -168,8 +168,13 @@ func (s *StatusPageService) GetBySlug(ctx context.Context, slug string) (*models
 	return &page, nil
 }
 
-// Create stores a new status page.
-func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage) error {
+// Create stores a new status page, selection included.
+//
+// The selection is written in the SAME transaction and published as one version: the
+// page used to be created and then edited separately, which put two revisions and two
+// outbox rows on the wire for one operator action — and made "the page as created" a
+// state no peer ever saw.
+func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage, monitorIDs []uint) error {
 	if err := s.normalize(page); err != nil {
 		return err
 	}
@@ -180,15 +185,23 @@ func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage)
 	if count > 0 {
 		return ErrConflict(i18n.CodeSlugTaken, "the slug "+page.Slug+" is already in use")
 	}
+	// The identity is stamped here rather than by a later update, so the row, the
+	// payload and the response all name the same creator from the start.
+	page.OriginNodeID = s.cfg.NodeID
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(page).Error; err != nil {
 			return err
+		}
+		if len(monitorIDs) > 0 {
+			if err := writeMonitorSelection(tx, page.ID, monitorIDs); err != nil {
+				return err
+			}
 		}
 		return s.publishStatusPage(ctx, tx, page.ID)
 	}); err != nil {
 		return ErrInternal(err)
 	}
-	s.log.Info("status page created", "id", page.ID, "slug", page.Slug)
+	s.log.Info("status page created", "id", page.ID, "slug", page.Slug, "monitors", len(monitorIDs))
 	return nil
 }
 
