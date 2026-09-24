@@ -31,13 +31,15 @@ flowchart LR
 - `resend_interval_seconds` (monitor level and channel level, the larger value
   wins) repeats an alert while the monitor stays `down`/`degraded`.
 
-### Certificate events
+### Certificate and domain events
 
-`cert_expiring` and `cert_expired` do not come from a status transition: they come
-from the certificate that the probe read (see `docs/monitors.md` §9). They are
-delivered through the same channels and the same `on_down` link flag, and the
-transport is deduplicated per day and per threshold, so several cluster nodes
-watching the same certificate produce a single message.
+`cert_expiring`, `cert_expired`, `domain_expiring` and `domain_expired` do not
+come from a status transition: they come from the TLS certificate a probe read
+(see `docs/monitors.md` §9) or from the registry expiration of the monitor's
+domain (see `docs/monitors.md` §10). They are delivered through the same channels
+and the same `on_down` link flag, and the transport is deduplicated per day and
+per threshold, so several cluster nodes watching the same certificate or domain
+produce a single message.
 
 ## 2. Channels
 

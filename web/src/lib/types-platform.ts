@@ -279,3 +279,49 @@ export interface AdminSettings {
   version: string
   settings: Record<string, string>
 }
+
+/** ExpirySettings is the daily certificate/domain job configuration. */
+export interface ExpirySettings {
+  check_time: string
+  check_timezone: string
+  rdap_enabled: boolean
+  whois_enabled: boolean
+  rate_limit_ms: number
+  timeout_seconds: number
+}
+
+/** WhoisParser is an operator provided rule for one TLD. */
+export interface WhoisParser {
+  id: number
+  tld: string
+  server: string
+  expiry_regex: string
+  date_layouts: string
+  not_found_pattern: string
+  min_interval_ms: number
+  enabled: boolean
+  note: string
+  created_at: string
+  updated_at: string
+}
+
+export type WhoisParserPayload = Partial<Omit<WhoisParser, 'id' | 'created_at' | 'updated_at'>>
+
+/** Response of GET /api/admin/expiry. */
+export interface ExpirySettingsResponse {
+  settings: ExpirySettings
+  parsers: WhoisParser[]
+  defaults: ExpirySettings
+  last_run_day: number
+  next_run: string
+}
+
+/** Response of POST /api/admin/expiry/whois-parsers/test. */
+export interface WhoisTestResult {
+  raw: string
+  ok: boolean
+  not_found: boolean
+  error?: string
+  expires_at?: string
+  days_left?: number
+}

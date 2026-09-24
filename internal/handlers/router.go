@@ -27,6 +27,10 @@ type Container struct {
 	Monitors         *services.MonitorService
 	MonitorGroups    *services.MonitorGroupService
 	MonitorTemplates *services.MonitorTemplateService
+	Certificates     *services.CertificateService
+	Domains          *services.DomainService
+	WhoisParsers     *services.WhoisParserService
+	Expiry           *services.ExpiryService
 	Heartbeats       *services.HeartbeatService
 	Stats            *services.StatsService
 	Notifications    *services.NotificationService

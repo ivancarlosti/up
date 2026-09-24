@@ -48,6 +48,9 @@ const (
 	// TLS certificates
 	CodeMonitorCert = "ERR_MONITOR_CERT_INVALID"
 
+	// Domain expiration
+	CodeMonitorDomain = "ERR_MONITOR_DOMAIN_INVALID"
+
 	// Notifications
 	CodeNotificationNotFound = "ERR_NOTIFICATION_NOT_FOUND"
 	CodeNotificationConfig   = "ERR_NOTIFICATION_CONFIG_INVALID"
@@ -87,7 +90,7 @@ func AllCodes() []string {
 		CodeMonitorNotFound, CodeMonitorTypeInvalid, CodeMonitorConfig,
 		CodeMonitorGroupNotFound, CodeMonitorGroupInvalid,
 		CodeMonitorTemplateNotFound, CodeMonitorTemplateInvalid, CodeMonitorBulkInvalid,
-		CodeMonitorCert,
+		CodeMonitorCert, CodeMonitorDomain,
 		CodeNotificationNotFound, CodeNotificationConfig, CodeNotificationSend,
 		CodeClusterDisabled, CodeClusterKeyInvalid, CodeClusterJoinFailed, CodeClusterPrimarySelf,
 		CodeClusterStrategy,

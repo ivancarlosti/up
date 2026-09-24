@@ -15,6 +15,18 @@ const (
 	SettingAppName           = "app_name"
 	SettingRateLogin         = "rate_limit_login"
 	SettingRatePublic        = "rate_limit_public"
+	// Expiry job (Admin > TLD/SSL expiration): when the daily certificate and
+	// domain checks run, which registries are queried and how fast.
+	SettingExpiryCheckTime      = "expiry_check_time"
+	SettingExpiryCheckTimezone  = "expiry_check_timezone"
+	SettingExpiryRDAPEnabled    = "expiry_rdap_enabled"
+	SettingExpiryWHOISEnabled   = "expiry_whois_enabled"
+	SettingExpiryRateLimitMS    = "expiry_rate_limit_ms"
+	SettingExpiryTimeoutSeconds = "expiry_timeout_seconds"
+	// SettingExpiryLastRunDay is the day bucket (unix/86400) of the last daily
+	// run, kept so a restart does not repeat the work and a process that was
+	// down at the scheduled time catches up on the next tick.
+	SettingExpiryLastRunDay = "expiry_last_run_day"
 )
 
 // Setting is a single key/value pair. Because the table lives in the shared

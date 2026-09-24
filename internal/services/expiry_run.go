@@ -1,0 +1,245 @@
+package services
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/ivancarlosti/up/internal/checkers"
+	"github.com/ivancarlosti/up/internal/config"
+	"github.com/ivancarlosti/up/internal/expiry"
+	"github.com/ivancarlosti/up/internal/models"
+)
+
+// ExpiryService is the daily job that refreshes the expiration of the two things
+// Up watches beyond the probe itself: the TLS certificate of an endpoint and the
+// registry registration of a domain.
+//
+// It answers the two challenges of the feature at once:
+//
+//   - deduplication: the worklist is built from the normalized targets, so 30
+//     monitors on "https://www.example.com" and 12 on "app.example.com" produce
+//     exactly one handshake and one registry lookup per run;
+//   - cadence: the job runs once a day at the configured time, instead of
+//     rewriting the stored certificate on every probe (the "1x por dia" rule the
+//     certificate and domain alerts already follow).
+type ExpiryService struct {
+	cfg          *config.Config
+	log          *slog.Logger
+	settings     *SettingService
+	monitors     *MonitorService
+	certificates *CertificateService
+	domains      *DomainService
+	parsers      *WhoisParserService
+	cluster      *ClusterService
+	resolver     *expiry.Resolver
+}
+
+// NewExpiryService builds the expiry job.
+func NewExpiryService(cfg *config.Config, log *slog.Logger, settings *SettingService,
+	monitors *MonitorService, certificates *CertificateService, domains *DomainService,
+	parsers *WhoisParserService, cluster *ClusterService) *ExpiryService {
+	return &ExpiryService{
+		cfg:          cfg,
+		log:          log,
+		settings:     settings,
+		monitors:     monitors,
+		certificates: certificates,
+		domains:      domains,
+		parsers:      parsers,
+		cluster:      cluster,
+		resolver:     domains.Resolver(),
+	}
+}
+
+// Settings returns the current expiry configuration (used by the admin page).
+func (s *ExpiryService) Settings() models.ExpirySettings { return s.settings.ExpirySettings() }
+
+// Evaluate ages the stored certificates and domains without opening a socket and
+// sends the reminders that are due. It runs at boot, so a date stored while the
+// process was down (or a manual date just entered) is evaluated immediately.
+func (s *ExpiryService) Evaluate(ctx context.Context) error {
+	if s.certificates != nil {
+		if err := s.certificates.Refresh(ctx); err != nil {
+			return err
+		}
+	}
+	if s.domains != nil {
+		if err := s.domains.Refresh(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunDue runs the daily job when the configured time has passed and the day has
+// not been served yet. It is called from the maintenance ticker.
+//
+// The day bucket is kept in the settings table so a restart does not repeat the
+// work, and the cluster lock elects a single node: without it every node of a
+// cluster would hit the registries once a day.
+func (s *ExpiryService) RunDue(ctx context.Context, now time.Time) error {
+	settings := s.settings.ExpirySettings()
+	if now.Before(models.RunInstant(now, settings.CheckTime, settings.CheckTimezone)) {
+		return nil // today's instant has not been reached yet
+	}
+	day := now.UTC().Unix() / 86400
+	if s.settings.ExpiryLastRunDay() >= day {
+		return nil // already served
+	}
+	if s.cluster != nil {
+		allowed, err := s.cluster.ClaimDailyJob(ctx, "expiry_run", day)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			s.log.Debug("expiry job skipped: another node owns today's run")
+			return nil
+		}
+	}
+	if err := s.RunNow(ctx); err != nil {
+		return err
+	}
+	if err := s.settings.SetExpiryLastRunDay(ctx, day); err != nil {
+		s.log.Warn("could not record the expiry run day", "error", err)
+	}
+	return nil
+}
+
+// RunNow refreshes every deduplicated target and evaluates the alerts. It is the
+// manual "run now" action and the body of the daily job.
+func (s *ExpiryService) RunNow(ctx context.Context) error {
+	settings := s.settings.ExpirySettings()
+	parsers := []models.WhoisParser{}
+	if s.parsers != nil {
+		loaded, err := s.parsers.Enabled(ctx)
+		if err != nil {
+			return err
+		}
+		parsers = loaded
+	}
+	s.resolver.Configure(settings, parsers)
+
+	watchers, err := s.monitors.ExpiryWatchers(ctx)
+	if err != nil {
+		return err
+	}
+	if len(watchers) == 0 {
+		s.log.Debug("expiry job: nothing to watch")
+		return nil
+	}
+
+	certTargets := map[string]expiry.CertificateTarget{}
+	certWatchers := map[string][]*models.Monitor{}
+	domainTargets := map[string][]*models.Monitor{}
+	manualMonitors := []*models.Monitor{}
+
+	for _, monitor := range watchers {
+		if monitor.CertWatch {
+			if target, ok := expiry.CertificateTargetFor(monitor); ok {
+				key := target.Key()
+				certTargets[key] = target
+				certWatchers[key] = append(certWatchers[key], monitor)
+			}
+		}
+		if !monitor.DomainWatch {
+			continue
+		}
+		if expiry.DomainFor(monitor) == "" {
+			continue
+		}
+		if monitor.DomainExpiresAt != nil && !monitor.DomainExpiresAt.IsZero() {
+			// A manual date needs no lookup at all.
+			manualMonitors = append(manualMonitors, monitor)
+			continue
+		}
+		domain := expiry.DomainFor(monitor)
+		domainTargets[domain] = append(domainTargets[domain], monitor)
+	}
+
+	now := time.Now().UTC()
+	timeout := time.Duration(settings.TimeoutSeconds) * time.Second
+
+	certificates := 0
+	for key, target := range certTargets {
+		// One handshake per unique host:port:SNI, fanned out to every monitor
+		// that shares it.
+		info, probeErr := checkers.ProbeCertificate(ctx, target.Address(), target.ServerName, target.Insecure, timeout)
+		if probeErr != nil && info == nil {
+			s.log.Warn("expiry job: certificate lookup failed", "target", target.Address(), "error", probeErr)
+			continue
+		}
+		info.CapturedByNode = s.cfg.NodeID
+		for _, monitor := range certWatchers[key] {
+			s.recordCertificate(ctx, monitor, info, now)
+			certificates++
+		}
+	}
+
+	domains := 0
+	for domain, monitorsForDomain := range domainTargets {
+		// One registry lookup per registrable domain, fanned out to every monitor
+		// that shares it.
+		info := s.resolver.Resolve(ctx, domain, nil)
+		info.CheckedByNode = s.cfg.NodeID
+		for _, monitor := range monitorsForDomain {
+			s.recordDomain(ctx, monitor, info, now)
+			domains++
+		}
+	}
+	for _, monitor := range manualMonitors {
+		info := s.resolver.Resolve(ctx, expiry.DomainFor(monitor), monitor.DomainExpiresAt)
+		info.CheckedByNode = s.cfg.NodeID
+		s.recordDomain(ctx, monitor, info, now)
+		domains++
+	}
+
+	s.log.Info("expiry job finished",
+		"certificate_targets", len(certTargets), "certificate_monitors", certificates,
+		"domain_targets", len(domainTargets), "domain_monitors", domains,
+		"rate_limit_ms", settings.RateLimitMS)
+	return nil
+}
+
+// recordCertificate stores the observation of one monitor and evaluates its
+// certificate alerts.
+func (s *ExpiryService) recordCertificate(ctx context.Context, monitor *models.Monitor, info *models.CertificateInfo, now time.Time) {
+	if _, err := s.certificates.Record(ctx, monitor.ID, s.cfg.NodeID, info); err != nil {
+		s.log.Error("expiry job: could not store the certificate", "monitor_id", monitor.ID, "error", err)
+		return
+	}
+	row, err := s.certificates.Get(ctx, monitor.ID)
+	if err != nil || row == nil {
+		return
+	}
+	if event, ok := s.certificates.Evaluate(ctx, row, monitor, now); ok {
+		s.certificates.publish("monitor.certificate", map[string]any{
+			"monitor_id": monitor.ID,
+			"event":      event,
+			"days_left":  row.DaysLeft,
+			"not_after":  row.NotAfter,
+		})
+	}
+}
+
+// recordDomain stores the observation of one monitor and evaluates its domain
+// alerts.
+func (s *ExpiryService) recordDomain(ctx context.Context, monitor *models.Monitor, info *models.DomainInfo, now time.Time) {
+	if _, err := s.domains.Record(ctx, monitor.ID, s.cfg.NodeID, info); err != nil {
+		s.log.Error("expiry job: could not store the domain", "monitor_id", monitor.ID, "error", err)
+		return
+	}
+	row, err := s.domains.Get(ctx, monitor.ID)
+	if err != nil || row == nil {
+		return
+	}
+	if event, ok := s.domains.Evaluate(ctx, row, monitor, now); ok {
+		s.domains.publish("monitor.domain", map[string]any{
+			"monitor_id": monitor.ID,
+			"event":      event,
+			"domain":     row.Domain,
+			"days_left":  row.DaysLeft,
+			"expires_at": row.ExpiresAt,
+		})
+	}
+}

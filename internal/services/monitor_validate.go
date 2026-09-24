@@ -75,5 +75,31 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 	if monitor.CertNotify && !monitor.CertWatch {
 		return ErrBadRequest(i18n.CodeMonitorCert, "cert_notify requires cert_watch")
 	}
+
+	// Domain expiration watching: the same rules as the certificate watcher (the
+	// switches must be coherent, the thresholds are a free form list) plus the
+	// manual date, which is the fallback for the TLDs that publish no date at all.
+	if _, err := models.ParseCertWarnDays(monitor.DomainWarnDays); err != nil {
+		return ErrBadRequest(i18n.CodeMonitorDomain, "domain_warn_days must be a list of days before expiry: "+err.Error())
+	}
+	if monitor.DomainWatch && !monitor.Type.SupportsDomainWatch() {
+		return ErrBadRequest(i18n.CodeMonitorDomain,
+			"domain_watch is not available for "+string(monitor.Type)+" monitors")
+	}
+	if monitor.DomainNotify && !monitor.DomainWatch {
+		return ErrBadRequest(i18n.CodeMonitorDomain, "domain_notify requires domain_watch")
+	}
+	if monitor.DomainExpiresAt != nil && monitor.DomainExpiresAt.IsZero() {
+		monitor.DomainExpiresAt = nil
+	}
+	if monitor.DomainExpiresAt != nil && !monitor.DomainWatch {
+		return ErrBadRequest(i18n.CodeMonitorDomain, "domain_expires_at requires domain_watch")
+	}
+	if !monitor.DomainWatch {
+		// A monitor that does not watch its domain keeps no stale configuration.
+		monitor.DomainNotify = false
+		monitor.DomainWarnDays = ""
+		monitor.DomainExpiresAt = nil
+	}
 	return nil
 }

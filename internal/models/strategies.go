@@ -121,6 +121,12 @@ const (
 	// certificate signal for a monitor that ignores TLS errors (whose checks keep
 	// succeeding).
 	EventCertExpired NotificationEvent = "cert_expired"
+	// EventDomainExpiring is the domain counterpart of EventCertExpiring: a
+	// reminder that the registration is about to lapse (sent on every configured
+	// threshold and once a day inside the tightest window).
+	EventDomainExpiring NotificationEvent = "domain_expiring"
+	// EventDomainExpired is the registration being past its expiry date.
+	EventDomainExpired NotificationEvent = "domain_expired"
 )
 
 // ---------------------------------------------------------------------------

@@ -41,6 +41,12 @@ const router = createRouter({
       meta: { auth: true, app: true },
     },
     {
+      path: '/admin/expiry',
+      name: 'admin-expiry',
+      component: () => import('@/views/admin/AdminExpiryView.vue'),
+      meta: { auth: true, app: true },
+    },
+    {
       path: '/admin/status-pages',
       name: 'admin-status-pages',
       component: () => import('@/views/admin/AdminStatusPagesView.vue'),

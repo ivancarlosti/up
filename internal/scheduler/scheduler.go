@@ -35,6 +35,8 @@ type Scheduler struct {
 	// certificates stores and evaluates the TLS certificates read by the probes
 	// (optional: nil on a build without the feature).
 	certificates *services.CertificateService
+	// expiry runs the daily certificate/domain refresh (optional: nil disables it).
+	expiry *services.ExpiryService
 	// notifications is injected for the retention job only: the delivery history
 	// is the one notification table that grows over time, and the scheduler owns
 	// the housekeeping loop.
@@ -98,6 +100,9 @@ func (s *Scheduler) Start(parent context.Context) error {
 // SetCertificateService injects the TLS certificate service: it stores what the
 // probes read and decides when a reminder is due.
 func (s *Scheduler) SetCertificateService(c *services.CertificateService) { s.certificates = c }
+
+// SetExpiryService injects the daily certificate/domain refresh job.
+func (s *Scheduler) SetExpiryService(e *services.ExpiryService) { s.expiry = e }
 
 // SetNotificationService injects the notification service so the maintenance
 // loop can apply NOTIFICATION_LOG_RETENTION_DAYS to the delivery history.

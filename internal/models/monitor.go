@@ -139,6 +139,19 @@ type Monitor struct {
 	// reminder ("7,6,5,30"); empty means models.DefaultCertWarnDays.
 	CertWarnDays string `gorm:"size:120" json:"cert_warn_days"`
 
+	// DomainWatch turns on the registry expiration watch for the registrable
+	// domain of this monitor's target (the domain counterpart of CertWatch).
+	DomainWatch bool `gorm:"not null;default:false" json:"domain_watch"`
+	// DomainNotify allows the domain events to reach the notification channels.
+	DomainNotify bool `gorm:"not null;default:false" json:"domain_notify"`
+	// DomainWarnDays is the free form list of "days before expiry" for the
+	// domain; empty means models.DefaultDomainWarnDays.
+	DomainWarnDays string `gorm:"size:120" json:"domain_warn_days"`
+	// DomainExpiresAt is the manually typed expiration date. When set it wins
+	// over RDAP and WHOIS: some TLDs simply do not publish the date, and the
+	// operator still wants the same reminders.
+	DomainExpiresAt *time.Time `json:"domain_expires_at"`
+
 	Config MonitorConfig `gorm:"serializer:json;type:json" json:"config"`
 
 	CreatedAt time.Time `json:"created_at"`
@@ -161,6 +174,9 @@ type Monitor struct {
 	// Certificate is the last TLS certificate read by a probe (only when the
 	// monitor watches its certificate).
 	Certificate *CertificateInfo `gorm:"-" json:"certificate,omitempty"`
+	// Domain is the last registry expiration read for the monitor's registrable
+	// domain (only when the monitor watches its domain).
+	Domain *DomainInfo `gorm:"-" json:"domain,omitempty"`
 }
 
 // BeforeCreate fills the sync identity of a new row: the UUID is the global id

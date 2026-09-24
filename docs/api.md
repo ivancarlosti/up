@@ -134,8 +134,15 @@ one of `http`, `keyword`, `tcp`, `dns`, `ssl`; the certificate switches
 `cert_watch`, `cert_notify` and the free form list `cert_warn_days` ride along.
 When `cert_watch` is on, the decorated monitor carries a `certificate` object
 (`issuer`, `subject`, `not_after`, `days_left`, `captured_at`), and an incoherent
-certificate configuration answers `400 ERR_MONITOR_CERT_INVALID`. Response `201`
-with the decorated monitor. Validation errors use
+certificate configuration answers `400 ERR_MONITOR_CERT_INVALID`.
+
+The domain expiration watch rides along the same way: `domain_watch`,
+`domain_notify`, `domain_warn_days` and the optional manual date
+`domain_expires_at` (RFC3339 or `null`). When `domain_watch` is on, the decorated
+monitor carries a `domain` object (`domain`, `registrar`, `expires_at`, `source`,
+`status`, `days_left`, `checked_at`), and an incoherent configuration answers
+`400 ERR_MONITOR_DOMAIN_INVALID`. Response `201` with the decorated monitor.
+Validation errors use
 `ERR_MONITOR_CONFIG_INVALID` / `ERR_MONITOR_TYPE_INVALID` / `ERR_VALIDATION`
 (see `docs/monitors.md` for every field).
 
@@ -322,6 +329,24 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | PUT | `/api/ip-rules/:id` | update |
 | DELETE | `/api/ip-rules/:id` | `204` |
 
+### Daily expiry job (Admin > TLD/SSL expiration)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/admin/expiry` | `{settings, parsers, defaults, last_run_day, next_run}` |
+| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds` |
+| POST | `/api/admin/expiry/run` | runs the daily check now (deduplicated targets) -> `{ran: true, at}` |
+| GET | `/api/admin/expiry/whois-parsers` | the per-TLD rules |
+| POST | `/api/admin/expiry/whois-parsers` | `{tld, server, expiry_regex, date_layouts, not_found_pattern, min_interval_ms, enabled, note}` -> `201` |
+| PUT | `/api/admin/expiry/whois-parsers/:id` | update |
+| DELETE | `/api/admin/expiry/whois-parsers/:id` | `204` |
+| POST | `/api/admin/expiry/whois-parsers/test` | runs a candidate rule against a live `domain` or a pasted `raw` response -> `{ok, raw, not_found, expires_at?, days_left?, error?}` |
+
+`settings` is the whole configuration in one object; `defaults` is what an empty
+install uses, so the UI can offer a "restore defaults" action. Incoherent values
+answer `400 ERR_VALIDATION` (bad time, unknown timezone, out of range rate limit
+or timeout, an uncompilable regex, a regex without a capture group).
+
 ## 9. Real time channel
 
 `GET /api/ws` (WebSocket, session cookie). Client -> server messages:
@@ -386,6 +411,7 @@ The complete, stable catalogue (also present in `web/src/locales/*.json` under
 | `ERR_MONITOR_NOT_FOUND` | 404 | unknown monitor |
 | `ERR_MONITOR_TYPE_INVALID` | 400 | unknown monitor type |
 | `ERR_MONITOR_CONFIG_INVALID` | 400 | invalid type specific option |
+| `ERR_MONITOR_DOMAIN_INVALID` | 400 | invalid domain expiration configuration |
 | `ERR_NOTIFICATION_NOT_FOUND` | 404 | unknown channel |
 | `ERR_NOTIFICATION_CONFIG_INVALID` | 400 | invalid channel configuration |
 | `ERR_NOTIFICATION_SEND_FAILED` | 500 | delivery failed |

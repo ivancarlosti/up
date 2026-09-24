@@ -80,6 +80,10 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		"cert_watch":               monitor.CertWatch,
 		"cert_notify":              monitor.CertNotify,
 		"cert_warn_days":           monitor.CertWarnDays,
+		"domain_watch":             monitor.DomainWatch,
+		"domain_notify":            monitor.DomainNotify,
+		"domain_warn_days":         monitor.DomainWarnDays,
+		"domain_expires_at":        monitor.DomainExpiresAt,
 		"config":                   string(configJSON),
 		// Every edit advances the revision: it is the primary component of the
 		// merge order, so a wrong clock cannot make an old edit win. It is bumped
@@ -164,6 +168,7 @@ func deleteMonitorCascade(tx *gorm.DB, id uint) error {
 		&models.MonitorNotification{},
 		&models.MonitorGroupMember{},
 		&models.MonitorCertificate{},
+		&models.MonitorDomain{},
 		&models.NotificationLock{},
 		&models.StatusPageMonitor{},
 	} {

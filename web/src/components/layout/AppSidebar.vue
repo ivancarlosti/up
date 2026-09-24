@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import {
   Bell,
   Boxes,
+  CalendarClock,
   FileCog,
   FolderTree,
   Info,
@@ -30,6 +31,7 @@ const items = computed(() => [
   { name: 'monitor-groups', to: { name: 'admin-monitor-groups' }, icon: FolderTree, label: 'nav.monitorGroups' },
   { name: 'monitor-templates', to: { name: 'admin-monitor-templates' }, icon: FileCog, label: 'nav.monitorTemplates' },
   { name: 'notifications', to: { name: 'admin-notifications' }, icon: Bell, label: 'nav.notifications' },
+  { name: 'expiry', to: { name: 'admin-expiry' }, icon: CalendarClock, label: 'nav.expiry' },
   { name: 'status-pages', to: { name: 'admin-status-pages' }, icon: Globe, label: 'nav.statusPages' },
   { name: 'security', to: { name: 'admin-security' }, icon: ShieldCheck, label: 'nav.security' },
   { name: 'cluster', to: { name: 'admin-cluster' }, icon: Network, label: 'nav.cluster' },

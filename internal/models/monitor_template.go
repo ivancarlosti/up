@@ -65,6 +65,12 @@ type TemplateDefaults struct {
 	CertWatch    bool   `json:"cert_watch"`
 	CertNotify   bool   `json:"cert_notify"`
 	CertWarnDays string `json:"cert_warn_days"`
+	// Domain expiration watching applied to the monitors created from the
+	// template. DomainExpiresAt is intentionally NOT part of a template: a manual
+	// date belongs to one specific domain, never to a blueprint.
+	DomainWatch    bool   `json:"domain_watch"`
+	DomainNotify   bool   `json:"domain_notify"`
+	DomainWarnDays string `json:"domain_warn_days"`
 	// NotificationIDs and GroupIDs are the links applied to the new monitors.
 	NotificationIDs []uint `json:"notification_ids"`
 	GroupIDs        []uint `json:"group_ids"`
@@ -79,6 +85,7 @@ func TemplateDefaultFields() []string {
 		"timeout_seconds", "resend_interval_seconds", "run_on", "run_on_nodes", "node_id", "tags",
 		"active", "notification_ids", "group_ids", "config",
 		"cert_watch", "cert_notify", "cert_warn_days",
+		"domain_watch", "domain_notify", "domain_warn_days",
 	}
 }
 
@@ -140,6 +147,12 @@ func (t *MonitorTemplate) Validate() string {
 	}
 	if _, err := ParseCertWarnDays(t.Defaults.CertWarnDays); err != nil {
 		return "cert_warn_days must be a list of days before expiry: " + err.Error()
+	}
+	if t.Defaults.DomainNotify && !t.Defaults.DomainWatch {
+		return "domain_notify requires domain_watch"
+	}
+	if _, err := ParseCertWarnDays(t.Defaults.DomainWarnDays); err != nil {
+		return "domain_warn_days must be a list of days before expiry: " + err.Error()
 	}
 	return ""
 }

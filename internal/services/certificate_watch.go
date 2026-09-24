@@ -72,7 +72,7 @@ func (s *CertificateService) markNotified(ctx context.Context, row *models.Monit
 		"last_notified_day": row.LastNotifiedDay,
 	}
 	if len(plan.Mark) > 0 {
-		label := certThresholdsLabel(merged)
+		label := thresholdsLabel(merged)
 		updates["notified_days"] = label
 		row.NotifiedDays = label
 	}
@@ -131,7 +131,7 @@ func (s *CertificateService) Refresh(ctx context.Context) error {
 	for i := range rows {
 		row := &rows[i]
 		monitor, ok := byID[row.MonitorID]
-		if !ok || !monitor.CertWatch {
+		if !ok || !monitor.CertWatch || !monitor.Active {
 			continue
 		}
 		daysLeft := models.DaysLeft(row.NotAfter, now)

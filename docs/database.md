@@ -52,6 +52,8 @@ FLUSH PRIVILEGES;
 | `monitor_group_members` | monitor <-> group links (a monitor can be in many) | tens |
 | `monitor_templates` | reusable monitor blueprints (uuid + unique name) | tens |
 | `monitor_certificates` | TLS certificate read by the probe + notification memory | tens |
+| `monitor_domains` | registrable domain expiration (manual / RDAP / WHOIS) + notification memory | tens |
+| `whois_parsers` | per-TLD rules that read an expiry date from a raw WHOIS response | few |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
 | `notifications` | SMTP / Webhook channels | few |
@@ -83,6 +85,24 @@ last-writer-wins merge. They are filled by the `BeforeCreate` hook of the model
 synchronisation tables above are created by `AutoMigrate` on **every** install,
 but only a node running `CLUSTER_MODE=federated` writes and reads them; in the
 default `shared` mode they stay empty.
+
+### Expiration columns and tables
+
+`monitors` gained, next to the certificate switches, the domain counterpart:
+`domain_watch`, `domain_notify`, `domain_warn_days` and the nullable
+`domain_expires_at` (the manually typed date).
+
+`monitor_domains` mirrors `monitor_certificates`:
+`monitor_id` (PK), `domain`, `registrar`, `expires_at`, `source`
+(`manual`/`rdap`/`whois`), `status` (`ok`/`not_found`/`unsupported`/`error`),
+`error`, `days_left`, `checked_at`, `checked_by_node`, `notified_days` and
+`last_notified_day`. The last two are the notification memory and are preserved
+by every rewrite, exactly like the certificate table.
+
+`whois_parsers` stores one rule per TLD: `tld` (unique, e.g. `br` or `com.br`),
+`server` (optional registry override), `expiry_regex` (RE2 with a capture group),
+`date_layouts` (`;` separated Go layouts), `not_found_pattern`, `min_interval_ms`
+(per-registry rate limit override), `enabled` and `note`.
 
 ## 3. Complete DDL (dumped from a live instance running MariaDB 11.8)
 

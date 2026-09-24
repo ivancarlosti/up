@@ -36,6 +36,18 @@ func (t MonitorType) SupportsCertificate() bool {
 	return false
 }
 
+// SupportsDomainWatch reports whether a monitor type has a target a registrable
+// domain can be derived from. Every current type does (a URL, a host or a
+// hostname), so the watch is available everywhere; the switch exists so a future
+// type without a network name does not silently get a domain.
+func (t MonitorType) SupportsDomainWatch() bool {
+	switch t {
+	case MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL:
+		return true
+	}
+	return false
+}
+
 // Valid reports whether the type is known.
 func (t MonitorType) Valid() bool {
 	switch t {

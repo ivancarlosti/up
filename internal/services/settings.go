@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,6 +164,77 @@ func (s *SettingService) SetDefaults(ctx context.Context, locale, theme string) 
 		}
 	}
 	return nil
+}
+
+// ExpirySettings returns the admin managed configuration of the daily expiry job
+// (Admin > TLD/SSL expiration).
+func (s *SettingService) ExpirySettings() models.ExpirySettings {
+	out := models.DefaultExpirySettings()
+	if value, ok := s.Get(models.SettingExpiryCheckTime); ok && strings.TrimSpace(value) != "" {
+		out.CheckTime = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingExpiryCheckTimezone); ok && strings.TrimSpace(value) != "" {
+		out.CheckTimezone = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingExpiryRDAPEnabled); ok {
+		if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+			out.RDAPEnabled = parsed
+		}
+	}
+	if value, ok := s.Get(models.SettingExpiryWHOISEnabled); ok {
+		if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+			out.WHOISEnabled = parsed
+		}
+	}
+	if value, ok := s.Get(models.SettingExpiryRateLimitMS); ok {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			out.RateLimitMS = parsed
+		}
+	}
+	if value, ok := s.Get(models.SettingExpiryTimeoutSeconds); ok {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			out.TimeoutSeconds = parsed
+		}
+	}
+	out.Normalize()
+	return out
+}
+
+// SetExpirySettings stores the daily expiry job configuration.
+func (s *SettingService) SetExpirySettings(ctx context.Context, settings models.ExpirySettings) error {
+	settings.Normalize()
+	stored := map[string]string{
+		models.SettingExpiryCheckTime:      settings.CheckTime,
+		models.SettingExpiryCheckTimezone:  settings.CheckTimezone,
+		models.SettingExpiryRDAPEnabled:    strconv.FormatBool(settings.RDAPEnabled),
+		models.SettingExpiryWHOISEnabled:   strconv.FormatBool(settings.WHOISEnabled),
+		models.SettingExpiryRateLimitMS:    strconv.Itoa(settings.RateLimitMS),
+		models.SettingExpiryTimeoutSeconds: strconv.Itoa(settings.TimeoutSeconds),
+	}
+	for key, value := range stored {
+		if err := s.Set(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ExpiryLastRunDay returns the day bucket of the last daily run (0 = never).
+func (s *SettingService) ExpiryLastRunDay() int64 {
+	value, ok := s.Get(models.SettingExpiryLastRunDay)
+	if !ok {
+		return 0
+	}
+	day, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return day
+}
+
+// SetExpiryLastRunDay records the day bucket of the last daily run.
+func (s *SettingService) SetExpiryLastRunDay(ctx context.Context, day int64) error {
+	return s.Set(ctx, models.SettingExpiryLastRunDay, strconv.FormatInt(day, 10))
 }
 
 // SessionSecret returns (generating it on the first boot) the secret used to

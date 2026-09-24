@@ -55,6 +55,20 @@ func checkSSL(ctx context.Context, monitor *models.Monitor) Result {
 	}
 }
 
+// ProbeCertificate dials the address and returns the leaf certificate.
+//
+// It is the exported entry point of the daily expiry job, which re-checks the
+// deduplicated certificate endpoints once a day (instead of writing the row on
+// every probe), and of the "run now" action of the admin page.
+func ProbeCertificate(ctx context.Context, address, serverName string, insecure bool, timeout time.Duration) (*models.CertificateInfo, error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return probeCertificate(ctx, address, serverName, insecure)
+}
+
 // probeCertificate dials the address and returns the leaf certificate.
 //
 // When the verification fails the certificates carried by the error are used:

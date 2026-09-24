@@ -70,10 +70,18 @@ func (s *CertificateService) Record(ctx context.Context, monitorID uint, nodeID 
 	if err != nil {
 		return false, err
 	}
+	// The row is written at most once a day per target, and immediately when the
+	// certificate itself changes. A monitor checked every minute used to rewrite
+	// the same row 1440 times a day; the expiry data only ages once a day, so
+	// nothing is lost by skipping the identical writes.
 	changed := current == nil ||
 		!current.NotAfter.Equal(info.NotAfter) ||
 		!strings.EqualFold(current.Serial, info.Serial) ||
-		current.DaysLeft != info.DaysLeft
+		current.DaysLeft != info.DaysLeft ||
+		dayBucket(current.CapturedAt) != dayBucket(info.CapturedAt)
+	if !changed {
+		return false, nil
+	}
 
 	row := models.MonitorCertificate{
 		MonitorID:      monitorID,

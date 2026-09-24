@@ -82,6 +82,16 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	admin.GET("/admin/settings", h.adminSettings)
 	admin.PUT("/admin/settings", h.updateAdminSettings)
 
+	expiry := admin.Group("/admin/expiry")
+	expiry.GET("", h.expirySettings)
+	expiry.PUT("", h.updateExpirySettings)
+	expiry.POST("/run", h.runExpiryNow)
+	expiry.GET("/whois-parsers", h.listWhoisParsers)
+	expiry.POST("/whois-parsers", h.createWhoisParser)
+	expiry.POST("/whois-parsers/test", h.testWhoisParser)
+	expiry.PUT("/whois-parsers/:id", h.updateWhoisParser)
+	expiry.DELETE("/whois-parsers/:id", h.deleteWhoisParser)
+
 	tokens := admin.Group("/tokens")
 	tokens.GET("", h.listTokens)
 	tokens.POST("", h.createToken)

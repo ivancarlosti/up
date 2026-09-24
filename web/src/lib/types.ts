@@ -65,6 +65,25 @@ export interface CertificateInfo {
   captured_by_node?: string
 }
 
+/** Where a domain expiry date came from. */
+export type DomainSource = 'manual' | 'rdap' | 'whois'
+
+/** Outcome of the last registry lookup. */
+export type DomainStatus = 'ok' | 'not_found' | 'unsupported' | 'error'
+
+/** DomainInfo is the registry expiration observed for a monitor. */
+export interface DomainInfo {
+  domain: string
+  registrar?: string
+  expires_at: string
+  source?: DomainSource
+  status: DomainStatus
+  error?: string
+  days_left: number
+  checked_at: string
+  checked_by_node?: string
+}
+
 export interface HeartbeatSummary {
   status: HeartbeatStatus
   latency_ms: number
@@ -121,6 +140,15 @@ export interface Monitor {
   cert_warn_days: string
   /** Last certificate read by a probe (only when cert_watch is on). */
   certificate?: CertificateInfo
+  // Domain expiration watching (the registry counterpart of the certificate).
+  domain_watch: boolean
+  domain_notify: boolean
+  /** Free form list of days before expiry for the domain registration. */
+  domain_warn_days: string
+  /** Manual expiration date (ISO date) for TLDs that publish none. */
+  domain_expires_at: string | null
+  /** Last registry expiration read (only when domain_watch is on). */
+  domain?: DomainInfo
 }
 
 export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
@@ -182,6 +210,10 @@ export interface TemplateDefaults {
   cert_watch: boolean
   cert_notify: boolean
   cert_warn_days: string
+  /** Domain expiration watching applied to the monitors created from the template. */
+  domain_watch: boolean
+  domain_notify: boolean
+  domain_warn_days: string
 }
 
 /**
@@ -281,7 +313,7 @@ export interface NotificationLog {
   id: number
   notification_id: number
   monitor_id: number
-  event: 'down' | 'up' | 'test'
+  event: 'down' | 'up' | 'test' | 'cert_expiring' | 'cert_expired' | 'domain_expiring' | 'domain_expired'
   success: boolean
   error: string
   duration_ms: number

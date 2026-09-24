@@ -45,6 +45,10 @@ function emptyForm(): MonitorPayload {
     cert_watch: false,
     cert_notify: false,
     cert_warn_days: '',
+    domain_watch: false,
+    domain_notify: false,
+    domain_warn_days: '',
+    domain_expires_at: null,
   }
 }
 
@@ -57,6 +61,9 @@ watch(
     Object.assign(form, emptyForm(), props.monitor ? JSON.parse(JSON.stringify(props.monitor)) : {})
     if (!form.config) form.config = {}
     if (!form.config.headers) form.config.headers = []
+    // A date input only understands "YYYY-MM-DD"; the API stores an RFC3339
+    // timestamp (or null).
+    form.domain_expires_at = toDateInput(form.domain_expires_at)
   },
   { immediate: true },
 )
@@ -74,6 +81,9 @@ const typeOptions = computed(() => [
 
 /** Only the types that speak TLS can watch a certificate. */
 const supportsCertificate = computed(() => ['http', 'keyword', 'ssl'].includes(type.value))
+
+/** Every type has a target a registrable domain can be derived from. */
+const supportsDomain = computed(() => ['http', 'keyword', 'tcp', 'dns', 'ssl'].includes(type.value))
 
 const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
@@ -104,6 +114,12 @@ function toNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+/** toDateInput keeps only the "YYYY-MM-DD" part of a stored timestamp. */
+function toDateInput(value: unknown): string {
+  const raw = typeof value === 'string' ? value : ''
+  return raw.length >= 10 ? raw.slice(0, 10) : ''
+}
+
 function submit(): void {
   const payload: MonitorPayload = JSON.parse(JSON.stringify(form))
   payload.config = payload.config ?? {}
@@ -130,6 +146,10 @@ function submit(): void {
     delete config.max_redirects
   }
   payload.cert_warn_days = (form.cert_warn_days ?? '').trim()
+  payload.domain_warn_days = (form.domain_warn_days ?? '').trim()
+  // The API stores a timestamp (or null); the input yields a plain date.
+  const manualDate = String(form.domain_expires_at ?? '').trim()
+  payload.domain_expires_at = manualDate ? `${manualDate.slice(0, 10)}T00:00:00Z` : null
   emit('submit', payload)
 }
 </script>
@@ -233,6 +253,29 @@ function submit(): void {
         <div v-if="form.cert_watch" class="grid gap-1 sm:max-w-sm">
           <Label for="monitor-cert-warn" :help="t('monitor.certWarnDaysHelp')">{{ t('monitor.certWarnDays') }}</Label>
           <Input id="monitor-cert-warn" v-model="form.cert_warn_days" placeholder="30,14,7,1" />
+        </div>
+      </section>
+
+      <!-- Domain expiration -->
+      <section v-if="supportsDomain" id="monitor-domain" class="grid gap-2 border-t border-border pt-4">
+        <Label :help="t('monitor.domainHelp')">{{ t('monitor.domainSection') }}</Label>
+        <div class="flex flex-wrap items-center gap-4">
+          <Switch v-model="form.domain_watch as boolean">{{ t('monitor.domainWatch') }}</Switch>
+          <Switch v-model="form.domain_notify as boolean">{{ t('monitor.domainNotify') }}</Switch>
+        </div>
+        <div v-if="form.domain_watch" class="grid gap-3 sm:grid-cols-2">
+          <div class="grid gap-1 sm:max-w-sm">
+            <Label for="monitor-domain-warn" :help="t('monitor.domainWarnDaysHelp')">
+              {{ t('monitor.domainWarnDays') }}
+            </Label>
+            <Input id="monitor-domain-warn" v-model="form.domain_warn_days" placeholder="30,14,7,1" />
+          </div>
+          <div class="grid gap-1 sm:max-w-sm">
+            <Label for="monitor-domain-expires" :help="t('monitor.domainExpiresAtHelp')">
+              {{ t('monitor.domainExpiresAt') }}
+            </Label>
+            <Input id="monitor-domain-expires" v-model="form.domain_expires_at as string" type="date" />
+          </div>
         </div>
       </section>
 

@@ -290,6 +290,62 @@ A monitor that is checked every minute does not send 1440 notifications: the
 thresholds are remembered in `monitor_certificates.notified_days` and the daily
 reminder is pinned to the day.
 
+### How often the certificate is read
+
+Certificates are **not** re-read on every probe any more. The stored row is
+written at most once a day per target (and immediately when the certificate
+actually changes, e.g. after a renewal), and the **daily expiry job** refreshes
+every watched endpoint at the time configured in *Admin > TLD/SSL expiration*:
+
+- the worklist is **deduplicated**: 30 monitors on `https://www.example.com` and
+  12 on `app.example.com` produce a single handshake per unique
+  `host:port:SNI`, and the observation is fanned out to every monitor;
+- a monitor checked every 60 s therefore stops rewriting the same row 1440 times
+  a day, while its badge and its reminders stay a day fresh;
+- one node of a cluster runs the job (a day-bucket lock elects it), so the
+  registries are not queried once per node.
+
+## 10. Domain expiration
+
+The registry counterpart of §9: the same thresholds, the same daily reminder,
+the same notifications, but the target is the **registrable domain** (eTLD+1) of
+the monitor instead of its TLS endpoint.
+
+| Switch | Effect |
+|---|---|
+| `domain_watch` | the registrable domain of the target is resolved and watched |
+| `domain_notify` | the domain events reach the notification channels (requires `domain_watch`) |
+
+`domain_warn_days` behaves exactly like `cert_warn_days` (`30,14,7,1` by
+default): every configured value alerts once when it is crossed, and below the
+smallest one the reminder repeats **once a day**. The events are
+`domain_expiring` and `domain_expired`.
+
+### How the expiry date is found
+
+1. **Manual date** — `domain_expires_at` in the monitor form (a calendar). When
+   set it wins, and no network lookup runs. Use it for the TLDs that publish no
+   date at all.
+2. **RDAP** — the IANA bootstrap (`https://data.iana.org/rdap/dns.json`) says
+   whether the TLD has RDAP; when it does, the registry endpoint answers the
+   `expiration` event (and the registrar).
+3. **WHOIS** — a port 43 query, parsed by the **per-TLD rule** configured in
+   *Admin > TLD/SSL expiration* (`whois_parsers`): a regular expression whose
+   first capture group holds the date, plus the date layouts the registry uses.
+
+The status stored with the monitor tells the operator what happened:
+`ok` (a date was found), `not_found` (the registry says the domain is free),
+`unsupported` (no RDAP and no rule for the TLD — add one, or set the manual
+date) and `error` (network, rate limit, or the rule did not match).
+
+**Deduplication**: `app.example.com` and `www.example.com` both normalize to
+`example.com`, so any number of monitors share one registry lookup per day. The
+rate limit between two lookups (default `100 ms`) and the time of day are
+configured in *Admin > TLD/SSL expiration*; a per-TLD `min_interval_ms` can slow
+down one strict registry without slowing down the others.
+
+## 11. Upside down monitors
+
 **When it expires**: a monitor that verifies TLS goes `down` on its own (the
 handshake fails, so the normal down notification arrives), *unless*
 `ignore_tls=true` — in that case the checks keep succeeding and `cert_expired` is
@@ -338,7 +394,7 @@ monitor and a second request: that is exactly what the flag is for.
 (a TCP monitor to a port that must remain closed) or a DNS name that must not
 exist.
 
-## 11. How the UI is wired
+## 12. How the UI is wired
 
 | Element | File |
 |---|---|

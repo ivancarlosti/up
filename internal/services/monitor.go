@@ -202,6 +202,11 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 		return err
 	}
 
+	domains, err := s.domainsFor(ctx, ids)
+	if err != nil {
+		return err
+	}
+
 	for _, m := range monitors {
 		if stats, ok := windows[m.ID]; ok {
 			m.Uptime24h = stats.Uptime
@@ -237,8 +242,45 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 				m.Certificate = info
 			}
 		}
+		if m.DomainWatch {
+			if info, ok := domains[m.ID]; ok {
+				m.Domain = info
+			}
+		}
 	}
 	return nil
+}
+
+// domainsFor returns the stored domain expiration of every monitor that watches
+// one (one query for a whole listing).
+func (s *MonitorService) domainsFor(ctx context.Context, monitorIDs []uint) (map[uint]*models.DomainInfo, error) {
+	out := map[uint]*models.DomainInfo{}
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var rows []models.MonitorDomain
+	if err := s.db.WithContext(ctx).Where("monitor_id IN ?", monitorIDs).Find(&rows).Error; err != nil {
+		return nil, ErrInternal(err)
+	}
+	for i := range rows {
+		out[rows[i].MonitorID] = rows[i].Info()
+	}
+	return out, nil
+}
+
+// ExpiryWatchers returns the active monitors that watch a certificate or a
+// domain. It is the worklist of the daily expiry job: the targets are then
+// normalized and deduplicated, so several monitors on the same endpoint or the
+// same registrable domain produce a single lookup.
+func (s *MonitorService) ExpiryWatchers(ctx context.Context) ([]*models.Monitor, error) {
+	var monitors []*models.Monitor
+	if err := s.db.WithContext(ctx).
+		Where("active = ? AND (cert_watch = ? OR domain_watch = ?)", true, true, true).
+		Order("id ASC").
+		Find(&monitors).Error; err != nil {
+		return nil, ErrInternal(fmt.Errorf("listing the expiry watchers: %w", err))
+	}
+	return monitors, nil
 }
 
 // certificatesFor returns the stored certificate of every monitor that watches

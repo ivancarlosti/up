@@ -72,6 +72,9 @@ function blank(): TemplateForm {
       cert_watch: false,
       cert_notify: false,
       cert_warn_days: '',
+      domain_watch: false,
+      domain_notify: false,
+      domain_warn_days: '',
     },
   }
 }
@@ -325,6 +328,20 @@ onMounted(load)
           <div v-if="form.defaults.cert_watch" class="grid gap-1 sm:max-w-sm">
             <Label for="template-cert-warn" :help="t('monitor.certWarnDaysHelp')">{{ t('monitor.certWarnDays') }}</Label>
             <Input id="template-cert-warn" v-model="form.defaults.cert_warn_days" placeholder="30,14,7,1" />
+          </div>
+        </section>
+
+        <section class="grid gap-2 border-t border-border pt-4">
+          <Label :help="t('templates.domainHelp')">{{ t('monitor.domainSection') }}</Label>
+          <div class="flex flex-wrap items-center gap-4">
+            <Switch v-model="form.defaults.domain_watch as boolean">{{ t('monitor.domainWatch') }}</Switch>
+            <Switch v-model="form.defaults.domain_notify as boolean">{{ t('monitor.domainNotify') }}</Switch>
+          </div>
+          <div v-if="form.defaults.domain_watch" class="grid gap-1 sm:max-w-sm">
+            <Label for="template-domain-warn" :help="t('monitor.domainWarnDaysHelp')">
+              {{ t('monitor.domainWarnDays') }}
+            </Label>
+            <Input id="template-domain-warn" v-model="form.defaults.domain_warn_days" placeholder="30,14,7,1" />
           </div>
         </section>
 

@@ -39,6 +39,8 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	monitorGroups := services.NewMonitorGroupService(db, cfg, log)
 	monitorTemplates := services.NewMonitorTemplateService(db, cfg, log)
 	certificates := services.NewCertificateService(db, cfg, log)
+	domains := services.NewDomainService(db, cfg, log)
+	whoisParsers := services.NewWhoisParserService(db, cfg, log)
 	heartbeats := services.NewHeartbeatService(db, cfg, log)
 	notificationEngine := notify.NewEngine(log, 15*time.Second)
 	notifications := services.NewNotificationService(db, cfg, log, notificationEngine)
@@ -64,6 +66,10 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	certificates.SetMonitorService(monitors)
 	certificates.SetNotificationService(notifications)
 	certificates.SetClusterService(cluster)
+	domains.SetPublisher(hub)
+	domains.SetMonitorService(monitors)
+	domains.SetNotificationService(notifications)
+	domains.SetClusterService(cluster)
 	heartbeats.SetPublisher(hub)
 	notifications.SetPublisher(hub)
 	cluster.SetPublisher(hub)
@@ -102,6 +108,11 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		gin.SetMode(gin.ReleaseMode)
 	}
 	engine := gin.New()
+	// --- daily expiry job -------------------------------------------------
+	// Certificate and domain expiration are refreshed once a day (at the time
+	// configured in Admin > TLD/SSL expiration) over the deduplicated targets,
+	// instead of being rewritten by every probe.
+	expiries := services.NewExpiryService(cfg, log, settings, monitors, certificates, domains, whoisParsers, cluster)
 	container := &handlers.Container{
 		Cfg:              cfg,
 		Log:              log,
@@ -110,6 +121,10 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		Monitors:         monitors,
 		MonitorGroups:    monitorGroups,
 		MonitorTemplates: monitorTemplates,
+		Certificates:     certificates,
+		Domains:          domains,
+		WhoisParsers:     whoisParsers,
+		Expiry:           expiries,
 		Heartbeats:       heartbeats,
 		Stats:            stats,
 		Notifications:    notifications,
@@ -131,6 +146,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// services), so it is attached here.
 	container.Scheduler = sched
 	sched.SetCertificateService(certificates)
+	sched.SetExpiryService(expiries)
 	sched.SetNotificationService(notifications)
 	sched.SetSyncService(syncService)
 	if err := sched.Start(ctx); err != nil {

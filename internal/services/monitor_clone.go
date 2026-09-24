@@ -56,6 +56,15 @@ func (s *MonitorService) Clone(ctx context.Context, id uint, opts MonitorCloneOp
 		NodeID:                 source.NodeID,
 		Tags:                   source.Tags,
 		Config:                 source.Config,
+		// The expiry watching travels with the copy (the manual date does too:
+		// it belongs to the same domain).
+		CertWatch:       source.CertWatch,
+		CertNotify:      source.CertNotify,
+		CertWarnDays:    source.CertWarnDays,
+		DomainWatch:     source.DomainWatch,
+		DomainNotify:    source.DomainNotify,
+		DomainWarnDays:  source.DomainWarnDays,
+		DomainExpiresAt: source.DomainExpiresAt,
 	}
 	if opts.Active != nil {
 		clone.Active = *opts.Active

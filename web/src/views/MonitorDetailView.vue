@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime, formatLatency, formatUptime, statusColor } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { CertificateInfo, Heartbeat, Monitor, UptimeStats } from '@/lib/types'
+import type { CertificateInfo, DomainInfo, Heartbeat, Monitor, UptimeStats } from '@/lib/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,6 +104,18 @@ function certificateTitle(certificate: CertificateInfo): string {
   return `${parts.join(' — ')} (${formatDateTime(certificate.not_after, locale.value)})`
 }
 
+/** domainTitle is the tooltip of the domain badge (registrar + source). */
+function domainTitle(domain: DomainInfo): string {
+  const parts = [domain.registrar, domain.domain].filter(Boolean)
+  return `${parts.join(' — ')} (${formatDateTime(domain.expires_at, locale.value)})`
+}
+
+/** domainVariant colours the badge, using the manual/unavailable cases too. */
+function domainVariant(domain: DomainInfo): 'success' | 'warning' | 'danger' | 'secondary' {
+  if (domain.status !== 'ok') return 'secondary'
+  return certificateVariant(domain.days_left)
+}
+
 onMounted(load)
 watch(hours, load)
 </script>
@@ -126,6 +138,19 @@ watch(hours, load)
         class="ml-1"
       >
         {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
+      </Badge>
+      <Badge
+        v-if="monitor.domain"
+        :variant="domainVariant(monitor.domain)"
+        :title="domainTitle(monitor.domain)"
+        class="ml-1"
+      >
+        <template v-if="monitor.domain.status === 'ok'">
+          {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
+        </template>
+        <template v-else-if="monitor.domain.status === 'not_found'">{{ t('domain.notFound') }}</template>
+        <template v-else-if="monitor.domain.status === 'unsupported'">{{ t('domain.unsupported') }}</template>
+        <template v-else>{{ t('domain.unavailable') }}</template>
       </Badge>
       <div class="ml-auto flex items-center gap-2">
         <Button variant="outline" size="sm" :loading="loading" @click="load">

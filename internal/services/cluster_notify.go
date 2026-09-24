@@ -138,6 +138,20 @@ func (s *ClusterService) ClaimCertificateEvent(ctx context.Context, monitorID ui
 	return s.claimEvent(ctx, monitorID, event, day)
 }
 
+// ClaimExpiryEvent elects the node that sends a domain expiration notification.
+// It shares the certificate implementation: both are daily buckets on the same
+// lock table (the (monitor_id, event, bucket) unique index keeps them apart).
+func (s *ClusterService) ClaimExpiryEvent(ctx context.Context, monitorID uint, event models.NotificationEvent, day int64) (bool, error) {
+	return s.claimEvent(ctx, monitorID, event, day)
+}
+
+// ClaimDailyJob elects the single node that runs the daily expiry job, using a
+// dedicated lock row (monitor_id 0 is not a real monitor). Without it every node
+// of a cluster would perform the same registry lookups once a day.
+func (s *ClusterService) ClaimDailyJob(ctx context.Context, job string, day int64) (bool, error) {
+	return s.claimEvent(ctx, 0, models.NotificationEvent(job), day)
+}
+
 // claimEvent implements the sender election for an explicit bucket.
 func (s *ClusterService) claimEvent(ctx context.Context, monitorID uint, event models.NotificationEvent, bucket int64) (bool, error) {
 	settings, err := s.Settings(ctx)

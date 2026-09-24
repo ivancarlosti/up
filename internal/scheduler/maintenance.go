@@ -14,9 +14,10 @@ import (
 //   - worker reconciliation (every SCHEDULER_RECONCILE_SECONDS, default 30s); it
 //     compares the running workers with the monitors this node must run, which
 //     is how a monitor created on another node starts being checked here;
-//   - certificate watching (every 6h): it ages the stored certificates and sends
-//     the reminders that are due (the certificates themselves are captured by
-//     the probes, so no socket is opened here);
+//   - the expiry job (ticked every minute, run once a day at the configured
+//     time): it refreshes the deduplicated TLS certificate and domain
+//     registrations with a single lookup per target and sends the reminders that
+//     are due (see services.ExpiryService).
 //   - retention (every 6h): heartbeats when HEARTBEAT_RETENTION_DAYS > 0,
 //     notification de-duplication locks always, delivery history when
 //     NOTIFICATION_LOG_RETENTION_DAYS > 0.
@@ -24,7 +25,10 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	ping := time.NewTicker(30 * time.Second)
 	sweep := time.NewTicker(30 * time.Second)
 	reconcile := time.NewTicker(s.reconcileInterval())
-	certificates := time.NewTicker(6 * time.Hour)
+	// The expiry job ticks every minute and decides for itself whether the
+	// configured time of day has been reached: a daily certificate/domain check
+	// must not depend on a process that happens to be up at 03:00.
+	expiry := time.NewTicker(time.Minute)
 	retention := time.NewTicker(6 * time.Hour)
 
 	// The pull loop only exists when this node synchronises with peers. A nil
@@ -55,7 +59,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer ping.Stop()
 		defer sweep.Stop()
 		defer reconcile.Stop()
-		defer certificates.Stop()
+		defer expiry.Stop()
 		defer retention.Stop()
 		if pull != nil {
 			defer pull.Stop()
@@ -82,10 +86,11 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 			s.sync.PullPeers(ctx)
 			s.sync.PullVotes(ctx)
 		}
-		// A long lived certificate must not wait 6h for its first evaluation.
-		if s.certificates != nil {
-			if err := s.certificates.Refresh(ctx); err != nil {
-				s.log.Warn("certificate watcher failed", "error", err)
+		// A long lived certificate must not wait for its first evaluation: the
+		// pass ages what is already stored (no socket) and sends any due reminder.
+		if s.expiry != nil {
+			if err := s.expiry.Evaluate(ctx); err != nil {
+				s.log.Warn("expiry evaluation failed", "error", err)
 			}
 		}
 
@@ -106,10 +111,10 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				if err := s.reload(ctx); err != nil {
 					s.log.Error("could not reconcile the monitors", "error", err)
 				}
-			case <-certificates.C:
-				if s.certificates != nil {
-					if err := s.certificates.Refresh(ctx); err != nil {
-						s.log.Error("could not refresh the certificates", "error", err)
+			case <-expiry.C:
+				if s.expiry != nil {
+					if err := s.expiry.RunDue(ctx, time.Now().UTC()); err != nil {
+						s.log.Error("could not run the expiry job", "error", err)
 					}
 				}
 			case <-retention.C:

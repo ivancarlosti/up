@@ -166,10 +166,16 @@ service discovery is required.
   fire every monitor at the same instant.
 - **Global concurrency cap** `SCHEDULER_MAX_CONCURRENT` (default 20) enforced by
   a semaphore channel, bounding the number of simultaneous sockets.
-- **Certificate watching** (every 6h, `Scheduler.StartMaintenance`) ages the
-  certificates captured by the probes and sends the reminders that are due. It
-  never opens a socket: the capture happens in the handshake of the probe, so a
-  monitor whose target is unreachable still gets its reminder.
+- **Expiry job** (ticked every minute, run once a day at the time configured in
+  *Admin > TLD/SSL expiration*, `services.ExpiryService`): it refreshes the TLS
+  certificates and the domain registrations of the watched targets, with a single
+  lookup per **deduplicated** target, and sends the reminders that are due. A
+  day-bucket lock elects one node of a cluster. The certificate a probe reads is
+  still stored and evaluated immediately (a new monitor pointed at an expired
+  certificate warns at once), but the identical rewrites are skipped: the row is
+  written at most once a day. At boot an **evaluation-only** pass
+  (`ExpiryService.Evaluate`) ages what is already stored without opening a socket,
+  so a monitor whose target is unreachable still gets its reminder.
 - **Reconciliation** happens through a command channel (`upsert`, `remove`,
   `reload`, `checkNow`) so HTTP handlers never mutate the worker map directly,
   plus a periodic pass (`SCHEDULER_RECONCILE_SECONDS`, default 30 s) that compares

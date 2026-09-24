@@ -137,6 +137,12 @@ func planApply(monitor *models.Monitor, template *models.MonitorTemplate, fields
 			addChange(&changes, field, strconv.FormatBool(monitor.CertNotify), strconv.FormatBool(template.Defaults.CertNotify))
 		case "cert_warn_days":
 			addChange(&changes, field, monitor.CertWarnDays, template.Defaults.CertWarnDays)
+		case "domain_watch":
+			addChange(&changes, field, strconv.FormatBool(monitor.DomainWatch), strconv.FormatBool(template.Defaults.DomainWatch))
+		case "domain_notify":
+			addChange(&changes, field, strconv.FormatBool(monitor.DomainNotify), strconv.FormatBool(template.Defaults.DomainNotify))
+		case "domain_warn_days":
+			addChange(&changes, field, monitor.DomainWarnDays, template.Defaults.DomainWarnDays)
 		}
 	}
 	return changes
@@ -217,6 +223,18 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 			updated.CertNotify = template.Defaults.CertNotify
 		case "cert_warn_days":
 			updated.CertWarnDays = template.Defaults.CertWarnDays
+		case "domain_watch":
+			updated.DomainWatch = template.Defaults.DomainWatch
+			if !updated.DomainWatch {
+				// The manual date and the switches cannot outlive the watch.
+				updated.DomainNotify = false
+				updated.DomainWarnDays = ""
+				updated.DomainExpiresAt = nil
+			}
+		case "domain_notify":
+			updated.DomainNotify = template.Defaults.DomainNotify && updated.DomainWatch
+		case "domain_warn_days":
+			updated.DomainWarnDays = template.Defaults.DomainWarnDays
 		}
 	}
 	return &updated, notificationIDs, groupIDs
