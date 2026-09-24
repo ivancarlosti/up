@@ -175,7 +175,7 @@ func (s *SyncService) markCursorExpired(ctx context.Context, since int64, entiti
 		Where("entity IN ?", entities).Scan(&oldest).Error; err != nil {
 		return ErrInternal(err)
 	}
-	response.CursorExpired = oldest.ID > 0 && oldest.ID > since+1
+	response.CursorExpired = models.CursorExpired(oldest.ID, since)
 	return nil
 }
 

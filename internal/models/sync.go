@@ -325,6 +325,73 @@ type PeerVote struct {
 // TableName keeps the table name stable.
 func (PeerVote) TableName() string { return "peer_votes" }
 
+// CursorExpired reports whether a peer's cursor points before the oldest row its
+// outbox still keeps.
+//
+// The rule is not `oldest > since`: a cursor that sits exactly one row before the
+// oldest kept row is still able to continue from the next one, so only a gap of MORE
+// than one row means the changes in between are gone for good. Getting this off by one
+// either heals a peer on every cycle (noisy, and it re-sends snapshots for nothing) or
+// silently skips the pruned changes (the divergence the healing pass exists to repair).
+func CursorExpired(oldestID, since int64) bool {
+	if oldestID <= 0 || since <= 0 {
+		return false
+	}
+	return oldestID > since+1
+}
+
+// PickLeader returns the node that leads, from the local view only.
+//
+// The rule is the smallest node_id among the nodes that have been continuously online
+// for the settle time, this node included when it has been up that long. Two details
+// are deliberate:
+//
+//   - a LONE node leads immediately, settle time or not: there is nobody to flap
+//     against, and a single-node cluster must be able to alert right after a restart;
+//   - a node that is not settled yet yields to one that is, and when nobody is settled
+//     the answer is empty — nobody leads, and nobody alerts, which is the safe side of
+//     the failover described in section 8.
+func PickLeader(selfID string, selfSettled bool, peers []SyncPeer, now time.Time, settle time.Duration) string {
+	if len(peers) == 0 {
+		return selfID
+	}
+	best := ""
+	if selfSettled {
+		best = selfID
+	}
+	for _, peer := range peers {
+		if !peer.Settled(now, settle) {
+			continue
+		}
+		if best == "" || peer.PeerNodeID < best {
+			best = peer.PeerNodeID
+		}
+	}
+	return best
+}
+
+// NotificationCandidates lists the nodes that may own a notification, from the local
+// view only: this node when it is settled, plus the settled peers.
+//
+// A lone node is a candidate immediately, for the same reason it leads immediately: a
+// single-node cluster must alert (section 8).
+func NotificationCandidates(selfID string, selfSettled bool, peers []SyncPeer, now time.Time, settle time.Duration) []string {
+	if len(peers) == 0 {
+		return []string{selfID}
+	}
+	candidates := make([]string, 0, len(peers)+1)
+	if selfSettled {
+		candidates = append(candidates, selfID)
+	}
+	for _, peer := range peers {
+		if peer.Settled(now, settle) {
+			candidates = append(candidates, peer.PeerNodeID)
+		}
+	}
+	sort.Strings(candidates)
+	return candidates
+}
+
 // RendezvousOwner returns the candidate that owns a key under rendezvous (HRW)
 // hashing, or "" when there is no candidate.
 //

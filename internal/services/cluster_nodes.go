@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/ivancarlosti/up/internal/config"
@@ -131,30 +130,19 @@ func (s *ClusterService) leaderNodeID(ctx context.Context) string {
 func (s *ClusterService) lowestSettledNodeID(ctx context.Context) string {
 	settle := time.Duration(s.cfg.ClusterLeaderSettleSeconds) * time.Second
 	now := time.Now().UTC()
-
-	best := ""
-	if settle <= 0 || now.Sub(s.startedAt) >= settle {
-		best = s.cfg.NodeID
-	}
+	selfSettled := settle <= 0 || now.Sub(s.startedAt) >= settle
 
 	var rows []models.SyncPeer
 	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
+		// A read failure must not silently move the leadership: the next pass will see
+		// the peers again, and answering "myself" is what the node already believed.
 		s.log.Warn("could not read the peers to derive the leader", "error", err)
-		return best
-	}
-	if len(rows) == 0 {
-		// Nobody else is registered: this node is the cluster, settle time or not.
-		return s.cfg.NodeID
-	}
-	for _, row := range rows {
-		if !row.Settled(now, settle) {
-			continue
+		if selfSettled {
+			return s.cfg.NodeID
 		}
-		if best == "" || row.PeerNodeID < best {
-			best = row.PeerNodeID
-		}
+		return ""
 	}
-	return best
+	return models.PickLeader(s.cfg.NodeID, selfSettled, rows, now, settle)
 }
 
 // settledNodeIDs lists this node and the settled peers, in node_id order. It is the
@@ -162,27 +150,17 @@ func (s *ClusterService) lowestSettledNodeID(ctx context.Context) string {
 func (s *ClusterService) settledNodeIDs(ctx context.Context) []string {
 	settle := time.Duration(s.cfg.ClusterLeaderSettleSeconds) * time.Second
 	now := time.Now().UTC()
-
-	candidates := make([]string, 0, 4)
-	if settle <= 0 || now.Sub(s.startedAt) >= settle {
-		candidates = append(candidates, s.cfg.NodeID)
-	}
+	selfSettled := settle <= 0 || now.Sub(s.startedAt) >= settle
 
 	var rows []models.SyncPeer
 	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
 		s.log.Warn("could not read the peers to elect the notification owner", "error", err)
-		return candidates
-	}
-	if len(rows) == 0 && len(candidates) == 0 {
-		return []string{s.cfg.NodeID}
-	}
-	for _, row := range rows {
-		if row.Settled(now, settle) {
-			candidates = append(candidates, row.PeerNodeID)
+		if selfSettled {
+			return []string{s.cfg.NodeID}
 		}
+		return nil
 	}
-	sort.Strings(candidates)
-	return candidates
+	return models.NotificationCandidates(s.cfg.NodeID, selfSettled, rows, now, settle)
 }
 
 // OnlineNodes splits the registered nodes into online and offline sets. Nodes

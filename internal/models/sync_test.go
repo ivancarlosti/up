@@ -120,6 +120,120 @@ func TestRendezvousOwnerEmpty(t *testing.T) {
 	}
 }
 
+// TestCursorExpiredPinsTheOffByOne guards the boundary the healing pass depends on.
+//
+// A cursor exactly one row before the oldest kept row is still usable (the next pull
+// continues from it), so only a bigger gap means the changes in between are gone. An
+// off-by-one here either re-heals a peer on every cycle or silently skips the pruned
+// changes — the divergence the manifest exists to repair.
+func TestCursorExpiredPinsTheOffByOne(t *testing.T) {
+	cases := []struct {
+		name     string
+		oldestID int64
+		since    int64
+		want     bool
+	}{
+		{name: "no cursor yet is never expired", oldestID: 10, since: 0, want: false},
+		{name: "an empty outbox cannot expire anything", oldestID: 0, since: 5, want: false},
+		{name: "cursor at the oldest row", oldestID: 10, since: 10, want: false},
+		{name: "cursor one before the oldest row", oldestID: 10, since: 9, want: false},
+		{name: "cursor two before the oldest row", oldestID: 10, since: 8, want: true},
+		{name: "cursor far before the oldest row", oldestID: 500, since: 3, want: true},
+		{name: "cursor after the oldest row", oldestID: 10, since: 40, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CursorExpired(tc.oldestID, tc.since); got != tc.want {
+				t.Fatalf("CursorExpired(%d, %d) = %t, want %t", tc.oldestID, tc.since, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickLeader pins the four cases the failover rests on.
+func TestPickLeader(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	const settle = 60 * time.Second
+	settled := at(now.Add(-2 * time.Minute))
+	fresh := at(now.Add(-5 * time.Second))
+
+	cases := []struct {
+		name        string
+		selfID      string
+		selfSettled bool
+		peers       []SyncPeer
+		want        string
+	}{
+		{
+			name:   "a lone node leads immediately, settle or not",
+			selfID: "up-node-2", selfSettled: false, peers: nil, want: "up-node-2",
+		},
+		{
+			name:   "the lowest settled id wins over a higher one",
+			selfID: "up-node-2", selfSettled: true,
+			peers: []SyncPeer{{PeerNodeID: "up-node-1", OnlineSince: settled}},
+			want:  "up-node-1",
+		},
+		{
+			name:   "a settled node beats a fresher, lower one",
+			selfID: "up-node-2", selfSettled: true,
+			peers: []SyncPeer{{PeerNodeID: "up-node-1", OnlineSince: fresh}},
+			want:  "up-node-2",
+		},
+		{
+			name:   "nobody settled means nobody leads",
+			selfID: "up-node-2", selfSettled: false,
+			peers: []SyncPeer{{PeerNodeID: "up-node-1", OnlineSince: fresh}},
+			want:  "",
+		},
+		{
+			name:   "an offline peer is never the leader",
+			selfID: "up-node-2", selfSettled: true,
+			peers: []SyncPeer{{PeerNodeID: "up-node-1"}},
+			want:  "up-node-2",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PickLeader(tc.selfID, tc.selfSettled, tc.peers, now, settle); got != tc.want {
+				t.Fatalf("PickLeader = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestNotificationCandidates pins the candidate set, which is what makes the election
+// deterministic: every node must derive the same list from its own view, and a node
+// that is not settled must not appear as a candidate (it could not be reached to be
+// punished for a duplicate).
+func TestNotificationCandidates(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	const settle = 60 * time.Second
+	settled := at(now.Add(-2 * time.Minute))
+	fresh := at(now.Add(-5 * time.Second))
+
+	got := NotificationCandidates("up-node-2", true, []SyncPeer{
+		{PeerNodeID: "up-node-3", OnlineSince: settled},
+		{PeerNodeID: "up-node-1", OnlineSince: fresh},
+	}, now, settle)
+	want := []string{"up-node-2", "up-node-3"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v (sorted by node id)", got, want)
+		}
+	}
+
+	if lone := NotificationCandidates("up-node-9", false, nil, now, settle); len(lone) != 1 || lone[0] != "up-node-9" {
+		t.Fatalf("a lone node must be a candidate immediately, got %v", lone)
+	}
+	if none := NotificationCandidates("up-node-9", false, []SyncPeer{{PeerNodeID: "up-node-1"}}, now, settle); len(none) != 0 {
+		t.Fatalf("no settled node means no candidate, got %v", none)
+	}
+}
+
 // TestSyncPeerSettled pins the rule behind the settle time: a peer may not take
 // the leader role (or the notification duty) until it has been continuously
 // reachable for the configured period, which is what stops a flapping node from
