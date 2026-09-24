@@ -483,7 +483,7 @@ Deletes keep today's hard-delete semantics; the tombstone lives in
 | Variable | Default | Meaning |
 |---|---|---|
 | `CLUSTER_MODE` | `shared` | `shared` (today) or `federated` (independent databases) |
-| `CLUSTER_PEER_API` | `false` | **phase 1**: enables the signed peer API and the peer ping loop. Independent of `CLUSTER_MODE` on purpose — it works in shared mode too, where it cross-checks liveness over HTTP instead of trusting a shared row. Federated mode will require it |
+| `CLUSTER_PEER_API` | `false` | **phase 1**: enables the signed peer API and the peer ping loop. Independent of `CLUSTER_MODE` on purpose — it works in shared mode too, where it cross-checks liveness over HTTP instead of trusting a shared row. Federated mode requires it |
 | `CLUSTER_SYNC_SECONDS` | `15` | pull interval per peer |
 | `CLUSTER_SYNC_BATCH` | `500` | maximum changes per pull |
 | `CLUSTER_SYNC_MANIFEST_SECONDS` | `600` | healing/reconcile pass |
@@ -656,10 +656,13 @@ suite:
    sync converge the configuration. Heartbeats start fresh per node.
 6. **The order of operations.** Start from the shared deployment, then per node:
    provision the new database, create the tables (`migrations` run at boot), set
-   `CLUSTER_MODE=federated`, `CLUSTER_PEER_API=true`, `CLUSTER_KEY` (the same value
-   on every node), `NODE_ID` (unique and **never reused**, it is the identity the
-   merge rules key on), join the cluster with the primary's key (section 9 of
-   docs/development.md), then restart that one node. Converge one
+   `CLUSTER_MODE=federated`, `CLUSTER_PEER_API=true` and `NODE_ID` (unique and
+   **never reused**: it is the identity the merge rules key on), then restart it and
+   join the cluster with the primary's key (section 9 of docs/development.md). The
+   join is what registers the peer, and it is also what carries the key, so
+   repeating `CLUSTER_PRIVATE_KEY` on every node is optional — pin it there only if
+   you want the key fixed in advance, and then the same value is required
+   everywhere. Converge one
    node at a time: a node that has just switched is still empty and will pull a
    full first sync from any peer that already holds the configuration, so it is
    safe to bring up, and a node that fails validates is still a working
@@ -836,6 +839,20 @@ nodes ran with two databases throughout.
     environment variable: the registry and `sync_peers` are filled by
     `POST /api/cluster/join` with the primary's key (docs/development.md §9). This is
     what makes the cluster key the only per-node secret the operator must repeat.
+19. **Two independently generated session secrets do not converge, and that is the
+    intended trade.** `CLUSTER_SYNC_SESSION_SECRET` carries the secret last-write-wins
+    like any other setting, and a secret a node generated for itself is seeded at the
+    epoch (§22.16) so that it can never overwrite one an operator chose. The
+    consequence, seen in the lab: a deliberate secret propagates *to* a node that
+    generated its own (the epoch loses), which is what makes one login work on every
+    dashboard — but if every node generated its own and nobody ever set one
+    deliberately, all the rows sit at the epoch, no value is newer than another and
+    the option converges nothing at all, silently. The trigger to remember: set (or
+    regenerate) the secret once on one node, which stamps `now()` and is then
+    carried to the rest. A deterministic tie-break on equal timestamps would remove
+    the caveat; the merge rules already break ties with `origin_node_id`, so it is
+    the natural shape, but it means putting the sender's node id in the settings
+    payload — a protocol change, deliberately not smuggled into this phase.
 
 ## 23. Exit criteria: what has been verified
 
@@ -882,6 +899,13 @@ REMOVED** — `CLUSTER_MODE=federated` now boots and refuses only when
 - The peer surface refuses an unsigned caller: `ping`, `changes` and `settings` all
   answer `403` without the cluster key, which is what the e2e assertion harness checks
   on every run.
+- The peer API works against a TLS link this node cannot verify, and only when it is
+  asked to: with the self-signed peer in place and `CLUSTER_INSECURE_SKIP_VERIFY` off,
+  the ping, the pull and the push all fail with `x509: certificate signed by unknown
+  authority` and the peer row reads `error`; with the flag on, all three succeed — the
+  ping logs `peer reachable`, `POST /api/cluster/sync/now` answers `200` through the
+  certificate, a monitor created on one node still reaches the other, and the boot
+  says out loud what is now exposed.
 
 The one exit criterion that cannot be run on this development machine is the
 `web/scripts/e2e-cluster-federated.mjs` script itself: `scripts/browser.mjs` needs a

@@ -179,6 +179,25 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > `BeforeCreate` hook, and that `/api/cluster/status` reports `mode: "shared"`
 > (see [clustering-federated.md](clustering-federated.md)). It needs a running
 > instance and writes to the database.
+>
+> `npm run e2e:cluster-federated` checks the federated mode itself, so unlike every
+> other script **it needs two running nodes**, both with `CLUSTER_MODE=federated`,
+> `CLUSTER_PEER_API=true` and a completed join:
+>
+> ```bash
+> npm run e2e:cluster-federated -- --url http://localhost:3000 --peer-url http://localhost:3002
+> ```
+>
+> It asserts that both nodes report the federated mode and see each other online,
+> that an unsigned peer call is refused, that a monitor created on one node reaches
+> the other with the same `uuid`, that an edit made on the second node converges
+> back on the first with an advanced `revision`, and that a deletion arrives as a
+> tombstone instead of resurrecting. See the "Two node cluster in three commands"
+> section below for the rig.
+>
+> Every script here drives Chrome over the DevTools Protocol through the
+> `WebSocket` client built into Node 22.12+ (`web/package.json` declares that
+> engine): on an older Node they fail with a bare `WebSocket is not defined`.
 
 
 ### 6.1 Screenshots and layout checks
