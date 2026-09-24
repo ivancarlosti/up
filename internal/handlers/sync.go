@@ -38,6 +38,29 @@ func (h *Container) syncPing(c *gin.Context) {
 	})
 }
 
+// syncManifest answers a signed peer request with this node's entity checksums.
+func (h *Container) syncManifest(c *gin.Context) {
+	response, err := h.Sync.ServeManifest(c.Request.Context())
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, response)
+}
+
+// syncSnapshot answers a signed peer request with one page of an entity.
+func (h *Container) syncSnapshot(c *gin.Context) {
+	page, _ := strconv.Atoi(strings.TrimSpace(c.Query("page")))
+	size, _ := strconv.Atoi(strings.TrimSpace(c.Query("size")))
+
+	response, err := h.Sync.ServeSnapshot(c.Request.Context(), strings.TrimSpace(c.Query("entity")), page, size)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, response)
+}
+
 // syncChanges answers a signed peer request: the outbox rows the caller has not
 // seen yet (GET /api/cluster/sync/changes?since=&limit=).
 func (h *Container) syncChanges(c *gin.Context) {

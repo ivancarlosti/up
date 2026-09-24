@@ -242,6 +242,34 @@ func (e *SyncEmitter) skip(ctx context.Context) bool {
 	return !e.Enabled() || IsApplying(ctx)
 }
 
+// stampOrigin labels the row as this node's version and returns the label to
+// publish.
+//
+// origin_node_id names the node that produced the CURRENT version of a row, not
+// the node that first created it. That distinction is what makes the merge total:
+// two nodes editing the same record concurrently are then guaranteed to stamp
+// different origins, so the tie-break can pick a winner that BOTH nodes agree on.
+//
+// Inheriting the origin of whoever wrote the row last is not a cosmetic problem.
+// Measured in the lab: node B applied a change from A (so B's row carried A's
+// origin), then B edited that row and published it with A's origin in sync_objects
+// but B's own in the outbox. A and B compared different things and each adopted the
+// other's change, recording conflicting verdicts — the state agreed by luck, the
+// identity did not.
+//
+// The write is best effort on purpose: publication must not fail because a label
+// could not be refreshed, and the outbox envelope carries the same value anyway.
+func (e *SyncEmitter) stampOrigin(ctx context.Context, tx *gorm.DB, model any, id uint) string {
+	if id != 0 {
+		if err := tx.WithContext(ctx).Model(model).Where("id = ?", id).
+			Update("origin_node_id", e.cfg.NodeID).Error; err != nil {
+			e.log.Warn("could not refresh the origin of a published row",
+				"node_id", e.cfg.NodeID, "error", err)
+		}
+	}
+	return e.cfg.NodeID
+}
+
 // EmitMonitor publishes a monitor (created or updated) from inside its write
 // transaction. It re-reads the row so the payload carries exactly what the
 // database holds, including the revision the update just computed.
@@ -253,6 +281,7 @@ func (e *SyncEmitter) EmitMonitor(ctx context.Context, tx *gorm.DB, id uint) err
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the monitor to publish: %w", err)
 	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.Monitor{}, row.ID)
 	payload, err := BuildMonitorPayload(&row)
 	if err != nil {
 		return err
@@ -272,6 +301,7 @@ func (e *SyncEmitter) EmitMonitorGroup(ctx context.Context, tx *gorm.DB, id uint
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the group to publish: %w", err)
 	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.MonitorGroup{}, row.ID)
 	payload, err := BuildMonitorGroupPayload(&row)
 	if err != nil {
 		return err
@@ -301,6 +331,7 @@ func (e *SyncEmitter) EmitMonitorTemplate(ctx context.Context, tx *gorm.DB, id u
 	if err != nil {
 		return err
 	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.MonitorTemplate{}, row.ID)
 	payload, err := BuildMonitorTemplatePayload(&row, groupUUIDs, notificationUUIDs)
 	if err != nil {
 		return err
@@ -334,6 +365,7 @@ func (e *SyncEmitter) EmitStatusPage(ctx context.Context, tx *gorm.DB, id uint) 
 	if err != nil {
 		return err
 	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.StatusPage{}, row.ID)
 	payload, err := BuildStatusPagePayload(&row, monitorUUIDs, groupUUIDs)
 	if err != nil {
 		return err
@@ -358,6 +390,7 @@ func (e *SyncEmitter) EmitNotification(ctx context.Context, tx *gorm.DB, id uint
 	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
 		return fmt.Errorf("reading the channel to publish: %w", err)
 	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.Notification{}, row.ID)
 	payload, err := BuildNotificationPayload(&row)
 	if err != nil {
 		return err
@@ -590,13 +623,15 @@ func (e *SyncEmitter) write(ctx context.Context, tx *gorm.DB, entity string, ide
 	if identity.Revision <= 0 {
 		identity.Revision = 1
 	}
-	if identity.OriginNodeID == "" {
-		// A row created before the sync identity existed carries no origin yet
-		// (database.Backfill stamps it on the next boot). Attributing the change to
-		// this node keeps the merge tie-break meaningful in the meantime, instead
-		// of leaving an empty component in the ordering key.
-		identity.OriginNodeID = e.cfg.NodeID
-	}
+	// The label of the VERSION, not of the row's creator: origin names the node
+	// that produced the version being published.
+	//
+	// Two nodes editing the same record concurrently are then guaranteed to stamp
+	// different origins, which is what lets the tie-break pick a winner that both
+	// nodes agree on. Taking the origin from the row instead (see stampOrigin)
+	// makes the same edit carry one origin in the outbox and another in
+	// sync_objects, and the two nodes end up comparing different things.
+	identity.OriginNodeID = e.cfg.NodeID
 	if identity.UpdatedAt.IsZero() {
 		identity.UpdatedAt = time.Now().UTC()
 	}
@@ -609,15 +644,18 @@ func (e *SyncEmitter) write(ctx context.Context, tx *gorm.DB, entity string, ide
 		Payload:      string(payload),
 		PayloadHash:  utils.SHA256Hex(string(payload)),
 		CreatedAt:    time.Now().UTC(),
+		// The same version timestamp sync_objects stores, so the receiver compares
+		// like with like (see models.SyncOutbox.UpdatedAt).
+		UpdatedAt: identity.UpdatedAt,
 	}
 	if err := tx.WithContext(ctx).Create(&outbox).Error; err != nil {
 		return fmt.Errorf("appending to the outbox: %w", err)
 	}
-	return e.track(ctx, tx, entity, identity, action == models.ActionDelete)
+	return e.track(ctx, tx, entity, identity, action == models.ActionDelete, payload)
 }
 
 // track keeps sync_objects, the memory of the merge, in step with the outbox.
-func (e *SyncEmitter) track(ctx context.Context, tx *gorm.DB, entity string, identity SyncIdentity, deleted bool) error {
+func (e *SyncEmitter) track(ctx context.Context, tx *gorm.DB, entity string, identity SyncIdentity, deleted bool, payload []byte) error {
 	var deletedAt *time.Time
 	if deleted {
 		now := time.Now().UTC()
@@ -630,6 +668,7 @@ func (e *SyncEmitter) track(ctx context.Context, tx *gorm.DB, entity string, ide
 		OriginNodeID: identity.OriginNodeID,
 		Revision:     identity.Revision,
 		DeletedAt:    deletedAt,
+		Payload:      string(payload),
 		// The row's own updated_at, NOT the current time: this timestamp is a
 		// component of the merge order, so stamping it here would make two nodes
 		// disagree about the same change.
@@ -638,7 +677,7 @@ func (e *SyncEmitter) track(ctx context.Context, tx *gorm.DB, entity string, ide
 	return tx.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "uuid"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"entity", "local_id", "origin_node_id", "revision", "deleted_at", "updated_at",
+			"entity", "local_id", "origin_node_id", "revision", "deleted_at", "payload", "updated_at",
 		}),
 	}).Create(&object).Error
 }

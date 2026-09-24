@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
 )
 
@@ -30,48 +29,64 @@ func (s *SyncService) ApplyBatch(ctx context.Context, peerNodeID string, changes
 	// other's changes back and forth forever.
 	applying := WithApply(ctx)
 
-	var applied, skipped int
 	err := s.db.WithContext(applying).Transaction(func(tx *gorm.DB) error {
-		relations := make([]models.SyncChangePayload, 0, len(changes))
-		for _, change := range changes {
-			if isRelation(change.Entity) {
-				relations = append(relations, change)
-				continue
-			}
-			decision, err := s.applyEntity(applying, tx, change)
-			if err != nil {
-				return err
-			}
-			if decision == models.ApplySkip {
-				skipped++
-			} else {
-				applied++
-			}
+		applied, skipped, err := s.applyChanges(applying, tx, changes)
+		if err != nil {
+			return err
 		}
-		for _, change := range relations {
-			decision, err := s.applyEntity(applying, tx, change)
-			if err != nil {
-				return err
-			}
-			if decision == models.ApplySkip {
-				skipped++
-			} else {
-				applied++
-			}
+		// The cursor is the id of the last change of the batch, applied or not: the
+		// ones that were skipped were skipped for good (they are older than what
+		// this node already has), so re-pulling them would never help.
+		if err := s.advanceCursor(applying, tx, peerNodeID, int64(changes[len(changes)-1].ID)); err != nil {
+			return err
 		}
-		// The cursor is the id of the last change of the batch, applied or not:
-		// the ones that were skipped were skipped for good (they are older than
-		// what this node already has), so re-pulling them would never help.
-		return s.advanceCursor(applying, tx, peerNodeID, int64(changes[len(changes)-1].ID))
+		s.log.Debug("applied a batch from a peer",
+			"peer", peerNodeID, "changes", len(changes), "applied", applied, "skipped", skipped)
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if applied > 0 || skipped > 0 {
-		s.log.Debug("applied a batch from a peer",
-			"peer", peerNodeID, "batches", len(changes), "applied", applied, "skipped", skipped)
-	}
 	return nil
+}
+
+// applyChanges is the two-pass body shared by the incremental path and the full
+// resync: rows first, then the relations between them, so the order inside a batch
+// never matters (a membership may arrive before the monitor it points at).
+//
+// It is the SAME code in both paths on purpose: a bug that existed in only one of
+// them would be found by the healing pass only after it had already diverged.
+func (s *SyncService) applyChanges(ctx context.Context, tx *gorm.DB, changes []models.SyncChangePayload) (int, int, error) {
+	applied, skipped := 0, 0
+
+	relations := make([]models.SyncChangePayload, 0, len(changes))
+	for _, change := range changes {
+		if isRelation(change.Entity) {
+			relations = append(relations, change)
+			continue
+		}
+		decision, err := s.applyEntity(ctx, tx, change)
+		if err != nil {
+			return applied, skipped, err
+		}
+		if decision == models.ApplySkip {
+			skipped++
+		} else {
+			applied++
+		}
+	}
+	for _, change := range relations {
+		decision, err := s.applyEntity(ctx, tx, change)
+		if err != nil {
+			return applied, skipped, err
+		}
+		if decision == models.ApplySkip {
+			skipped++
+		} else {
+			applied++
+		}
+	}
+	return applied, skipped, nil
 }
 
 // isRelation reports whether an entity is a relation between two rows (it has no
@@ -107,6 +122,20 @@ func (s *SyncService) advanceCursor(ctx context.Context, tx *gorm.DB, peerNodeID
 		Update("last_change_id", cursor).Error
 }
 
+// realignCursor moves this node's cursor outside of an apply transaction, for the
+// case where the position has to jump rather than advance by one batch.
+func (s *SyncService) realignCursor(ctx context.Context, peerNodeID string, cursor int64) error {
+	if cursor <= 0 {
+		return nil
+	}
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.advanceCursor(ctx, tx, peerNodeID, cursor)
+	}); err != nil {
+		return ErrInternal(err)
+	}
+	return nil
+}
+
 // loadSyncObject reads what this node has already applied for a uuid.
 func (s *SyncService) loadSyncObject(ctx context.Context, tx *gorm.DB, uuid string) (*models.SyncObject, error) {
 	var object models.SyncObject
@@ -139,6 +168,9 @@ func (s *SyncService) trackApplied(ctx context.Context, tx *gorm.DB, change mode
 		OriginNodeID: change.OriginNodeID,
 		Revision:     change.Revision,
 		DeletedAt:    deletedAt,
+		// The payload travels with the identity so that a full resync can be
+		// enumerated from this table alone, tombstones included (see models.SyncObject).
+		Payload: string(change.Payload),
 		// The SENDER's timestamp, not the moment this node applied it: it is a
 		// component of the merge order, so stamping it locally would make two nodes
 		// compare the same change differently.
@@ -147,7 +179,7 @@ func (s *SyncService) trackApplied(ctx context.Context, tx *gorm.DB, change mode
 	return tx.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "uuid"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"entity", "local_id", "origin_node_id", "revision", "deleted_at", "updated_at",
+			"entity", "local_id", "origin_node_id", "revision", "deleted_at", "payload", "updated_at",
 		}),
 	}).Create(&object).Error
 }
@@ -193,6 +225,11 @@ func (s *SyncService) applyMonitor(ctx context.Context, tx *gorm.DB, change mode
 	var payload models.MonitorPayload
 	if err := json.Unmarshal(change.Payload, &payload); err != nil {
 		return models.ApplySkip, fmt.Errorf("unreadable monitor payload for %s: %w", change.UUID, err)
+	}
+	// The envelope is authoritative for WHO produced this version: the payload copy
+	// is rendered from the sender's row and may carry a stale or empty origin.
+	if change.OriginNodeID != "" {
+		payload.OriginNodeID = change.OriginNodeID
 	}
 	localID, created, err := s.writeMonitor(ctx, tx, payload, current)
 	if err != nil {
@@ -497,12 +534,12 @@ func (s *SyncService) recordPendingLink(ctx context.Context, tx *gorm.DB, entity
 // healPeer rebuilds the view of a peer that cannot be caught up incrementally.
 //
 // It is reached when a cursor points into the pruned region of the outbox: the
-// rows the caller needed no longer exist, so only a full snapshot can reconcile
-// the two nodes. Until the manifest and the snapshot endpoints land, this reports
-// the situation rather than pretending to fix it — and it cannot be reached yet,
-// because nothing prunes the outbox so far.
+// rows the caller needed no longer exist, so only the manifest and the snapshots
+// can reconcile the two nodes. If the checksums happen to agree (the missed
+// changes were superseded and both nodes converged anyway), the pass correctly
+// does nothing.
 func (s *SyncService) healPeer(ctx context.Context, peer models.Node) error {
-	s.log.Warn("the cursor points into a pruned region of a peer's outbox: a full resync is required",
+	s.log.Warn("the cursor points into a pruned region of a peer's outbox: resynchronising from the snapshots",
 		"peer", peer.NodeID)
-	return ErrForbidden(i18n.CodeClusterKeyInvalid, "the cursor needs a full resync, which is not implemented yet")
+	return s.reconcilePeer(ctx, peer)
 }

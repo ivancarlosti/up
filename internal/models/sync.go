@@ -170,6 +170,16 @@ type SyncOutbox struct {
 	// detection, never as an authenticator.
 	PayloadHash string    `gorm:"size:64" json:"payload_hash"`
 	CreatedAt   time.Time `json:"created_at"`
+	// UpdatedAt is the VERSION timestamp of the change: the updated_at of the row on
+	// the node that produced it, which is the timestamp the merge compares.
+	//
+	// It cannot be derived from CreatedAt. The insert time of the outbox row is
+	// always a little later than the row update it describes, so a node comparing
+	// its own row's updated_at against a peer's outbox insert time is comparing two
+	// different quantities — and both nodes then conclude that the other is newer.
+	// Measured in the lab: two concurrent edits made each node adopt the other's
+	// change, and each recorded the opposite conflict verdict.
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TableName keeps the table name stable.
@@ -188,7 +198,16 @@ type SyncObject struct {
 	// DeletedAt marks a tombstone: the local row is gone, the identity is kept so
 	// a late upsert cannot resurrect it.
 	DeletedAt *time.Time `json:"deleted_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	// Payload is the last wire payload applied or published (empty for a
+	// tombstone).
+	//
+	// It is stored so that a full resync can be enumerated from this table alone.
+	// A relation has no row of its own (its uuid is derived from its two ends) and
+	// a tombstone has neither, so without the payload here the snapshot could
+	// describe live rows but never a deletion — and a missed deletion is exactly
+	// the divergence the healing pass exists to repair.
+	Payload   string    `gorm:"type:text" json:"-"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TableName keeps the table name stable.

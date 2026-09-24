@@ -196,6 +196,14 @@ func OutboxToChange(row SyncOutbox) SyncChangePayload {
 	if row.Payload != "" {
 		payload = json.RawMessage(row.Payload)
 	}
+	// The version timestamp, not the moment the row entered this outbox: the merge
+	// compares the timestamp of the version, and the local side compares the row's
+	// own updated_at (see SyncOutbox.UpdatedAt). Rows written before the column
+	// existed fall back to the insert time.
+	versionAt := row.UpdatedAt
+	if versionAt.IsZero() {
+		versionAt = row.CreatedAt
+	}
 	return SyncChangePayload{
 		ID:           int64(row.ID),
 		Entity:       row.Entity,
@@ -205,7 +213,7 @@ func OutboxToChange(row SyncOutbox) SyncChangePayload {
 		Revision:     row.Revision,
 		Payload:      payload,
 		PayloadHash:  row.PayloadHash,
-		UpdatedAt:    row.CreatedAt,
+		UpdatedAt:    versionAt,
 	}
 }
 

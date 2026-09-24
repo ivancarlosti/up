@@ -152,4 +152,18 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 				"deleted", deleted, "older_than_days", s.cfg.NotificationLogRetentionDays)
 		}
 	}
+
+	// The synchronisation outbox keeps the changes a peer may still need. Older
+	// than the retention it is pruned, and a peer whose cursor points before the
+	// pruned region is reconciled from the snapshots instead.
+	if s.sync != nil && s.sync.Enabled() {
+		before := now.AddDate(0, 0, -s.cfg.ClusterSyncTombstoneDays)
+		switch deleted, err := s.sync.PruneOutbox(ctx, before); {
+		case err != nil:
+			s.log.Error("outbox prune failed", "error", err)
+		case deleted > 0:
+			s.log.Info("outbox prune finished",
+				"deleted", deleted, "older_than_days", s.cfg.ClusterSyncTombstoneDays)
+		}
+	}
 }

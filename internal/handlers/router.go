@@ -111,6 +111,8 @@ func (h *Container) Register(engine *gin.Engine) {
 	peers := engine.Group("/api/cluster/sync", middleware.RequirePeerKey(h.Cluster))
 	peers.GET("/ping", h.syncPing)
 	peers.GET("/changes", h.syncChanges)
+	peers.GET("/manifest", h.syncManifest)
+	peers.GET("/snapshot", h.syncSnapshot)
 
 	h.registerAdmin(engine)
 }

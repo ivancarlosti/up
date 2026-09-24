@@ -60,6 +60,21 @@ func NewSyncService(db *gorm.DB, cfg *config.Config, log *slog.Logger, cluster *
 // Enabled reports whether this node takes part in the synchronisation.
 func (s *SyncService) Enabled() bool { return s.cfg.SyncEnabled() }
 
+// PruneOutbox removes the outbox rows a peer can no longer need.
+//
+// The tombstones in sync_objects are deliberately NOT pruned: they are what stops
+// a re-delivered old upsert from recreating a deleted row, and expiring them would
+// make that guarantee time limited. A peer whose cursor points before the pruned
+// region reconciles through the manifest and the snapshots instead of through the
+// outbox, which is what makes the prune safe.
+func (s *SyncService) PruneOutbox(ctx context.Context, before time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).Where("created_at < ?", before).Delete(&models.SyncOutbox{})
+	if result.Error != nil {
+		return 0, ErrInternal(result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
 // NextSyncTick is how often the pull loop runs.
 func (s *SyncService) NextSyncTick() time.Duration {
 	return time.Duration(s.cfg.ClusterSyncSeconds) * time.Second
@@ -165,6 +180,19 @@ func (s *SyncService) PullPeers(ctx context.Context) {
 			// table shows why the synchronisation stopped.
 			if err := s.PullPeer(ctx, peer); err != nil {
 				s.cluster.recordPeerFailure(ctx, peer.NodeID, err)
+				return
+			}
+			// The healing pass: it notices what the incremental pull missed, which
+			// is why it runs on the same loop.
+			if s.manifestDue(ctx, peer.NodeID) {
+				if err := s.reconcilePeer(ctx, peer); err != nil {
+					s.cluster.recordPeerFailure(ctx, peer.NodeID, err)
+					return
+				}
+			}
+			// A relation whose target had not arrived is worth one bounded retry.
+			if err := s.retryPendingLinks(ctx, peer); err != nil {
+				s.cluster.recordPeerFailure(ctx, peer.NodeID, err)
 			}
 		}(peer)
 	}
@@ -185,7 +213,16 @@ func (s *SyncService) PullPeer(ctx context.Context, peer models.Node) error {
 				batch.ProtocolVersion, models.ProtocolVersion)
 		}
 		if batch.CursorExpired {
-			return s.healPeer(ctx, peer)
+			if err := s.healPeer(ctx, peer); err != nil {
+				return err
+			}
+			// The cursor cannot stay where it is: it points at rows the peer has
+			// pruned, so every later cycle would expire again and the node would
+			// re-run the whole manifest pass for ever. The snapshots have just
+			// reconciled the state, so the position may jump to the head of what
+			// this same response describes — anything published after it has a
+			// higher id and is pulled normally.
+			return s.realignCursor(ctx, peer.NodeID, batch.NextSince)
 		}
 		if len(batch.Changes) == 0 {
 			return nil
