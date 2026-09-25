@@ -158,14 +158,20 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > writes to the database** (`npm run e2e:notifications -- --url
 > http://localhost:3000`).
 >
-> `npm run e2e:groups` does the same for the monitor groups: it creates a group
-> with members, clones it shallow and deep, renames it, deletes it through the
-> rows of the sortable groups table and clones a monitor from the monitor list,
-> cleaning up everything it created (it also writes to the database).
+> Every one of them creates and deletes its own fixtures, so they run one after
+> the other against the same instance and none of them needs rows to be there
+> first.
 >
-> `npm run e2e:status-page-groups` proves the membership promise: a public page
-> that includes a group shows a monitor added to the group **without editing the
-> page**, and the row of the admin status pages table opens the dialog with the
+> `npm run e2e:groups` does the same for the monitor groups: it creates two
+> monitors of its own and a group with both of them as members, clones the group
+> shallow and deep, renames it, deletes it through the rows of the sortable groups
+> table and clones a monitor from the monitor list, cleaning up everything it
+> created (it also writes to the database).
+>
+> `npm run e2e:status-page-groups` proves the membership promise: it creates its
+> own monitors plus the group and the page, and checks that a public page that
+> includes a group shows a monitor added to the group **without editing the
+> page**, while the row of the admin status pages table opens the dialog with the
 > group already ticked.
 >
 > `npm run e2e:templates` drives the templates page and both bulk flows: create a

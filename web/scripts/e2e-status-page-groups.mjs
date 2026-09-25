@@ -4,9 +4,11 @@
  *
  * The promise: a page that includes a group renders every monitor of the group,
  * so adding a monitor to the group publishes it on the page without touching the
- * page. The script creates the group, the page and the memberships with the API,
- * checks the rendered page in a real browser, checks that the admin dialog shows
- * the selection and finally deletes everything it created.
+ * page. The script creates the two monitors, the group, the page and the
+ * memberships with the API, checks the rendered page in a real browser, checks
+ * that the admin dialog shows the selection and finally deletes everything it
+ * created. The monitors are created here on purpose: taking the first rows of the
+ * monitor list made the check fail on an empty database.
  *
  * Usage:
  *   npm run build && npm run e2e:status-page-groups -- --url http://localhost:3000
@@ -37,7 +39,7 @@ const stamp = Date.now()
 const groupName = `e2e page group ${stamp}`
 const pageTitle = `e2e page ${stamp}`
 const slug = `e2e-page-${stamp}`
-const created = { groups: [], pages: [] }
+const created = { monitors: [], groups: [], pages: [] }
 
 const browser = await launch({ chrome, width: 1440, height: 1000 })
 const page = await newPage(browser, { width: 1440, height: 1000 })
@@ -50,11 +52,36 @@ try {
   console.log(`> ${url} with ${chrome}`)
 
   // --- fixtures through the API --------------------------------------------
+  // The two monitors are created here: borrowing the first two rows of the
+  // monitor list made the check fail on a database that has no monitor yet.
   await page.goto(`${url}/admin/status-pages`, { settle: 1500 })
-  const monitors = await api(
-    `fetch('/api/monitors?decorate=false').then((r) => r.json()).then((list) => list.slice(0, 2))`,
+  const monitorNames = [`e2e page ${stamp} monitor a`, `e2e page ${stamp} monitor b`]
+  const monitors = await api(`(async () => {
+    const made = []
+    for (const [index, name] of ${JSON.stringify(monitorNames)}.entries()) {
+      const response = await fetch('/api/monitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          type: 'http',
+          active: false,
+          interval_seconds: 3600,
+          timeout_seconds: 10,
+          config: { url: 'http://127.0.0.1:8099/${stamp}-' + index, method: 'GET' },
+        }),
+      })
+      const body = await response.json()
+      made.push({ status: response.status, id: body.id, name: body.name })
+    }
+    return made
+  })()`)
+  created.monitors.push(...monitors.map((monitor) => monitor.id).filter(Boolean))
+  check(
+    'the two monitors of the fixture were created',
+    monitors.length === 2 && monitors.every((monitor) => monitor.status === 201 && monitor.id > 0),
+    monitors.map((monitor) => `${monitor.status} ${monitor.name}`).join(', '),
   )
-  check('two monitors available', monitors.length === 2, monitors.map((m) => m.name).join(', '))
 
   const group = await api(`fetch('/api/monitor-groups', {
     method: 'POST',
@@ -155,18 +182,21 @@ try {
 
   // --- cleanup -------------------------------------------------------------
   const cleanup = await api(`(async () => {
-    const status = { pages: [], groups: [] }
+    const status = { pages: [], groups: [], monitors: [] }
     for (const id of ${JSON.stringify(created.pages)}) {
       status.pages.push(await fetch('/api/status-pages/' + id, { method: 'DELETE' }).then((r) => r.status))
     }
     for (const id of ${JSON.stringify(created.groups)}) {
       status.groups.push(await fetch('/api/monitor-groups/' + id, { method: 'DELETE' }).then((r) => r.status))
     }
+    for (const id of ${JSON.stringify(created.monitors)}) {
+      status.monitors.push(await fetch('/api/monitors/' + id, { method: 'DELETE' }).then((r) => r.status))
+    }
     return status
   })()`)
   check(
-    'cleanup removed the page and the group',
-    [...cleanup.pages, ...cleanup.groups].every((code) => code === 204 || code === 404),
+    'cleanup removed the page, the group and the monitors',
+    [...cleanup.pages, ...cleanup.groups, ...cleanup.monitors].every((code) => code === 204 || code === 404),
     JSON.stringify(cleanup),
   )
 } finally {

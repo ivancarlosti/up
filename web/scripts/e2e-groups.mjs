@@ -2,9 +2,11 @@
 /**
  * End to end check of the monitor groups and the clone flows (P1).
  *
- * It drives the real UI: creates a group with members, clones it shallow and
- * deep, renames it, clones a monitor from the monitor list and cleans up after
- * itself (everything it creates is deleted through the API at the end).
+ * It drives the real UI: creates two monitors and a group with both of them as
+ * members, clones the group shallow and deep, renames it, clones a monitor from
+ * the monitor list and cleans up after itself (everything it creates is deleted
+ * through the API at the end). The monitors are created here on purpose: taking
+ * the first rows of the monitor list made the check fail on an empty database.
  *
  * Usage:
  *   npm run build && npm run e2e:groups -- --url http://localhost:3000
@@ -148,12 +150,40 @@ const page = await newPage(browser, { width: 1440, height: 1000 })
 try {
   console.log(`> ${url} with ${chrome}`)
 
-  // --- fixtures: the names of two monitors to put in the group --------------
+  // --- fixtures: the two monitors that go into the group --------------------
+  // The check creates what it needs: reading the first two rows of the monitor
+  // list made it fail on a database that has no monitor yet.
   await page.goto(`${url}/admin/monitor-groups`, { settle: 1500 })
-  const monitorNames = await page.evaluate(`fetch('/api/monitors?decorate=false')
-    .then((r) => r.json())
-    .then((list) => list.slice(0, 2).map((m) => m.name))`)
-  check('two monitors available for the group', monitorNames.length === 2, monitorNames.join(', '))
+  const monitorNames = [`e2e group ${stamp} a`, `e2e group ${stamp} b`]
+  const seeded = await page.evaluate(`(async () => {
+    const made = []
+    for (const [index, name] of ${JSON.stringify(monitorNames)}.entries()) {
+      const response = await fetch('/api/monitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          type: 'http',
+          active: false,
+          interval_seconds: 3600,
+          timeout_seconds: 10,
+          config: { url: 'http://127.0.0.1:8099/${stamp}-' + index, method: 'GET' },
+        }),
+      })
+      const body = await response.json()
+      made.push({ status: response.status, id: body.id, name: body.name })
+    }
+    return made
+  })()`)
+  created.monitors.push(...seeded.map((monitor) => monitor.id).filter(Boolean))
+  check(
+    'the two monitors of the group were created',
+    seeded.length === 2 && seeded.every((monitor) => monitor.status === 201 && monitor.id > 0),
+    seeded.map((monitor) => `${monitor.status} ${monitor.name}`).join(', '),
+  )
+  // The page read its monitor list when it was opened above, so the fixtures are
+  // not in the dialog yet: the reload is what puts them there.
+  await page.goto(`${url}/admin/monitor-groups`, { settle: 1500 })
   check('sidebar links the groups page', await page.evaluate(`!!document.querySelector('a[href="/admin/monitor-groups"]')`))
 
   // --- create a group -------------------------------------------------------
@@ -255,7 +285,7 @@ try {
     return status
   })()`)
   check(
-    'cleanup removed every copy',
+    'cleanup removed every fixture',
     cleanup.monitors.every((code) => code === 204 || code === 404) &&
       cleanup.groups.every((code) => code === 204 || code === 404),
     JSON.stringify(cleanup),
