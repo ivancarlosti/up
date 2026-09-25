@@ -188,6 +188,45 @@ func (s *SettingService) SetDefaults(ctx context.Context, locale, theme, timeFor
 	return nil
 }
 
+// HeartbeatRetentionDays is how many days of heartbeat history are kept.
+//
+// Precedence: the shared setting wins, HEARTBEAT_RETENTION_DAYS is only a
+// fallback for a deployment that never opened Admin > Settings, and the
+// documented default applies when neither says anything. 0 means "never purge".
+func (s *SettingService) HeartbeatRetentionDays() int {
+	if value, ok := s.Get(models.SettingHeartbeatRetentionDays); ok && strings.TrimSpace(value) != "" {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			return models.NormalizeHeartbeatRetentionDays(parsed)
+		}
+	}
+	if s.cfg.HeartbeatRetentionDays > 0 {
+		return s.cfg.HeartbeatRetentionDays
+	}
+	return models.DefaultHeartbeatRetentionDays
+}
+
+// SetHeartbeatRetentionDays stores the heartbeat retention policy.
+func (s *SettingService) SetHeartbeatRetentionDays(ctx context.Context, days int) error {
+	return s.Set(ctx, models.SettingHeartbeatRetentionDays, strconv.Itoa(models.NormalizeHeartbeatRetentionDays(days)))
+}
+
+// UptimeWindowHours is the period the uptime percentages and the heartbeat bars
+// cover (Admin > Settings). It is also the fallback of every status page that
+// does not override it.
+func (s *SettingService) UptimeWindowHours() int {
+	if value, ok := s.Get(models.SettingUptimeWindowHours); ok && strings.TrimSpace(value) != "" {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			return models.NormalizeUptimeWindowHours(parsed)
+		}
+	}
+	return models.DefaultUptimeWindowHours
+}
+
+// SetUptimeWindowHours stores the global uptime window.
+func (s *SettingService) SetUptimeWindowHours(ctx context.Context, hours int) error {
+	return s.Set(ctx, models.SettingUptimeWindowHours, strconv.Itoa(models.NormalizeUptimeWindowHours(hours)))
+}
+
 // ExpirySettings returns the admin managed configuration of the daily expiry job
 // (Admin > TLD/SSL expiration).
 func (s *SettingService) ExpirySettings() models.ExpirySettings {

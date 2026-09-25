@@ -110,7 +110,9 @@ export function compareMonitors(
     case 'interval':
       return sign * (a.interval_seconds - b.interval_seconds) || byName()
     case 'uptime':
-      return sign * ((a.uptime_24h ?? 0) - (b.uptime_24h ?? 0)) || byName()
+      // The table shows the uptime of the configured window; the fixed 24 h
+      // figure is only a fallback for a payload that predates the window field.
+      return sign * ((a.uptime ?? a.uptime_24h ?? 0) - (b.uptime ?? b.uptime_24h ?? 0)) || byName()
     case 'certificate':
     case 'domain': {
       const left = expiryDaysOf(a, key)

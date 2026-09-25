@@ -2,28 +2,23 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Copy, ListPlus, Pencil, Plus, RefreshCw, Trash2, Wand2 } from 'lucide-vue-next'
-import Badge from '@/components/ui/Badge.vue'
+import { ListPlus, Plus, RefreshCw, Wand2 } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
-import Card from '@/components/ui/Card.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
-import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
-import SortHeader from '@/components/ui/SortHeader.vue'
-import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import Switch from '@/components/ui/Switch.vue'
 import ApplyTemplateDialog from '@/components/monitors/ApplyTemplateDialog.vue'
 import BulkAddDialog from '@/components/monitors/BulkAddDialog.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
+import MonitorTable from '@/components/monitors/MonitorTable.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
-import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant } from '@/lib/expiry'
-import { formatInterval, formatUptime } from '@/lib/format'
-import { monitorSortKeys, sortMonitors } from '@/lib/sort'
-import type { MonitorSortKey, SortDirection } from '@/lib/sort'
+import { loadMonitorSort, toggleMonitorSort } from '@/lib/monitor-sort'
+import { sortMonitors } from '@/lib/sort'
+import type { MonitorSortKey } from '@/lib/sort'
 import { useToastStore } from '@/stores/toast'
 import type {
   Monitor,
@@ -59,14 +54,6 @@ const cloning = ref(false)
 const cloneSource = ref<Monitor | null>(null)
 const cloneForm = reactive<MonitorCloneOptions>({ name: '', copy_notifications: true, copy_groups: true })
 
-const groupNames = computed(() => new Map(groups.value.map((group) => [group.id, group.name])))
-
-/** hasCertificates reveals the validity column only when it says something. */
-const hasCertificates = computed(() => monitors.value.some((monitor) => monitor.cert_watch || monitor.certificate))
-
-/** hasDomains reveals the domain expiration column on the same rule. */
-const hasDomains = computed(() => monitors.value.some((monitor) => monitor.domain_watch || monitor.domain))
-
 /**
  * counts feeds the header subtitle. It applies the same rule as the server
  * (internal/handlers/public.go): a paused monitor is counted as paused, never
@@ -86,42 +73,14 @@ const counts = computed(() => {
 })
 
 /**
- * Sort state of the table.
- *
- * The choice is remembered per browser (the same pattern as the theme store) so
- * an operator who always sorts by "domain" finds the table that way after a
- * reload. A hand edited or stale value falls back to the default instead of
- * breaking the page.
+ * Sort state of the table. The persistence lives in lib/monitor-sort.ts so the
+ * dashboard table keeps the exact same preference.
  */
-const SORT_STORAGE_KEY = 'up.admin.monitors.sort'
-
-function loadSort(): { key: MonitorSortKey; direction: SortDirection } {
-  const fallback: { key: MonitorSortKey; direction: SortDirection } = { key: 'name', direction: 'asc' }
-  try {
-    const raw = localStorage.getItem(SORT_STORAGE_KEY)
-    if (!raw) return fallback
-    const parsed = JSON.parse(raw) as { key?: MonitorSortKey; direction?: SortDirection }
-    if (!parsed.key || !monitorSortKeys.includes(parsed.key)) return fallback
-    return { key: parsed.key, direction: parsed.direction === 'desc' ? 'desc' : 'asc' }
-  } catch {
-    return fallback
-  }
-}
-
-const sort = ref(loadSort())
+const sort = ref(loadMonitorSort())
 
 /** toggleSort switches the column, or flips the direction of the current one. */
 function toggleSort(key: MonitorSortKey): void {
-  sort.value =
-    sort.value.key === key
-      ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
-      : { key, direction: 'asc' }
-  try {
-    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort.value))
-  } catch {
-    // A browser that refuses to persist (private mode) still sorts, it just
-    // forgets the preference after a reload.
-  }
+  sort.value = toggleMonitorSort(sort.value, key)
 }
 
 /** groupFilterOptions adds the "all groups" entry to the real groups. */
@@ -174,6 +133,12 @@ const filtered = computed(() => {
   })
 })
 
+/**
+ * Group names feed the "group" comparator of the table (the cells themselves
+ * resolve them inside MonitorTable).
+ */
+const groupNames = computed(() => new Map(groups.value.map((group) => [group.id, group.name])))
+
 /** sorted applies the chosen column to the filtered rows (see lib/sort.ts). */
 const sorted = computed(() =>
   sortMonitors(filtered.value, sort.value.key, sort.value.direction, {
@@ -207,6 +172,17 @@ function openCreate(): void {
 function openEdit(monitor: Monitor): void {
   editing.value = monitor
   formOpen.value = true
+}
+
+/** openDetail navigates to the monitor detail page. */
+function openDetail(monitor: Monitor): void {
+  router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })
+}
+
+/** askRemove opens the delete confirmation for a monitor. */
+function askRemove(monitor: Monitor): void {
+  pendingRemoval.value = monitor
+  confirmOpen.value = true
 }
 
 async function submit(payload: MonitorPayload): Promise<void> {
@@ -300,154 +276,19 @@ onMounted(load)
       </div>
     </header>
 
-    <EmptyState v-if="!filtered.length" :title="t('dashboard.empty')" :description="t('dashboard.emptyHint')" />
-
-    <Card v-else :padded="false">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <SortHeader
-              :label="t('common.name')"
-              column="name"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('name')"
-            />
-            <SortHeader
-              :label="t('common.type')"
-              column="type"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('type')"
-            />
-            <SortHeader
-              :label="t('monitor.groupsSection')"
-              column="group"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('group')"
-            />
-            <SortHeader
-              v-if="hasCertificates"
-              :label="t('certificate.column')"
-              column="certificate"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('certificate')"
-            />
-            <SortHeader
-              v-if="hasDomains"
-              :label="t('domain.column')"
-              column="domain"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('domain')"
-            />
-            <SortHeader
-              :label="t('common.status')"
-              column="status"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('status')"
-            />
-            <SortHeader
-              :label="t('common.interval')"
-              column="interval"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('interval')"
-            />
-            <SortHeader
-              :label="t('common.uptime')"
-              column="uptime"
-              :active="sort.key"
-              :direction="sort.direction"
-              @toggle="toggleSort('uptime')"
-            />
-            <th>{{ t('common.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="monitor in sorted" :key="monitor.id">
-            <td>
-              <button class="text-start hover:underline" @click="router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })">
-                {{ monitor.name }}
-              </button>
-              <Badge v-if="monitor.template_name" variant="outline" class="ms-1">
-                {{ monitor.template_name }}
-              </Badge>
-            </td>
-            <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
-            <td>
-              <div class="flex flex-wrap gap-1">
-                <Badge v-for="id in monitor.group_ids ?? []" :key="id" variant="outline">
-                  {{ groupNames.get(id) ?? id }}
-                </Badge>
-                <span v-if="!(monitor.group_ids ?? []).length" class="text-muted-foreground">—</span>
-              </div>
-            </td>
-            <td v-if="hasCertificates">
-              <Badge
-                v-if="monitor.certificate"
-                :variant="expiryVariant(monitor.certificate.days_left)"
-                :title="certificateTitle(monitor.certificate, locale)"
-              >
-                {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
-              </Badge>
-              <Badge v-else-if="monitor.cert_watch" variant="secondary">{{ t('certificate.pending') }}</Badge>
-              <span v-else class="text-muted-foreground">—</span>
-            </td>
-            <td v-if="hasDomains">
-              <Badge
-                v-if="monitor.domain && monitor.domain.status === 'ok'"
-                :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
-                :title="domainTitle(monitor.domain, locale)"
-              >
-                {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
-              </Badge>
-              <Badge
-                v-else-if="monitor.domain && monitor.domain.status === 'not_found'"
-                variant="secondary"
-              >
-                {{ t('domain.notFound') }}
-              </Badge>
-              <Badge
-                v-else-if="monitor.domain && monitor.domain.status === 'unsupported'"
-                variant="secondary"
-              >
-                {{ t('domain.unsupported') }}
-              </Badge>
-              <Badge v-else-if="monitor.domain" variant="secondary" :title="monitor.domain.error || ''">
-                {{ t('domain.unavailable') }}
-              </Badge>
-              <Badge v-else-if="monitor.domain_watch" variant="secondary">{{ t('domain.pending') }}</Badge>
-              <span v-else class="text-muted-foreground">—</span>
-            </td>
-            <td><StatusBadge :status="monitor.status" /></td>
-            <td>{{ formatInterval(monitor.interval_seconds) }}</td>
-            <td>{{ formatUptime(monitor.uptime_24h) }}</td>
-            <td>
-              <div class="flex items-center gap-1">
-                <Button variant="ghost" size="sm" @click="openEdit(monitor)">
-                  <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-                <Button variant="ghost" size="sm" :title="t('common.clone')" :aria-label="t('common.clone')" @click="openClone(monitor)">
-                  <Copy class="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="text-status-down"
-                  @click="(pendingRemoval = monitor), (confirmOpen = true)"
-                >
-                  <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </Card>
+    <MonitorTable
+      :monitors="sorted"
+      :groups="groups"
+      :sort="sort"
+      :actions="['detail', 'edit', 'clone', 'remove']"
+      :empty-title="t('dashboard.empty')"
+      :empty-description="t('dashboard.emptyHint')"
+      @sort="toggleSort"
+      @detail="openDetail"
+      @edit="openEdit"
+      @clone="openClone"
+      @remove="askRemove"
+    />
 
     <MonitorForm
       v-model="formOpen"

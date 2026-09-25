@@ -18,6 +18,11 @@ var settingsWhitelist = []string{
 	models.SettingAppName,
 	models.SettingDefaultLocale,
 	models.SettingDefaultTheme,
+	// Housekeeping: every node must purge on the same policy and show the same
+	// uptime period, otherwise two dashboards of one cluster would disagree
+	// about how much history exists.
+	models.SettingHeartbeatRetentionDays,
+	models.SettingUptimeWindowHours,
 }
 
 // ServeSettings answers GET /api/cluster/sync/settings.

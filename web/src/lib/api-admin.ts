@@ -10,6 +10,8 @@ import type {
   ExpiryTargetRefreshResult,
   ExpiryTargetsResponse,
   ExpiryTargetKind,
+  HeartbeatPurgeResult,
+  HeartbeatRetentionStats,
   IPRule,
   PeerStatusReport,
   StatusPage,
@@ -58,8 +60,15 @@ export const adminApi = {
     default_theme?: string
     time_format?: string
     app_name?: string
+    heartbeat_retention_days?: number
+    uptime_window_hours?: number
   }) =>
     put<void>('/api/admin/settings', payload),
+
+  /** History housekeeping: what is stored and the explicit purge action. */
+  heartbeatRetention: () => get<HeartbeatRetentionStats>('/api/admin/maintenance/heartbeats'),
+  purgeHeartbeats: (days?: number) =>
+    post<HeartbeatPurgeResult>('/api/admin/maintenance/heartbeats/purge', days === undefined ? {} : { days }),
 
   /** Daily certificate/domain expiration job and the per-TLD WHOIS rules. */
   expirySettings: () => get<ExpirySettingsResponse>('/api/admin/expiry'),

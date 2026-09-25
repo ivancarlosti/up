@@ -109,7 +109,9 @@ Query: `search`, `type`, `tag`, `active`.
 ```json
 {
   "monitors": [{ "id": 6, "name": "HTTP Health", "type": "http", "status": "up",
-                 "uptime_24h": 99.98, "last_latency_ms": 12, "last_check_at": "...",
+                 "uptime": 99.98, "uptime_hours": 24, "uptime_24h": 99.98,
+                 "last_latency_ms": 12, "last_check_at": "...",
+                 "heartbeat_bars": ["up", "up", "", "down"],
                  "heartbeats": [{"status":"up","latency_ms":12,"created_at":"..."}],
                  "votes": [{"node_id":"up-node-1","node_name":"Primary Node","status":"up","online":true}],
                  "notification_ids": [1] }],
@@ -117,6 +119,12 @@ Query: `search`, `type`, `tag`, `active`.
                "heartbeats_1h": 312, "ws_clients": 2, "cluster": { } }
 }
 ```
+
+`uptime` / `uptime_hours` cover the configured window (Admin > Settings or the
+status page override); `uptime_24h`, `uptime_7d` and `uptime_30d` stay as the
+fixed windows of the public API. `heartbeat_bars` is the bucketed history drawn
+in the monitors table: one status per slot, oldest first, `""` for a slot with no
+heartbeat (it is a snapshot, never a live feed).
 
 ### `GET /api/monitors`
 
@@ -333,8 +341,10 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/admin/settings` | locale/theme/clock defaults + instance info |
-| PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","app_name":"Up"}` -> `204` (`time_format` is `auto`, `12h` or `24h`) |
+| GET | `/api/admin/settings` | locale/theme/clock defaults, the global uptime period and the history retention + instance info |
+| PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","app_name":"Up","heartbeat_retention_days":90,"uptime_window_hours":168}` -> `204` (`time_format` is `auto`, `12h` or `24h`; `uptime_window_hours` is `24`, `168`, `336` or `720`; `heartbeat_retention_days` is `0`-`3650`, `0` = never purge). Every field is optional |
+| GET | `/api/admin/maintenance/heartbeats` | `{retention_days, default_days, max_days, total, oldest, newest, would_delete, cutoff?}` |
+| POST | `/api/admin/maintenance/heartbeats/purge` | deletes the history older than the retention: `{}` uses the configured days, `{"days": 90}` overrides it -> `{deleted, days, before}` |
 | GET | `/api/tokens` | API tokens (never the secret) |
 | POST | `/api/tokens` | `{"name":"ci","scopes":["read"],"expires_in_days":30}` -> the plain token **once** |
 | PUT | `/api/tokens/:id` | rename / rescope / change expiry |

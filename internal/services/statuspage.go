@@ -295,6 +295,11 @@ func (s *StatusPageService) normalize(page *models.StatusPage) error {
 	if !containsString(config.SupportedThemes, page.Theme) {
 		page.Theme = "system"
 	}
+	// 0 keeps meaning "inherit the global window"; any other value is clamped to
+	// a period the UI can label.
+	if page.UptimeWindowHours != 0 {
+		page.UptimeWindowHours = models.NormalizeUptimeWindowHours(page.UptimeWindowHours)
+	}
 	return nil
 }
 

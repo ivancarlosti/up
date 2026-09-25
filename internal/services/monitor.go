@@ -42,8 +42,11 @@ type MonitorService struct {
 	cfg   *config.Config
 	log   *slog.Logger
 	stats *StatsService
-	hub   EventPublisher
-	votes VoteProvider
+	// settings owns the global uptime window applied by the decoration. It is
+	// optional: a nil value falls back to the documented default.
+	settings *SettingService
+	hub      EventPublisher
+	votes    VoteProvider
 	// emit publishes the local writes to the peers. It is nil on a node that does
 	// not publish (anything but federated mode), and every helper below is a no-op
 	// in that case.
@@ -106,6 +109,18 @@ func (s *MonitorService) SetPublisher(p EventPublisher) { s.hub = p }
 // SetVoteProvider injects the cluster vote provider.
 func (s *MonitorService) SetVoteProvider(v VoteProvider) { s.votes = v }
 
+// SetSettingService injects the settings service, which owns the global uptime
+// window applied by the decoration (Admin > Settings).
+func (s *MonitorService) SetSettingService(settings *SettingService) { s.settings = settings }
+
+// uptimeWindowHours is the global uptime window.
+func (s *MonitorService) uptimeWindowHours() int {
+	if s.settings != nil {
+		return s.settings.UptimeWindowHours()
+	}
+	return models.DefaultUptimeWindowHours
+}
+
 // List returns the monitors matching the filter (not decorated).
 func (s *MonitorService) List(ctx context.Context, filter MonitorFilter) ([]*models.Monitor, error) {
 	query := s.db.WithContext(ctx).Model(&models.Monitor{})
@@ -153,8 +168,15 @@ func (s *MonitorService) Get(ctx context.Context, id uint) (*models.Monitor, err
 }
 
 // Decorate fills the runtime fields of the given monitors: aggregated status,
-// uptime 24h, latency of the last check, per node votes and notification ids.
+// uptime over the configured window, latency of the last check, per node votes
+// and notification ids.
 func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monitor) error {
+	return s.DecorateWithWindow(ctx, monitors, s.uptimeWindowHours())
+}
+
+// DecorateWithWindow is Decorate with an explicit uptime window: the public
+// status pages override the global one per page.
+func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*models.Monitor, windowHours int) error {
 	if len(monitors) == 0 {
 		return nil
 	}
@@ -163,7 +185,12 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 		ids = append(ids, m.ID)
 	}
 
-	windows, err := s.stats.Windows(ctx, ids)
+	windowHours = models.NormalizeUptimeWindowHours(windowHours)
+	histories, err := s.stats.History(ctx, ids, windowHours)
+	if err != nil {
+		return ErrInternal(err)
+	}
+	bars, err := s.stats.RecentBars(ctx, ids, windowHours, HeartbeatBarSlots)
 	if err != nil {
 		return ErrInternal(err)
 	}
@@ -213,8 +240,17 @@ func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monito
 	}
 
 	for _, m := range monitors {
-		if stats, ok := windows[m.ID]; ok {
-			m.Uptime24h = stats.Uptime
+		// The window is reported even without a heartbeat in it: the UI labels
+		// the period it is showing instead of pretending it is 24 h.
+		m.UptimeHours = windowHours
+		if history, ok := histories[m.ID]; ok {
+			m.Uptime = history.Window.Uptime
+			m.Uptime24h = history.Uptime24h
+			m.Uptime7d = history.Uptime7d
+			m.Uptime30d = history.Uptime30d
+		}
+		if len(bars[m.ID]) > 0 {
+			m.HeartbeatBars = bars[m.ID]
 		}
 		if hb, ok := latest[m.ID]; ok {
 			created := hb.CreatedAt

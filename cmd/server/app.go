@@ -58,6 +58,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// --- wiring -----------------------------------------------------------
 	monitors.SetPublisher(hub)
 	monitors.SetVoteProvider(cluster)
+	monitors.SetSettingService(settings)
 	monitorGroups.SetPublisher(hub)
 	monitorGroups.SetMonitorService(monitors)
 	monitorTemplates.SetPublisher(hub)
@@ -149,6 +150,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	sched.SetExpiryService(expiries)
 	sched.SetNotificationService(notifications)
 	sched.SetSyncService(syncService)
+	sched.SetSettingService(settings)
 	if err := sched.Start(ctx); err != nil {
 		return nil, err
 	}

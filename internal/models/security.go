@@ -30,6 +30,15 @@ const (
 	// run, kept so a restart does not repeat the work and a process that was
 	// down at the scheduled time catches up on the next tick.
 	SettingExpiryLastRunDay = "expiry_last_run_day"
+	// SettingHeartbeatRetentionDays is how many days of heartbeat history are
+	// kept (Admin > Settings). 0 means "never purge"; see
+	// models.DefaultHeartbeatRetentionDays for the value used when the setting
+	// and HEARTBEAT_RETENTION_DAYS are both absent.
+	SettingHeartbeatRetentionDays = "heartbeat_retention_days"
+	// SettingUptimeWindowHours is the period the uptime percentages and the
+	// heartbeat bars cover. It is the global default (Admin > Settings) and the
+	// fallback of every public status page.
+	SettingUptimeWindowHours = "uptime_window_hours"
 )
 
 // Setting is a single key/value pair. Because the table lives in the shared

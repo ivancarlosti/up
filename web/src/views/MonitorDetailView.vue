@@ -6,6 +6,7 @@ import { ArrowLeft, Pencil, RefreshCw } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
+import Select from '@/components/ui/Select.vue'
 import StatCard from '@/components/ui/StatCard.vue'
 import HeartbeatBar from '@/components/monitors/HeartbeatBar.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
@@ -13,7 +14,9 @@ import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant } from '@/lib/expiry'
-import { formatDateTime, formatLatency, formatUptime, statusColor } from '@/lib/format'
+import { formatDateTime, formatLatency, formatUptime, formatUptimeWindow, statusColor } from '@/lib/format'
+import { uptimeWindowOptions } from '@/lib/uptime-window'
+import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
 import type {
   Heartbeat,
@@ -28,13 +31,28 @@ import type {
 const route = useRoute()
 const router = useRouter()
 const toasts = useToastStore()
+const app = useAppStore()
 const { t, locale } = useI18n()
 
 const monitor = ref<Monitor | null>(null)
 const stats = ref<UptimeStats | null>(null)
 const heartbeats = ref<Heartbeat[]>([])
-const hours = ref(24)
+/**
+ * The period the statistics and the bars cover. It starts at the global uptime
+ * window (Admin > Settings) and the operator can pick any other offered period.
+ */
+const hours = ref(app.settings?.uptime_window_hours ?? 24)
 const loading = ref(false)
+
+/** windowValue adapts the numeric window to the string Select. */
+const windowValue = computed({
+  get: () => String(hours.value),
+  set: (value: string) => {
+    hours.value = Number(value)
+  },
+})
+
+const windowOptions = computed(() => uptimeWindowOptions())
 
 // The edit dialog is the same form as the monitors page: it needs the channel,
 // group and template lists for its pickers.
@@ -201,6 +219,7 @@ watch(hours, load)
         <template v-else>{{ t('domain.unavailable') }}</template>
       </Badge>
       <div class="ms-auto flex items-center gap-2">
+        <Select v-model="windowValue" :options="windowOptions" class="w-24" :aria-label="t('common.uptime')" />
         <Button variant="outline" size="sm" @click="openEdit">
           <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('common.edit') }}
@@ -216,8 +235,8 @@ watch(hours, load)
     <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard
         :label="t('common.uptime')"
-        :value="formatUptime(monitor.uptime_24h)"
-        :caption="t('monitorDetail.uptime24h')"
+        :value="formatUptime(stats?.uptime ?? monitor.uptime)"
+        :caption="formatUptimeWindow(hours)"
       />
       <StatCard
         :label="t('monitorDetail.responseTime')"

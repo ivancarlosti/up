@@ -20,11 +20,13 @@ Example API response:
   "description": "Public status of the platform", "footer_text": "Powered by Up",
   "theme": "system", "is_public": true,
   "show_uptime": true, "show_charts": true, "show_tags": false, "show_expiry": false,
+  "uptime_window_hours": 0,
   "overall_status": "up", "up_monitors": 4, "down_monitors": 0, "monitors_count": 4,
   "monitors": [
     {
       "id": 6, "name": "HTTP Health", "type": "http", "status": "up",
-      "uptime_24h": 99.99, "last_latency_ms": 12, "last_check_at": "2026-09-22T18:00:00Z",
+      "uptime": 99.99, "uptime_hours": 24, "uptime_24h": 99.99,
+      "last_latency_ms": 12, "last_check_at": "2026-09-22T18:00:00Z",
       "heartbeats": [{"status": "up", "latency_ms": 12, "created_at": "..."}],
       "votes": [{"node_name": "Primary Node", "status": "up", "online": true}]
     }
@@ -40,10 +42,11 @@ Example API response:
 | `title`, `description`, `footer_text` | rendered as-is |
 | `theme` | `system` (page follows the visitor), `light` or `dark` |
 | `is_public` | `false` hides the page: anonymous visitors get `403 ERR_STATUS_PAGE_NOT_PUBLIC`, authenticated admins can still preview it |
-| `show_uptime` | shows the 24 h uptime percentage per monitor |
-| `show_charts` | shows the heartbeat bars |
+| `show_uptime` | shows the uptime percentage per monitor over the page period |
+| `show_charts` | shows the heartbeat bars (same period) |
 | `show_tags` | shows the monitor tags |
 | `show_expiry` | publishes the certificate/domain **days left** badges of the monitors (default `false`) |
+| `uptime_window_hours` | period the uptime and the bars cover: `0` inherits the global one (Admin > Settings), otherwise `24`, `168`, `336` (14 d) or `720` (30 d) |
 | `custom_css` | injected into the public page (advanced) |
 | `monitor_ids` order | display order (up to any number of monitors) |
 
@@ -135,7 +138,8 @@ Colours follow the overall status: green (`up`), red (`down`), amber
   heartbeats.
 - Monitor groups (`status_page_monitors.group_name`) exist in the schema; the UI
   currently renders a flat, ordered list.
-- The 90-day uptime figure is 30 days today (`uptime_30d`); the payload is fixed
-  at 24 h/7 d/30 d windows.
+- The uptime figure follows the page period (`uptime_window_hours`, or the
+  global one when it is `0`); the monitor payload also keeps the fixed
+  `uptime_24h`/`uptime_7d`/`uptime_30d` columns of the public API.
 - To add a custom domain per page, place a reverse proxy rule in front
   (`docs/reverse-proxy.md`) and set `APP_URL` to the canonical public URL.

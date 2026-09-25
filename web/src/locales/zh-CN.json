@@ -115,7 +115,12 @@
     "statClients": "实时客户端",
     "degradedWarning": "一个或多个集群节点不可用；缺失节点的投票将被排除。",
     "checkNow": "立即检查",
-    "intervalLabel": "每 {interval}"
+    "intervalLabel": "每 {interval}",
+    "statCertificates": "证书",
+    "statCertificatesHint": "{days} 天内到期",
+    "statDomains": "域名",
+    "statDomainsHint": "{days} 天内到期或已过期",
+    "clearFilter": "清除筛选"
   },
   "monitor": {
     "new": "新建监控项",
@@ -223,7 +228,9 @@
     "copyGroups": "复制组",
     "runOnSome": "一组节点",
     "targetNodes": "节点",
-    "runOnSomeHelp": "以逗号分隔的节点 ID。只有这些节点探测该监控项，也只有它们对其状态投票。"
+    "runOnSomeHelp": "以逗号分隔的节点 ID。只有这些节点探测该监控项，也只有它们对其状态投票。",
+    "heartbeat": "心跳",
+    "heartbeatTitle": "所选周期的心跳历史（快照，非实时）"
   },
   "monitorDetail": {
     "responseTime": "响应时间",
@@ -528,7 +535,10 @@
     "badge": "徽章",
     "badgeHelp": "可直接嵌入 README 的 SVG 徽章。",
     "deleteTitle": "删除状态页面",
-    "deleteWarning": "公开页面将立即停止响应。"
+    "deleteWarning": "公开页面将立即停止响应。",
+    "uptimeWindow": "可用率周期",
+    "uptimeWindowHelp": "本页显示可用率和心跳条所用的周期。",
+    "uptimeWindowInherit": "使用全局周期"
   },
   "security": {
     "title": "安全",
@@ -583,7 +593,21 @@
     "authMethod": "身份验证方式",
     "clusterEnabled": "已启用集群",
     "database": "数据库",
-    "defaultsHelp": "仅应用于尚未在浏览器中选择语言或主题的访客。"
+    "defaultsHelp": "仅应用于尚未在浏览器中选择语言或主题的访客。",
+    "uptimeWindow": "可用率周期",
+    "uptimeWindowHelp": "仪表盘、监控表格和心跳条覆盖的周期。状态页可以覆盖它。",
+    "retention": "历史保留",
+    "retentionHelp": "心跳历史保留的时长。更早的记录由维护任务每六小时删除一次。",
+    "retentionDays": "保留天数",
+    "retentionDaysHelp": "0 表示禁用清理并永久保留历史。默认值为 {days} 天。",
+    "retentionStored": "已存心跳",
+    "retentionOldest": "最早的心跳",
+    "retentionWouldDelete": "现在将被删除",
+    "retentionDisabled": "自动清理已禁用：不会删除任何记录。",
+    "purgeNow": "立即清理",
+    "purgeTitle": "清理心跳历史",
+    "purgeWarning": "所有超过 {days} 天的心跳都会被删除。此操作无法撤销。",
+    "purged": "已删除 {count} 条心跳"
   },
   "about": {
     "title": "关于",

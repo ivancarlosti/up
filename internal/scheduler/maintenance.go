@@ -80,6 +80,14 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 			s.log.Warn("node liveness sweep failed", "error", err)
 		}
 		s.purgeRetention(ctx)
+		// The retention policy lives in the settings table (Admin > Settings),
+		// with HEARTBEAT_RETENTION_DAYS as a fallback: report the effective value
+		// so an operator can tell what the housekeeping loop will do.
+		if days := s.retentionDays(); days > 0 {
+			s.log.Info("heartbeat retention active", "days", days)
+		} else {
+			s.log.Info("heartbeat retention disabled: the history is kept forever")
+		}
 		// Make the daily schedule visible from the first seconds: the job is silent
 		// until its time comes (a once-a-day cadence on a one-minute ticker), which
 		// otherwise reads like a job that never runs.
@@ -140,9 +148,26 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	}()
 }
 
+// retentionDays resolves the heartbeat retention policy: the shared setting
+// wins, HEARTBEAT_RETENTION_DAYS is the fallback of a deployment that never
+// opened Admin > Settings. 0 means "never purge".
+func (s *Scheduler) retentionDays() int {
+	if s.settings != nil {
+		return s.settings.HeartbeatRetentionDays()
+	}
+	if s.cfg.HeartbeatRetentionDays > 0 {
+		return s.cfg.HeartbeatRetentionDays
+	}
+	return models.DefaultHeartbeatRetentionDays
+}
+
 // purge applies the heartbeat retention policy.
 func (s *Scheduler) purge(ctx context.Context) {
-	before := time.Now().UTC().AddDate(0, 0, -s.cfg.HeartbeatRetentionDays)
+	days := s.retentionDays()
+	if days <= 0 {
+		return
+	}
+	before := time.Now().UTC().AddDate(0, 0, -days)
 	deleted, err := s.stats.Purge(ctx, before)
 	if err != nil {
 		s.log.Error("heartbeat retention purge failed", "error", err)
@@ -150,7 +175,7 @@ func (s *Scheduler) purge(ctx context.Context) {
 	}
 	if deleted > 0 {
 		s.log.Info("heartbeat retention purge finished",
-			"deleted", deleted, "older_than_days", s.cfg.HeartbeatRetentionDays)
+			"deleted", deleted, "older_than_days", days)
 	}
 }
 
@@ -159,7 +184,7 @@ func (s *Scheduler) purge(ctx context.Context) {
 func (s *Scheduler) purgeRetention(ctx context.Context) {
 	now := time.Now().UTC()
 
-	if s.cfg.HeartbeatRetentionDays > 0 {
+	if s.retentionDays() > 0 {
 		s.purge(ctx)
 	}
 

@@ -115,7 +115,12 @@
     "statClients": "Clientes em tempo real",
     "degradedWarning": "Um ou mais nós do cluster estão indisponíveis; os votos dos nós ausentes foram desconsiderados.",
     "checkNow": "Verificar agora",
-    "intervalLabel": "A cada {interval}"
+    "intervalLabel": "A cada {interval}",
+    "statCertificates": "Certificados",
+    "statCertificatesHint": "expirando em {days} dias",
+    "statDomains": "Domínios",
+    "statDomainsHint": "expirando em {days} dias ou expirados",
+    "clearFilter": "Limpar filtro"
   },
   "monitor": {
     "new": "Novo monitor",
@@ -223,7 +228,9 @@
     "copyGroups": "Copiar os grupos",
     "runOnSome": "Um conjunto de nós",
     "targetNodes": "Nós",
-    "runOnSomeHelp": "Ids de nó separados por vírgulas. Somente esses nós sondam o monitor e apenas eles votam pelo seu estado."
+    "runOnSomeHelp": "Ids de nó separados por vírgulas. Somente esses nós sondam o monitor e apenas eles votam pelo seu estado.",
+    "heartbeat": "Batimentos",
+    "heartbeatTitle": "Histórico de batimentos do período selecionado (uma foto, não é ao vivo)"
   },
   "monitorDetail": {
     "responseTime": "Tempo de resposta",
@@ -528,7 +535,10 @@
     "badge": "Selo (badge)",
     "badgeHelp": "Selo SVG pronto para o README do projeto.",
     "deleteTitle": "Excluir página de status",
-    "deleteWarning": "A página pública deixará de responder imediatamente."
+    "deleteWarning": "A página pública deixará de responder imediatamente.",
+    "uptimeWindow": "Período de disponibilidade",
+    "uptimeWindowHelp": "O período que esta página mostra para a disponibilidade e as barras de batimentos.",
+    "uptimeWindowInherit": "Usar o período global"
   },
   "security": {
     "title": "Segurança",
@@ -656,7 +666,21 @@
     "authMethod": "Método de autenticação",
     "clusterEnabled": "Cluster habilitado",
     "database": "Banco de dados",
-    "defaultsHelp": "Aplicado somente a quem ainda não escolheu idioma ou tema no navegador."
+    "defaultsHelp": "Aplicado somente a quem ainda não escolheu idioma ou tema no navegador.",
+    "uptimeWindow": "Período de disponibilidade",
+    "uptimeWindowHelp": "O período que o painel, a tabela de monitores e as barras de batimentos cobrem. As páginas de status podem sobrepor.",
+    "retention": "Retenção do histórico",
+    "retentionHelp": "Quanto histórico de batimentos é mantido. As linhas mais antigas são apagadas pela rotina de manutenção a cada seis horas.",
+    "retentionDays": "Retenção (dias)",
+    "retentionDaysHelp": "0 desativa a limpeza e mantém o histórico para sempre. O padrão é {days} dias.",
+    "retentionStored": "Batimentos armazenados",
+    "retentionOldest": "Batimento mais antigo",
+    "retentionWouldDelete": "Seriam apagados agora",
+    "retentionDisabled": "A limpeza automática está desativada: nada é apagado.",
+    "purgeNow": "Limpar agora",
+    "purgeTitle": "Limpar o histórico de batimentos",
+    "purgeWarning": "Todo batimento com mais de {days} dias será apagado. Isto não pode ser desfeito.",
+    "purged": "{count} batimentos apagados"
   },
   "about": {
     "title": "Sobre",

@@ -115,7 +115,12 @@
     "statClients": "Clients en direct",
     "degradedWarning": "Un ou plusieurs nœuds du cluster sont indisponibles ; les votes des nœuds manquants sont exclus.",
     "checkNow": "Vérifier maintenant",
-    "intervalLabel": "Toutes les {interval}"
+    "intervalLabel": "Toutes les {interval}",
+    "statCertificates": "Certificats",
+    "statCertificatesHint": "expirent dans {days} jours",
+    "statDomains": "Domaines",
+    "statDomainsHint": "expirent dans {days} jours ou expirés",
+    "clearFilter": "Effacer le filtre"
   },
   "monitor": {
     "new": "Nouveau moniteur",
@@ -223,7 +228,9 @@
     "copyGroups": "Copier les groupes",
     "runOnSome": "Un ensemble de nœuds",
     "targetNodes": "Nœuds",
-    "runOnSomeHelp": "Identifiants de nœuds séparés par des virgules. Seuls ces nœuds sondent le moniteur, et seuls ils votent sur son statut."
+    "runOnSomeHelp": "Identifiants de nœuds séparés par des virgules. Seuls ces nœuds sondent le moniteur, et seuls ils votent sur son statut.",
+    "heartbeat": "Battements",
+    "heartbeatTitle": "Historique des battements sur la période sélectionnée (un instantané, pas du direct)"
   },
   "monitorDetail": {
     "responseTime": "Temps de réponse",
@@ -528,7 +535,10 @@
     "badge": "Badge",
     "badgeHelp": "Badge SVG prêt à être intégré dans un README.",
     "deleteTitle": "Supprimer la page de statut",
-    "deleteWarning": "La page publique cesse de répondre immédiatement."
+    "deleteWarning": "La page publique cesse de répondre immédiatement.",
+    "uptimeWindow": "Période de disponibilité",
+    "uptimeWindowHelp": "La période affichée par cette page pour la disponibilité et les barres de battements.",
+    "uptimeWindowInherit": "Utiliser la période globale"
   },
   "security": {
     "title": "Sécurité",
@@ -583,7 +593,21 @@
     "authMethod": "Méthode d'authentification",
     "clusterEnabled": "Cluster activé",
     "database": "Base de données",
-    "defaultsHelp": "Appliqué uniquement aux visiteurs qui n'ont pas encore choisi de langue ou de thème dans leur navigateur."
+    "defaultsHelp": "Appliqué uniquement aux visiteurs qui n'ont pas encore choisi de langue ou de thème dans leur navigateur.",
+    "uptimeWindow": "Période de disponibilité",
+    "uptimeWindowHelp": "La période couverte par le tableau de bord, la table des moniteurs et les barres de battements. Les pages de statut peuvent la remplacer.",
+    "retention": "Rétention de l'historique",
+    "retentionHelp": "La quantité d'historique de battements conservée. Les lignes plus anciennes sont supprimées par la tâche de maintenance toutes les six heures.",
+    "retentionDays": "Rétention (jours)",
+    "retentionDaysHelp": "0 désactive la purge et conserve l'historique indéfiniment. La valeur par défaut est {days} jours.",
+    "retentionStored": "Battements stockés",
+    "retentionOldest": "Battement le plus ancien",
+    "retentionWouldDelete": "Seraient supprimés maintenant",
+    "retentionDisabled": "La purge automatique est désactivée : rien n'est jamais supprimé.",
+    "purgeNow": "Purger maintenant",
+    "purgeTitle": "Purger l'historique des battements",
+    "purgeWarning": "Tous les battements de plus de {days} jours seront supprimés. Cette action est irréversible.",
+    "purged": "{count} battements supprimés"
   },
   "about": {
     "title": "À propos",

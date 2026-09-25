@@ -90,7 +90,10 @@ default `shared` mode they stay empty.
 
 `monitors` gained, next to the certificate switches, the domain counterpart:
 `domain_watch`, `domain_notify`, `domain_warn_days` and the nullable
-`domain_expires_at` (the manually typed date).
+`domain_expires_at` (the manually typed date). The date is a property of the
+registrable domain: the write path mirrors it to every monitor of the same domain
+and clears the siblings when it is removed, so a domain is always ONE target in
+the expiry worklist.
 
 `monitor_domains` mirrors `monitor_certificates`:
 `monitor_id` (PK), `domain`, `registrar`, `expires_at`, `source`
@@ -108,7 +111,12 @@ others (see `internal/models/sync_payload.go`).
 
 `settings` keeps the clock preference of the UI under `time_format` (`auto`,
 `12h` or `24h`); it only affects rendering, never a stored timestamp (everything in
-the database is UTC).
+the database is UTC). It also holds the two housekeeping values edited in
+Admin > Settings: `heartbeat_retention_days` (how many days of history are kept,
+`0` = never, 180 days when the key is absent and `HEARTBEAT_RETENTION_DAYS` is
+unset) and `uptime_window_hours` (the global uptime period: `24`, `168`, `336` or
+`720`). Both are part of the federated settings whitelist, so a cluster converges
+on one policy.
 
 `whois_parsers` stores one rule per TLD: `tld` (unique, e.g. `br` or `com.br`),
 `server` (optional registry override), `expiry_regex` (RE2 with a capture group),
@@ -450,6 +458,7 @@ CREATE TABLE `status_pages` (
   `show_charts` tinyint(1) NOT NULL DEFAULT 1,
   `show_tags` tinyint(1) NOT NULL DEFAULT 0,
   `show_expiry` tinyint(1) NOT NULL DEFAULT 0,
+  `uptime_window_hours` bigint(20) NOT NULL DEFAULT 0,
   `custom_css` text DEFAULT NULL,
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
@@ -660,14 +669,34 @@ JOIN (SELECT monitor_id, node_id, MAX(id) AS max_id
 ORDER BY h.monitor_id, h.node_id;
 ```
 
-**Retention** (`HEARTBEAT_RETENTION_DAYS > 0`, executed every 6 h):
+**Compact heartbeat bars** (`internal/services/stats_series.go`, one row per
+monitor and slot, oldest first; the window follows the global uptime period):
+
+```sql
+SELECT monitor_id,
+       FLOOR(TIMESTAMPDIFF(SECOND, ?, created_at) / ?) AS bucket,
+       SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END)     AS downs,
+       SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END)     AS pendings,
+       SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END)     AS maintenances,
+       COUNT(*)                                        AS total,
+       AVG(latency_ms)                                 AS latency
+FROM heartbeats
+WHERE created_at >= ? AND monitor_id IN (?)
+GROUP BY monitor_id, bucket;
+```
+
+**Retention** (`settings.heartbeat_retention_days`, executed at boot and every
+6 h; the `HEARTBEAT_RETENTION_DAYS` environment variable is only the fallback of
+a deployment that never opened Admin > Settings):
 
 ```sql
 DELETE FROM heartbeats WHERE created_at < ?;
 ```
 
+The retention defaults to **180 days** (`0` disables the purge and keeps every
+row). Admin > Settings shows the stored count, the age of the oldest heartbeat and
+what the current policy would delete, and offers an explicit *purge now* action
+(`POST /api/admin/maintenance/heartbeats/purge`).
+
 Choosing the window: a monitor stores one row per check **per node**, so a 60 s
-interval produces ~1 440 rows/day and a cluster of two nodes doubles that. A 90
-day window keeps the charts of the dashboard complete while bounding the table
-(10 monitors on 2 nodes ≈ 2.6 M rows instead of growing forever); `0` keeps every
-heartbeat, which is the default.
+interval produces ~1 440 rows/day and a cluster of two nodes doubles that.

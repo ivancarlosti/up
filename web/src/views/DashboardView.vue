@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Search } from 'lucide-vue-next'
+import { Plus, RefreshCw } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import Alert from '@/components/ui/Alert.vue'
 import Button from '@/components/ui/Button.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
-import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Select from '@/components/ui/Select.vue'
-import MonitorCard from '@/components/monitors/MonitorCard.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
+import MonitorTable from '@/components/monitors/MonitorTable.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatRelative } from '@/lib/format'
+import { loadMonitorSort, toggleMonitorSort } from '@/lib/monitor-sort'
+import { sortMonitors } from '@/lib/sort'
+import type { MonitorSortKey } from '@/lib/sort'
 import { useMonitorStore } from '@/stores/monitors'
 import { useToastStore } from '@/stores/toast'
 import type { Monitor, MonitorPayload, MonitorTemplate, Notification } from '@/lib/types'
@@ -34,10 +36,128 @@ const removing = ref(false)
 const search = ref('')
 const typeFilter = ref('')
 
+/**
+ * The summary box currently selected: it filters the table below, and clicking
+ * the active box clears it. "all" is the neutral state.
+ */
+type SummaryBox = 'all' | 'up' | 'down' | 'degraded' | 'paused' | 'certificate' | 'domain'
+const activeBox = ref<SummaryBox>('all')
+
+/** Days before expiry that fill the certificate and domain boxes. */
+const certificateWarnDays = 7
+const domainWarnDays = 30
+
+/** The table shares its sort preference with Admin > Monitors. */
+const sort = ref(loadMonitorSort())
+
+function toggleSort(key: MonitorSortKey): void {
+  sort.value = toggleMonitorSort(sort.value, key)
+}
+
+/** selectBox selects a box, or clears it when it is already active. */
+function selectBox(box: SummaryBox): void {
+  activeBox.value = activeBox.value === box ? 'all' : box
+}
+
+const list = computed(() => monitors.monitors)
+
+/** certificatesExpiring counts the certificates that expire within the window. */
+const certificatesExpiring = computed(
+  () =>
+    list.value.filter(
+      (monitor) => typeof monitor.certificate?.days_left === 'number' && monitor.certificate.days_left <= certificateWarnDays,
+    ).length,
+)
+
+/** domainsExpiring counts the domains that expire within the window (or already did). */
+const domainsExpiring = computed(
+  () =>
+    list.value.filter((monitor) => {
+      if (monitor.domain?.status !== 'ok' || typeof monitor.domain.days_left !== 'number') return false
+      // A negative value is an expired domain: it must be counted too.
+      return monitor.domain.days_left <= domainWarnDays
+    }).length,
+)
+
+/** matchesBox applies the selected summary box to one monitor. */
+function matchesBox(monitor: Monitor): boolean {
+  switch (activeBox.value) {
+    case 'up':
+      return monitor.active && monitor.status === 'up'
+    case 'down':
+      return monitor.active && monitor.status === 'down'
+    case 'degraded':
+      return monitor.active && monitor.status === 'degraded'
+    case 'paused':
+      return !monitor.active
+    case 'certificate':
+      return typeof monitor.certificate?.days_left === 'number' && monitor.certificate.days_left <= certificateWarnDays
+    case 'domain':
+      return (
+        monitor.domain?.status === 'ok' &&
+        typeof monitor.domain.days_left === 'number' &&
+        monitor.domain.days_left <= domainWarnDays
+      )
+    default:
+      return true
+  }
+}
+
+/**
+ * The summary boxes. The status counters and the two expiry counters double as
+ * filters, so the table below always answers "what is inside this number?".
+ */
+const boxes = computed(() => [
+  { key: 'all' as SummaryBox, label: t('dashboard.statTotal'), value: list.value.length, tone: 'text-foreground', caption: '' },
+  {
+    key: 'up' as SummaryBox,
+    label: t('dashboard.statUp'),
+    value: list.value.filter((m) => m.active && m.status === 'up').length,
+    tone: 'text-status-up',
+    caption: '',
+  },
+  {
+    key: 'down' as SummaryBox,
+    label: t('dashboard.statDown'),
+    value: list.value.filter((m) => m.active && m.status === 'down').length,
+    tone: 'text-status-down',
+    caption: '',
+  },
+  {
+    key: 'degraded' as SummaryBox,
+    label: t('dashboard.statDegraded'),
+    value: list.value.filter((m) => m.active && m.status === 'degraded').length,
+    tone: 'text-status-degraded',
+    caption: '',
+  },
+  {
+    key: 'paused' as SummaryBox,
+    label: t('dashboard.statPaused'),
+    value: list.value.filter((m) => !m.active).length,
+    tone: 'text-muted-foreground',
+    caption: '',
+  },
+  {
+    key: 'certificate' as SummaryBox,
+    label: t('dashboard.statCertificates'),
+    value: certificatesExpiring.value,
+    tone: 'text-status-degraded',
+    caption: t('dashboard.statCertificatesHint', { days: certificateWarnDays }),
+  },
+  {
+    key: 'domain' as SummaryBox,
+    label: t('dashboard.statDomains'),
+    value: domainsExpiring.value,
+    tone: 'text-status-down',
+    caption: t('dashboard.statDomainsHint', { days: domainWarnDays }),
+  },
+])
+
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase()
-  return monitors.sorted.filter((monitor) => {
+  return list.value.filter((monitor) => {
     if (typeFilter.value && monitor.type !== typeFilter.value) return false
+    if (!matchesBox(monitor)) return false
     if (!term) return true
     return (
       monitor.name.toLowerCase().includes(term) ||
@@ -46,6 +166,15 @@ const filtered = computed(() => {
     )
   })
 })
+
+const sorted = computed(() =>
+  sortMonitors(filtered.value, sort.value.key, sort.value.direction, {
+    // The dashboard does not load the group list; the group column falls back to
+    // the name order, which is what the admin table does too for ungrouped rows.
+    groupNames: new Map<number, string>(),
+    locale: locale.value,
+  }),
+)
 
 const typeOptions = computed(() => [
   { value: '', label: t('dashboard.allTypes') },
@@ -176,7 +305,7 @@ onMounted(async () => {
       </div>
       <div class="flex items-center gap-2">
         <Button variant="outline" size="sm" @click="load">
-          <Search class="h-3.5 w-3.5" aria-hidden="true" />
+          <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('common.refresh') }}
         </Button>
         <Button size="sm" @click="openCreate">
@@ -186,32 +315,21 @@ onMounted(async () => {
       </div>
     </header>
 
-    <dl class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
-        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statTotal') }}</dt>
-        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums">{{ monitors.summary?.total ?? 0 }}</dd>
-      </div>
-      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
-        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statUp') }}</dt>
-        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums text-status-up">{{ monitors.summary?.up ?? 0 }}</dd>
-      </div>
-      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
-        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statDown') }}</dt>
-        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums text-status-down">{{ monitors.summary?.down ?? 0 }}</dd>
-      </div>
-      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
-        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statDegraded') }}</dt>
-        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums text-status-degraded">{{ monitors.summary?.degraded ?? 0 }}</dd>
-      </div>
-      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
-        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statHeartbeats') }}</dt>
-        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums">{{ monitors.summary?.heartbeats_1h ?? 0 }}</dd>
-      </div>
-      <div class="rounded-xl border border-border bg-card px-4 py-3.5">
-        <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t('dashboard.statClients') }}</dt>
-        <dd class="mt-2 text-xl font-semibold leading-none tabular-nums">{{ monitors.summary?.ws_clients ?? 0 }}</dd>
-      </div>
-    </dl>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+      <button
+        v-for="box in boxes"
+        :key="box.key"
+        type="button"
+        class="rounded-xl border px-4 py-3.5 text-start transition-colors"
+        :class="activeBox === box.key ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'"
+        :aria-pressed="activeBox === box.key"
+        @click="selectBox(box.key)"
+      >
+        <span class="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ box.label }}</span>
+        <span class="mt-2 block text-xl font-semibold leading-none tabular-nums" :class="box.tone">{{ box.value }}</span>
+        <span v-if="box.caption" class="mt-1 block text-[10px] text-muted-foreground">{{ box.caption }}</span>
+      </button>
+    </div>
 
     <Alert v-if="degradedNodes.length" variant="warning">
       {{ t('dashboard.degradedWarning') }} ({{ degradedNodes.join(', ') }})
@@ -220,30 +338,35 @@ onMounted(async () => {
     <div class="flex flex-wrap items-center gap-2">
       <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
       <Select v-model="typeFilter" :options="typeOptions" class="max-w-[12rem]" />
+      <Button v-if="activeBox !== 'all'" variant="outline" size="sm" @click="activeBox = 'all'">
+        {{ t('dashboard.clearFilter') }}
+      </Button>
       <span class="ms-auto text-[11px] text-muted-foreground">
         {{ t('common.lastCheck') }}: {{ formatRelative(monitors.summary ? new Date().toISOString() : null, locale) }}
       </span>
     </div>
 
-    <EmptyState v-if="!monitors.loading && filtered.length === 0" :title="t('dashboard.empty')" :description="t('dashboard.emptyHint')">
-      <Button size="sm" @click="openCreate">
-        <Plus class="h-3.5 w-3.5" aria-hidden="true" />
-        {{ t('dashboard.addMonitor') }}
-      </Button>
-    </EmptyState>
-
-    <div v-else class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <MonitorCard
-        v-for="monitor in filtered"
-        :key="monitor.id"
-        :monitor="monitor"
-        @open="openDetail"
-        @edit="openEdit"
-        @toggle="toggle"
-        @check="checkNow"
-        @remove="askRemove"
-      />
-    </div>
+    <MonitorTable
+      :monitors="sorted"
+      :sort="sort"
+      :loading="monitors.loading"
+      :actions="['detail', 'check', 'toggle', 'edit', 'remove']"
+      :empty-title="t('dashboard.empty')"
+      :empty-description="t('dashboard.emptyHint')"
+      @sort="toggleSort"
+      @detail="openDetail"
+      @check="checkNow"
+      @toggle="toggle"
+      @edit="openEdit"
+      @remove="askRemove"
+    >
+      <template #empty>
+        <Button size="sm" @click="openCreate">
+          <Plus class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('dashboard.addMonitor') }}
+        </Button>
+      </template>
+    </MonitorTable>
 
     <MonitorForm
       v-model="formOpen"

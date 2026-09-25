@@ -89,36 +89,39 @@ func TestPlanExpiryTargetsIsDeterministic(t *testing.T) {
 }
 
 // TestPlanExpiryTargetsManualDate covers the escape hatch for the TLDs that
-// publish no date: the typed date forms its own target and needs no lookup.
+// publish no date: a manual date never splits a domain into two targets, it
+// marks the SINGLE target of that domain (the write path mirrors the value to
+// every monitor of the domain, so the two cannot disagree).
 func TestPlanExpiryTargetsManualDate(t *testing.T) {
 	manual := time.Date(2027, 5, 1, 0, 0, 0, 0, time.UTC)
 	monitors := []*models.Monitor{
 		{
 			ID: 1, Name: "manual", Type: models.MonitorTypeHTTP, DomainWatch: true,
-			DomainExpiresAt: &manual, Config: models.MonitorConfig{URL: "https://example.com"},
+			DomainExpiresAt: &manual, Config: models.MonitorConfig{URL: "https://www.example.com"},
 		},
 		{
 			ID: 2, Name: "lookup", Type: models.MonitorTypeHTTP, DomainWatch: true,
-			Config: models.MonitorConfig{URL: "https://example.com"},
+			Config: models.MonitorConfig{URL: "https://app.example.com"},
 		},
 	}
 
-	manualCount, lookupCount := 0, 0
-	for _, target := range planExpiryTargets(monitors).targets() {
-		if target.Kind != ExpiryTargetDomain || target.Key != "example.com" {
-			t.Fatalf("unexpected target %v", target)
-		}
-		if len(target.Monitors) != 1 {
-			t.Fatalf("monitors = %v, want one per target", target.Monitors)
-		}
-		if target.Manual {
-			manualCount++
-		} else {
-			lookupCount++
-		}
+	plan := planExpiryTargets(monitors)
+	targets := plan.targets()
+	if len(targets) != 1 {
+		t.Fatalf("targets = %v, want one for the domain", targets)
 	}
-	if manualCount != 1 || lookupCount != 1 {
-		t.Fatalf("manual = %d, lookup = %d, want 1 and 1", manualCount, lookupCount)
+	target := targets[0]
+	if target.Kind != ExpiryTargetDomain || target.Key != "example.com" {
+		t.Fatalf("unexpected target %v", target)
+	}
+	if !target.Manual {
+		t.Fatalf("a domain with a manual date must be marked manual: %v", target)
+	}
+	if len(target.Monitors) != 2 {
+		t.Fatalf("monitors = %v, want the two monitors of the domain", target.Monitors)
+	}
+	if date := plan.manualDate("example.com"); date == nil || !date.Equal(manual) {
+		t.Fatalf("manualDate = %v, want %v", date, manual)
 	}
 }
 

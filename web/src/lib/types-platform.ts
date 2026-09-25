@@ -196,6 +196,11 @@ export interface StatusPage {
   show_tags: boolean
   /** Publishes the certificate/domain badges of the monitors on the page. */
   show_expiry: boolean
+  /**
+   * Period the page shows the uptime and the bars for (24, 168, 336 or 720
+   * hours). 0 inherits the global window from Admin > Settings.
+   */
+  uptime_window_hours: number
   custom_css: string
   created_at: string
   updated_at: string
@@ -285,6 +290,10 @@ export interface PublicSettings {
   cluster_enabled: boolean
   node_id: string
   node_name: string
+  /** Global uptime window in hours (24, 168, 336 or 720). */
+  uptime_window_hours: number
+  /** Every window the settings page offers. */
+  uptime_windows: number[]
 }
 
 export interface SessionResponse {
@@ -311,6 +320,37 @@ export interface AdminSettings {
   cluster_enabled: boolean
   version: string
   settings: Record<string, string>
+  /** Days of heartbeat history kept (0 = never purge). */
+  heartbeat_retention_days: number
+  /** The documented default, shown as the placeholder. */
+  default_retention_days: number
+  /** Upper bound accepted by the API. */
+  max_retention_days: number
+  /** Global uptime window in hours (24, 168, 336 or 720). */
+  uptime_window_hours: number
+  /** Every window the settings page offers. */
+  uptime_windows: number[]
+}
+
+/** Response of GET /api/admin/maintenance/heartbeats. */
+export interface HeartbeatRetentionStats {
+  retention_days: number
+  default_days: number
+  max_days: number
+  total: number
+  oldest: string | null
+  newest: string | null
+  /** Heartbeats a purge with the current policy would delete. */
+  would_delete: number
+  /** Timestamp of the cut-off (absent when retention is 0). */
+  cutoff?: string
+}
+
+/** Response of POST /api/admin/maintenance/heartbeats/purge. */
+export interface HeartbeatPurgeResult {
+  deleted: number
+  days: number
+  before: string
 }
 
 /** ExpirySettings is the daily certificate/domain job configuration. */

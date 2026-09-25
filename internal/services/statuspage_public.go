@@ -140,7 +140,7 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 		ordered = append(ordered, monitor)
 	}
 
-	if err := s.monitors.Decorate(ctx, ordered); err != nil {
+	if err := s.monitors.DecorateWithWindow(ctx, ordered, page.EffectiveUptimeWindow(s.monitors.uptimeWindowHours())); err != nil {
 		return nil, err
 	}
 

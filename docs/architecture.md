@@ -248,8 +248,15 @@ Every failure answers with a stable code that the frontend translates:
 ## 11. Performance notes
 
 - Heartbeat volume: one row per monitor per interval per node. At 60 s a single
-  monitor produces ~1 440 rows/day per node; use `HEARTBEAT_RETENTION_DAYS` to
-  bound growth (purge every 6 h).
+  monitor produces ~1 440 rows/day per node; the retention setting
+  (`settings.heartbeat_retention_days`, **180 days by default**, `0` = never) bounds
+  growth (purge at boot and every 6 h). `HEARTBEAT_RETENTION_DAYS` is only the
+  fallback of a deployment that never opened Admin > Settings.
+- The dashboard uses four grouped queries (`History`, `RecentBars`,
+  `LatestPerMonitor`, `LatestPerNode`) and never a query per heartbeat: the
+  bucketed heartbeat column of the table is bounded by monitors x slots, and the
+  uptime window (including 14 d) is computed by the same scan as the fixed
+  24 h/7 d/30 d figures.
 - The dashboard uses three grouped queries (`Windows`, `LatestPerMonitor`,
   `LatestPerNode`) plus one query per monitor for the bars (`Series`) - never a
   query per heartbeat.

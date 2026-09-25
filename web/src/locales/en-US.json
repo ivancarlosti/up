@@ -115,7 +115,12 @@
     "statClients": "Live clients",
     "degradedWarning": "One or more cluster nodes are unavailable; the votes of the missing nodes are excluded.",
     "checkNow": "Check now",
-    "intervalLabel": "Every {interval}"
+    "intervalLabel": "Every {interval}",
+    "statCertificates": "Certificates",
+    "statCertificatesHint": "expiring in {days} days",
+    "statDomains": "Domains",
+    "statDomainsHint": "expiring in {days} days or expired",
+    "clearFilter": "Clear filter"
   },
   "monitor": {
     "new": "New monitor",
@@ -223,7 +228,9 @@
     "copyGroups": "Copy the groups",
     "runOnSome": "A set of nodes",
     "targetNodes": "Nodes",
-    "runOnSomeHelp": "Comma separated node ids. Only these nodes probe the monitor, and only they vote on its status."
+    "runOnSomeHelp": "Comma separated node ids. Only these nodes probe the monitor, and only they vote on its status.",
+    "heartbeat": "Heartbeat",
+    "heartbeatTitle": "Heartbeat history of the selected period (a snapshot, not live)"
   },
   "monitorDetail": {
     "responseTime": "Response time",
@@ -528,7 +535,10 @@
     "badge": "Badge",
     "badgeHelp": "SVG badge ready to be embedded in a README.",
     "deleteTitle": "Delete status page",
-    "deleteWarning": "The public page stops responding immediately."
+    "deleteWarning": "The public page stops responding immediately.",
+    "uptimeWindow": "Uptime period",
+    "uptimeWindowHelp": "The period this page shows the uptime and the heartbeat bars for.",
+    "uptimeWindowInherit": "Use the global period"
   },
   "security": {
     "title": "Security",
@@ -656,7 +666,21 @@
     "authMethod": "Authentication method",
     "clusterEnabled": "Cluster enabled",
     "database": "Database",
-    "defaultsHelp": "Applied only to visitors who have not chosen a language or theme in their browser yet."
+    "defaultsHelp": "Applied only to visitors who have not chosen a language or theme in their browser yet.",
+    "uptimeWindow": "Uptime period",
+    "uptimeWindowHelp": "The period the dashboard, the monitors table and the heartbeat bars cover. Status pages can override it.",
+    "retention": "History retention",
+    "retentionHelp": "How much heartbeat history is kept. Older rows are deleted by the housekeeping job every six hours.",
+    "retentionDays": "Retention (days)",
+    "retentionDaysHelp": "0 disables the purge and keeps the history forever. The default is {days} days.",
+    "retentionStored": "Heartbeats stored",
+    "retentionOldest": "Oldest heartbeat",
+    "retentionWouldDelete": "Would be deleted now",
+    "retentionDisabled": "The automatic purge is disabled: nothing is ever deleted.",
+    "purgeNow": "Purge now",
+    "purgeTitle": "Purge the heartbeat history",
+    "purgeWarning": "Every heartbeat older than {days} days is deleted. This cannot be undone.",
+    "purged": "{count} heartbeats deleted"
   },
   "about": {
     "title": "About",

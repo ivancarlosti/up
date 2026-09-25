@@ -37,6 +37,10 @@ type StatusPage struct {
 	// the page. It is opt-in on purpose: the expiry of a domain is business
 	// information, not a status everybody who can see the page needs.
 	ShowExpiry bool `gorm:"not null;default:false" json:"show_expiry"`
+	// UptimeWindowHours is the period this page shows the uptime percentage and
+	// the heartbeat bars for. 0 means "inherit the global window"
+	// (Admin > Settings), which is what keeps a page in step with the dashboard.
+	UptimeWindowHours int `gorm:"not null;default:0" json:"uptime_window_hours"`
 	// CustomCSS is injected in the public page (advanced users only).
 	CustomCSS string `gorm:"type:text" json:"custom_css"`
 
@@ -62,6 +66,15 @@ func (p *StatusPage) BeforeCreate(tx *gorm.DB) error {
 		p.Revision = 1
 	}
 	return nil
+}
+
+// EffectiveUptimeWindow returns the period this page shows, falling back to the
+// global one (Admin > Settings) when the page does not override it.
+func (p *StatusPage) EffectiveUptimeWindow(globalHours int) int {
+	if p.UptimeWindowHours > 0 {
+		return NormalizeUptimeWindowHours(p.UptimeWindowHours)
+	}
+	return NormalizeUptimeWindowHours(globalHours)
 }
 
 // StatusPageMonitor links a monitor to a status page, optionally renaming it

@@ -394,7 +394,11 @@ smallest one the reminder repeats **once a day**. The events are
 
 1. **Manual date** — `domain_expires_at` in the monitor form (a calendar). When
    set it wins, and no network lookup runs. Use it for the TLDs that publish no
-   date at all.
+   date at all. The date belongs to the **registrable domain**, not to the monitor
+   that typed it: saving it mirrors the value to every monitor of the same domain
+   (`app.example.com` and `www.example.com` share it), and clearing it clears the
+   siblings. A domain is therefore always ONE row in the expiry worklist, marked
+   `manual date`, whichever of its monitors carries the date.
 2. **RDAP** — the IANA bootstrap (`https://data.iana.org/rdap/dns.json`) says
    whether the TLD has RDAP; when it does, the registry answers the `expiration`
    event (and the registrar) on `<bootstrap-base>/domain/<name>` (the bootstrap
@@ -431,10 +435,10 @@ would iterate (both are built from the same planner), and
 through the same resolver, rate limit and reminder evaluation as the daily job —
 so a manual check cannot produce a different observation than the scheduled one.
 
-A row whose only source is the date typed in the monitor form is marked
+A row whose domain has a manual date (typed in any of its monitors) is marked
 `manual date`: it is still listed (the operator must see it) but no network
 lookup happens for it. `kind` is `certificate` (key `host:port|sni`) or `domain`
-(key is the registrable domain).
+(key is the registrable domain) — one row per domain, whatever its monitors.
 
 ## 11. The `ssl` monitor type
 
@@ -506,13 +510,13 @@ exist.
 | Bulk add / bulk edit dialogs | `web/src/components/monitors/BulkAddDialog.vue` (`ApplyTemplateDialog.vue`) |
 | Target fields per type | `web/src/components/monitors/MonitorConfigFields.vue` |
 | Type aware payload pruning | `web/src/lib/monitor-config.ts` |
-| Card with status/uptime/bars | `web/src/components/monitors/MonitorCard.vue` |
 | Status badge | `web/src/components/monitors/StatusBadge.vue` |
-| Heartbeat bars | `web/src/components/monitors/HeartbeatBars.vue` (`HeartbeatBar.vue`) |
+| Shared monitors table (dashboard + admin) | `web/src/components/monitors/MonitorTable.vue` |
+| Heartbeat bars | `web/src/components/monitors/HeartbeatBar.vue` (series) and `HeartbeatSparkline.vue` (bucketed column) |
 | Detail page (stats + events + votes + expiry badges) | `web/src/views/MonitorDetailView.vue` |
 | Table listing (sortable, expiry columns) | `web/src/views/admin/AdminMonitorsView.vue` |
 | Sortable header widget | `web/src/components/ui/SortHeader.vue` |
-| Table sorting rules | `web/src/lib/sort.ts` |
+| Table sorting rules | `web/src/lib/sort.ts` (`lib/monitor-sort.ts` for the remembered state) |
 | Expiry badge colour/tooltip | `web/src/lib/expiry.ts` |
 | Daily job + TLD rules + target list | `web/src/views/admin/AdminExpiryView.vue` |
 | Public status page | `web/src/views/StatusPagePublicView.vue` |
@@ -539,11 +543,29 @@ All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
 
 ### Sorting the monitors table
 
-Every column of Admin > Monitors except *Actions* is a sort button: name, type,
-groups, certificate, domain, status, interval and uptime. Clicking a header sorts
+Every column of the shared monitors table (dashboard and Admin > Monitors) except
+*Actions* and *Heartbeat* is a sort button: name, type, groups, certificate,
+domain, status, interval and uptime. Clicking a header sorts
 ascending, clicking it again reverses the direction; the choice is remembered per
 browser (`localStorage`, key `up.admin.monitors.sort`) and announced to screen
-readers through `aria-sort`.
+readers through `aria-sort`. The persistence lives in `web/src/lib/monitor-sort.ts`,
+the comparators in `web/src/lib/sort.ts`.
+
+### Uptime period and the heartbeat column
+
+The uptime percentage follows one window: `24`, `168` (7 d), `336` (14 d) or
+`720` (30 d) hours. Admin > Settings holds the global value (it applies to the
+dashboard, the table, the detail page and the compact heartbeat column); a public
+status page can override it per page, and the monitor detail page offers a period
+selector. The backend fills both `uptime`/`uptime_hours` (the selected window) and
+the fixed `uptime_24h`/`uptime_7d`/`uptime_30d` columns of the public API, with a
+single grouped query (`StatsService.History`).
+
+The *Heartbeat* column draws a bucketed snapshot of the same window
+(`StatsService.RecentBars`: one grouped query bounded by monitors x 30 slots,
+never a query per monitor and never updated live), so the column stays cheap even
+on a large installation. An empty slot (paused monitor, or a gap in the history)
+is drawn in the muted "no data" colour.
 
 The rules (`web/src/lib/sort.ts`):
 

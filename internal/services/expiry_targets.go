@@ -70,8 +70,24 @@ type ExpiryTarget struct {
 type expiryPlan struct {
 	certificates map[string]expiry.CertificateTarget
 	certWatchers map[string][]*models.Monitor
-	domains      map[string][]*models.Monitor
-	manual       map[string][]*models.Monitor
+	// domains groups every monitor that watches the same registrable domain,
+	// whether it typed a manual date or not: the domain is ONE unit of work, so
+	// Admin > TLD/SSL expiration renders a single row for it.
+	domains map[string][]*models.Monitor
+	// manual records the manual expiration date of a domain, when at least one
+	// of its monitors has one. The date wins over RDAP and WHOIS for every
+	// monitor of the domain (the value is mirrored to the siblings on save, so
+	// the two can no longer disagree).
+	manual map[string]time.Time
+}
+
+// manualDate returns the manual expiration date of a domain (nil when none).
+func (p expiryPlan) manualDate(domain string) *time.Time {
+	date, ok := p.manual[domain]
+	if !ok {
+		return nil
+	}
+	return &date
 }
 
 // planExpiryTargets groups the watchers by the target they share.
@@ -83,7 +99,7 @@ func planExpiryTargets(monitors []*models.Monitor) expiryPlan {
 		certificates: map[string]expiry.CertificateTarget{},
 		certWatchers: map[string][]*models.Monitor{},
 		domains:      map[string][]*models.Monitor{},
-		manual:       map[string][]*models.Monitor{},
+		manual:       map[string]time.Time{},
 	}
 	for _, monitor := range monitors {
 		if monitor == nil {
@@ -103,9 +119,15 @@ func planExpiryTargets(monitors []*models.Monitor) expiryPlan {
 		if domain == "" {
 			continue
 		}
+		// A manual date is a property of the DOMAIN, not of the monitor that
+		// typed it: it must never split the target in two. The latest date wins
+		// when legacy rows disagree (the write path mirrors the value to the
+		// siblings from now on).
 		if monitor.DomainExpiresAt != nil && !monitor.DomainExpiresAt.IsZero() {
-			plan.manual[domain] = append(plan.manual[domain], monitor)
-			continue
+			date := monitor.DomainExpiresAt.UTC()
+			if current, ok := plan.manual[domain]; !ok || date.After(current) {
+				plan.manual[domain] = date
+			}
 		}
 		plan.domains[domain] = append(plan.domains[domain], monitor)
 	}
@@ -127,21 +149,13 @@ func (p expiryPlan) targets() []ExpiryTarget {
 		})
 	}
 	for domain, monitors := range p.domains {
+		_, manual := p.manual[domain]
 		out = append(out, ExpiryTarget{
 			Kind:     ExpiryTargetDomain,
 			Key:      domain,
 			Label:    domain,
 			Domain:   domain,
-			Monitors: targetMonitors(monitors),
-		})
-	}
-	for domain, monitors := range p.manual {
-		out = append(out, ExpiryTarget{
-			Kind:     ExpiryTargetDomain,
-			Key:      domain,
-			Label:    domain,
-			Domain:   domain,
-			Manual:   true,
+			Manual:   manual,
 			Monitors: targetMonitors(monitors),
 		})
 	}
@@ -285,15 +299,13 @@ func (s *ExpiryService) RunTarget(ctx context.Context, kind ExpiryTargetKind, ke
 		return refreshed, nil
 	}
 
-	monitors, manual := run.plan.domains[key], false
-	if len(monitors) == 0 {
-		monitors, manual = run.plan.manual[key], true
-	}
+	monitors := run.plan.domains[key]
 	if len(monitors) == 0 {
 		return 0, ErrNotFound(i18n.CodeNotFound, "no domain target "+key)
 	}
-	refreshed := s.refreshDomain(ctx, key, monitors, manual, now)
-	s.log.Info("expiry target refreshed", "kind", kind, "target", key, "manual", manual, "monitors", refreshed)
+	manualDate := run.plan.manualDate(key)
+	refreshed := s.refreshDomain(ctx, key, monitors, manualDate, now)
+	s.log.Info("expiry target refreshed", "kind", kind, "target", key, "manual", manualDate != nil, "monitors", refreshed)
 	return refreshed, nil
 }
 

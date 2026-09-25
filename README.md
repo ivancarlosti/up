@@ -32,7 +32,8 @@ of nodes that vote on the real status.
 |---|---|
 | **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, cache buster, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) |
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
-| **Dashboard** | live status via WebSocket, 24 h uptime, latency, heartbeat bars, per-node breakdown, monitor detail with statistics and event log, and a **sortable monitors table** (name, type, group, status, interval, uptime, certificate/domain expiry) |
+| **Dashboard** | actionable summary boxes (status counters plus *certificates expiring in 7 days* and *domains expiring in 30 days or expired*) that filter the **shared sortable monitors table** (name, type, group, status, interval, uptime over a selectable period, certificate/domain expiry and a bucketed heartbeat sparkline), live status via WebSocket, per-node breakdown and a monitor detail with statistics and an event log |
+| **Uptime window & history** | one global period (24 h / 7 d / 14 d / 30 d) drives the dashboard, the monitors table, the detail page and the heartbeat sparkline, with a per status page override; heartbeat history is pruned by a configurable retention (**180 days by default**, `0` = never) with a preview and a *purge now* button in Admin > Settings |
 | **Groups & clones** | named groups of monitors (filter, shallow/deep clone), monitor clone, groups drive the status pages |
 | **Templates & bulk** | reusable monitor templates of **every type** (`http`, `keyword`, `tcp`, `dns`, `ssl`), add monitors by pasting `name,target[,type,...]` (per row report, duplicates skipped, a row can override the type of its template), a bulk edit with a diff preview and monitors that **follow** a template (editing it pushes the defaults to every linked monitor; groups and tags stay untouched) |
 | **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge on the dashboard/detail/admin list, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
@@ -152,9 +153,9 @@ NODE_ID=up-node-1
 NODE_NAME=Primary Node
 CLUSTER_PRIVATE_KEY=                   # generated on the first boot
 
-# optional retention (both disabled by default: nothing is deleted for you)
-# HEARTBEAT_RETENTION_DAYS=30          # prune the heartbeat history
-# NOTIFICATION_LOG_RETENTION_DAYS=90   # prune the delivery history
+# retention (Admin > Settings holds the live values)
+# HEARTBEAT_RETENTION_DAYS=30          # fallback when the setting is absent; the setting defaults to 180 days, 0 = never
+# NOTIFICATION_LOG_RETENTION_DAYS=90   # prune the delivery history (environment only, disabled by default)
 ```
 
 ## Public API and status pages

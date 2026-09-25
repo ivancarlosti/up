@@ -129,6 +129,16 @@ export interface Monitor {
   uptime_24h: number
   uptime_7d: number
   uptime_30d: number
+  /** Uptime over the configured window (see `uptime_hours`). */
+  uptime: number
+  /** The window `uptime` covers: 24, 168, 336 or 720 hours. */
+  uptime_hours: number
+  /**
+   * Compact, bucketed heartbeat history for the monitors table: one status per
+   * slot, oldest first, empty string when the slot saw no heartbeat. It is a
+   * snapshot (never updated live) so the column stays cheap to render.
+   */
+  heartbeat_bars?: string[]
   heartbeats?: HeartbeatSummary[]
   votes?: NodeVote[]
   notification_ids: number[]

@@ -49,6 +49,25 @@ export function formatUptime(value: number, digits = 2): string {
   return `${value.toFixed(digits)}%`
 }
 
+/**
+ * formatUptimeWindow renders the period an uptime figure covers, matching the
+ * labels the backend accepts (24h, 7d, 14d, 30d).
+ */
+export function formatUptimeWindow(hours: number): string {
+  switch (hours) {
+    case 168:
+      return '7d'
+    case 336:
+      return '14d'
+    case 720:
+      return '30d'
+    case 24:
+      return '24h'
+  }
+  if (hours > 0 && hours % 24 === 0) return `${hours / 24}d`
+  return `${hours}h`
+}
+
 /** formatLatency renders a latency in milliseconds with the right unit. */
 export function formatLatency(milliseconds: number): string {
   if (!milliseconds || milliseconds <= 0) return '—'

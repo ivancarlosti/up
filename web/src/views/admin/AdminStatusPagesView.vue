@@ -16,6 +16,7 @@ import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { uptimeWindowOptionsWithInherit } from '@/lib/uptime-window'
 import { copyToClipboard } from '@/lib/utils'
 import { useToastStore } from '@/stores/toast'
 import type { Monitor, MonitorGroup, StatusPage } from '@/lib/types'
@@ -41,6 +42,17 @@ const themeOptions = computed(() => [
   { value: 'dark', label: t('settings.themeDark') },
 ])
 
+/** The uptime periods a page may show; 0 keeps the global one. */
+const windowOptions = computed(() => uptimeWindowOptionsWithInherit(t('statusPages.uptimeWindowInherit')))
+
+/** uptimeWindow adapts the numeric window to the string Select. */
+const uptimeWindow = computed({
+  get: () => String(form.value.uptime_window_hours ?? 0),
+  set: (value: string) => {
+    form.value.uptime_window_hours = Number(value)
+  },
+})
+
 function blank(): Partial<StatusPage> {
   return {
     slug: '',
@@ -53,6 +65,7 @@ function blank(): Partial<StatusPage> {
     show_charts: true,
     show_tags: false,
     show_expiry: false,
+    uptime_window_hours: 0,
     custom_css: '',
   }
 }
@@ -232,6 +245,12 @@ onMounted(load)
         <div class="grid gap-1">
           <Label for="page-footer">{{ t('statusPages.footer') }}</Label>
           <Input id="page-footer" v-model="form.footer_text" />
+        </div>
+        <div class="grid gap-1">
+          <Label for="page-uptime-window" :help="t('statusPages.uptimeWindowHelp')">
+            {{ t('statusPages.uptimeWindow') }}
+          </Label>
+          <Select id="page-uptime-window" v-model="uptimeWindow" :options="windowOptions" />
         </div>
         <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
           <Switch v-model="form.is_public as boolean">{{ t('statusPages.isPublic') }}</Switch>

@@ -166,16 +166,25 @@ type Monitor struct {
 	// Runtime fields: computed per request by the services and never stored
 	// in the monitors table (GORM ignores them).
 	// ---------------------------------------------------------------------
-	Status          AggregateStatus    `gorm:"-" json:"status"`
-	LastCheckAt     *time.Time         `gorm:"-" json:"last_check_at"`
-	LastLatencyMS   int64              `gorm:"-" json:"last_latency_ms"`
-	Uptime24h       float64            `gorm:"-" json:"uptime_24h"`
-	Uptime7d        float64            `gorm:"-" json:"uptime_7d"`
-	Uptime30d       float64            `gorm:"-" json:"uptime_30d"`
-	Heartbeats      []HeartbeatSummary `gorm:"-" json:"heartbeats,omitempty"`
-	Votes           []NodeVote         `gorm:"-" json:"votes,omitempty"`
-	NotificationIDs []uint             `gorm:"-" json:"notification_ids"`
-	GroupIDs        []uint             `gorm:"-" json:"group_ids"`
+	Status        AggregateStatus `gorm:"-" json:"status"`
+	LastCheckAt   *time.Time      `gorm:"-" json:"last_check_at"`
+	LastLatencyMS int64           `gorm:"-" json:"last_latency_ms"`
+	Uptime24h     float64         `gorm:"-" json:"uptime_24h"`
+	Uptime7d      float64         `gorm:"-" json:"uptime_7d"`
+	Uptime30d     float64         `gorm:"-" json:"uptime_30d"`
+	// Uptime and UptimeHours are the percentage over the configured window
+	// (Admin > Settings, or the per status page override) and the window itself:
+	// they are what the dashboard, the monitors table and the status pages read.
+	// The fixed 24h/7d/30d fields above stay for the public API.
+	Uptime      float64            `gorm:"-" json:"uptime"`
+	UptimeHours int                `gorm:"-" json:"uptime_hours"`
+	Heartbeats  []HeartbeatSummary `gorm:"-" json:"heartbeats,omitempty"`
+	// HeartbeatBars is the compact, bucketed history drawn in the monitors
+	// table: one status per slot, oldest first, "" for a slot without data.
+	HeartbeatBars   []string   `gorm:"-" json:"heartbeat_bars,omitempty"`
+	Votes           []NodeVote `gorm:"-" json:"votes,omitempty"`
+	NotificationIDs []uint     `gorm:"-" json:"notification_ids"`
+	GroupIDs        []uint     `gorm:"-" json:"group_ids"`
 	// Certificate is the last TLS certificate read by a probe (only when the
 	// monitor watches its certificate).
 	Certificate *CertificateInfo `gorm:"-" json:"certificate,omitempty"`

@@ -83,6 +83,11 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	admin.GET("/admin/settings", h.adminSettings)
 	admin.PUT("/admin/settings", h.updateAdminSettings)
 
+	// History housekeeping: what is stored and the explicit purge action.
+	maintenance := admin.Group("/admin/maintenance")
+	maintenance.GET("/heartbeats", h.heartbeatRetentionPreview)
+	maintenance.POST("/heartbeats/purge", h.purgeHeartbeats)
+
 	expiry := admin.Group("/admin/expiry")
 	expiry.GET("", h.expirySettings)
 	expiry.PUT("", h.updateExpirySettings)

@@ -115,7 +115,12 @@
     "statClients": "Clientes en vivo",
     "degradedWarning": "Uno o más nodos del clúster no están disponibles; los votos de los nodos ausentes se descartaron.",
     "checkNow": "Verificar ahora",
-    "intervalLabel": "Cada {interval}"
+    "intervalLabel": "Cada {interval}",
+    "statCertificates": "Certificados",
+    "statCertificatesHint": "vencen en {days} días",
+    "statDomains": "Dominios",
+    "statDomainsHint": "vencen en {days} días o vencidos",
+    "clearFilter": "Limpiar filtro"
   },
   "monitor": {
     "new": "Nuevo monitor",
@@ -223,7 +228,9 @@
     "copyGroups": "Copiar los grupos",
     "runOnSome": "Un conjunto de nodos",
     "targetNodes": "Nodos",
-    "runOnSomeHelp": "Ids de nodo separados por comas. Solo estos nodos sondean el monitor y solo ellos votan por su estado."
+    "runOnSomeHelp": "Ids de nodo separados por comas. Solo estos nodos sondean el monitor y solo ellos votan por su estado.",
+    "heartbeat": "Pulsos",
+    "heartbeatTitle": "Historial de pulsos del periodo seleccionado (una captura, no es en vivo)"
   },
   "monitorDetail": {
     "responseTime": "Tiempo de respuesta",
@@ -528,7 +535,10 @@
     "badge": "Insignia (badge)",
     "badgeHelp": "Insignia SVG lista para incrustar en un README.",
     "deleteTitle": "Eliminar página de estado",
-    "deleteWarning": "La página pública dejará de responder de inmediato."
+    "deleteWarning": "La página pública dejará de responder de inmediato.",
+    "uptimeWindow": "Periodo de disponibilidad",
+    "uptimeWindowHelp": "El periodo que esta página muestra para la disponibilidad y las barras de pulsos.",
+    "uptimeWindowInherit": "Usar el periodo global"
   },
   "security": {
     "title": "Seguridad",
@@ -656,7 +666,21 @@
     "authMethod": "Método de autenticación",
     "clusterEnabled": "Clúster habilitado",
     "database": "Base de datos",
-    "defaultsHelp": "Se aplica solo a quienes aún no eligieron idioma ni tema en el navegador."
+    "defaultsHelp": "Se aplica solo a quienes aún no eligieron idioma ni tema en el navegador.",
+    "uptimeWindow": "Periodo de disponibilidad",
+    "uptimeWindowHelp": "El periodo que cubren el panel, la tabla de monitores y las barras de pulsos. Las páginas de estado pueden sobrescribirlo.",
+    "retention": "Retención del historial",
+    "retentionHelp": "Cuánto historial de pulsos se conserva. Las filas más antiguas las borra la tarea de mantenimiento cada seis horas.",
+    "retentionDays": "Retención (días)",
+    "retentionDaysHelp": "0 desactiva la purga y conserva el historial para siempre. El valor predeterminado es {days} días.",
+    "retentionStored": "Pulsos almacenados",
+    "retentionOldest": "Pulso más antiguo",
+    "retentionWouldDelete": "Se borrarían ahora",
+    "retentionDisabled": "La purga automática está desactivada: nunca se borra nada.",
+    "purgeNow": "Purgar ahora",
+    "purgeTitle": "Purgar el historial de pulsos",
+    "purgeWarning": "Se borrarán todos los pulsos con más de {days} días. Esto no se puede deshacer.",
+    "purged": "{count} pulsos borrados"
   },
   "about": {
     "title": "Acerca de",

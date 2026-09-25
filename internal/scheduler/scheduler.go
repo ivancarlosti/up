@@ -41,6 +41,9 @@ type Scheduler struct {
 	// is the one notification table that grows over time, and the scheduler owns
 	// the housekeeping loop.
 	notifications *services.NotificationService
+	// settings is where the heartbeat retention policy lives (Admin > Settings).
+	// It is optional: a nil value falls back to the environment variable.
+	settings *services.SettingService
 	// sync drives the federated pull loop (nil unless it is wired).
 	sync *services.SyncService
 }
@@ -113,6 +116,10 @@ func (s *Scheduler) SetNotificationService(n *services.NotificationService) {
 // SetSyncService injects the federated synchronisation service, which the
 // maintenance loop drives on its own ticker.
 func (s *Scheduler) SetSyncService(sync *services.SyncService) { s.sync = sync }
+
+// SetSettingService injects the shared settings service, which owns the
+// heartbeat retention policy applied by the housekeeping loop.
+func (s *Scheduler) SetSettingService(settings *services.SettingService) { s.settings = settings }
 
 // reconcileInterval is how often the worker set is compared with the database.
 func (s *Scheduler) reconcileInterval() time.Duration {

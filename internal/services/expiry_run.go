@@ -167,7 +167,7 @@ func (s *ExpiryService) RunNow(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(run.plan.certificates) == 0 && len(run.plan.domains) == 0 && len(run.plan.manual) == 0 {
+	if len(run.plan.certificates) == 0 && len(run.plan.domains) == 0 {
 		s.log.Debug("expiry job: nothing to watch")
 		return nil
 	}
@@ -182,10 +182,7 @@ func (s *ExpiryService) RunNow(ctx context.Context) error {
 
 	domains := 0
 	for domain, monitors := range run.plan.domains {
-		domains += s.refreshDomain(ctx, domain, monitors, false, now)
-	}
-	for domain, monitors := range run.plan.manual {
-		domains += s.refreshDomain(ctx, domain, monitors, true, now)
+		domains += s.refreshDomain(ctx, domain, monitors, run.plan.manualDate(domain), now)
 	}
 
 	s.log.Info("expiry job finished",
@@ -217,13 +214,9 @@ func (s *ExpiryService) refreshCertificate(ctx context.Context, target expiry.Ce
 // refreshDomain performs the single registry lookup of a target (a manual date
 // never touches the network) and fans the observation out to every monitor that
 // shares it. It returns how many monitors were updated.
-func (s *ExpiryService) refreshDomain(ctx context.Context, domain string, monitors []*models.Monitor, manual bool, now time.Time) int {
+func (s *ExpiryService) refreshDomain(ctx context.Context, domain string, monitors []*models.Monitor, manualDate *time.Time, now time.Time) int {
 	if len(monitors) == 0 {
 		return 0
-	}
-	var manualDate *time.Time
-	if manual && monitors[0].DomainExpiresAt != nil {
-		manualDate = monitors[0].DomainExpiresAt
 	}
 	info := s.resolver.Resolve(ctx, domain, manualDate)
 	info.CheckedByNode = s.cfg.NodeID

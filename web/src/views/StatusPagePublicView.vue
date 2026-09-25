@@ -10,7 +10,7 @@ import ThemeToggle from '@/components/layout/ThemeToggle.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { certificateTitle, domainTitle, expiryStateVariant } from '@/lib/expiry'
-import { formatDateTime, formatRelative, formatUptime, statusColor } from '@/lib/format'
+import { formatDateTime, formatRelative, formatUptime, formatUptimeWindow, statusColor } from '@/lib/format'
 import type { StatusPage } from '@/lib/types'
 
 const route = useRoute()
@@ -157,7 +157,10 @@ watch(slug, load)
             <HeartbeatBar v-if="page.show_charts" class="mt-3" :heartbeats="monitor.heartbeats" :size="40" />
 
             <div class="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
-              <span v-if="page.show_uptime">{{ t('publicStatus.uptime') }} 24h: {{ formatUptime(monitor.uptime_24h) }}</span>
+              <span v-if="page.show_uptime">
+                {{ t('publicStatus.uptime') }} {{ formatUptimeWindow(monitor.uptime_hours) }}:
+                {{ formatUptime(monitor.uptime) }}
+              </span>
               <span>{{ t('publicStatus.lastCheck') }}: {{ formatDateTime(monitor.last_check_at, locale) }}</span>
               <span v-if="page.show_tags && monitor.tags">{{ monitor.tags }}</span>
             </div>

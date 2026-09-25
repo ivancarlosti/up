@@ -104,7 +104,12 @@ async function createMonitor(name, expiresAt) {
   })()`)
   check(`${name}: the domain switches exist`, toggled === 2, String(toggled))
   await sleep(400)
-  check(`${name}: the manual date field exists`, await setValue(page, '#monitor-domain-expires', expiresAt))
+  // An empty expiresAt leaves the date blank: the second monitor of the domain
+  // must still end up on ONE target, and it inherits the date typed on the first
+  // one (that is the "one value per registrable domain" rule).
+  if (expiresAt) {
+    check(`${name}: the manual date field exists`, await setValue(page, '#monitor-domain-expires', expiresAt))
+  }
   await setValue(page, '#monitor-domain-warn', '30,20,19')
   await clickButton(page, /^(save|salvar|guardar)$/i)
   await sleep(1500)
@@ -115,7 +120,10 @@ try {
   console.log(`  target: ${target}`)
 
   await createMonitor(names[0], isoDate(20))
-  await createMonitor(names[1], isoDate(5))
+  // The second monitor of the SAME registrable domain is created WITHOUT a date:
+  // it must inherit the date of the domain, so the worklist still renders a
+  // single manual row for the two of them.
+  await createMonitor(names[1], '')
 
   const monitors = await api(`fetch('/api/monitors?decorate=false').then((r) => r.json())`)
   for (const name of names) {
@@ -147,8 +155,9 @@ try {
   const domainTarget = (list.targets ?? []).find((target) => target.kind === 'domain' && target.key === 'localhost')
   check('the domain target is listed once', Boolean(domainTarget) && domainTarget.monitors.length === 2, JSON.stringify(list.count))
   check('the listed target carries the observation', domainTarget?.status === 'ok' && typeof domainTarget?.days_left === 'number')
-  // Both monitors share the registrable domain AND both use a manual date, so
-  // they collapse into ONE manual target (that is the dedup promise).
+  // The two monitors share the registrable domain: it is ONE target, and the
+  // date typed once is inherited by the other monitor of the domain — which is
+  // exactly what stopped the duplicate row in the admin list.
   check(
     'the target marks its manual source',
     (list.targets ?? []).filter((item) => item.kind === 'domain' && item.manual).length === 1 &&

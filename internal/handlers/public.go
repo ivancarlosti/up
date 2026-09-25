@@ -58,6 +58,8 @@ func (h *Container) publicSettings(c *gin.Context) {
 		"default_locale":         h.Settings.DefaultLocale(),
 		"default_theme":          h.Settings.DefaultTheme(),
 		"time_format":            h.Settings.TimeFormat(),
+		"uptime_window_hours":    h.Settings.UptimeWindowHours(),
+		"uptime_windows":         models.UptimeWindowHoursAllowed,
 		"supported_locales":      config.SupportedLocales,
 		"supported_themes":       config.SupportedThemes,
 		"supported_time_formats": config.SupportedTimeFormats,
@@ -165,16 +167,29 @@ func (h *Container) adminSettings(c *gin.Context) {
 		"cluster_enabled":        h.Cfg.ClusterEnabled,
 		"version":                version.Version,
 		"settings":               h.Settings.All(),
+		// History retention and the global uptime window (see the settings
+		// card of the same name).
+		"heartbeat_retention_days": h.Settings.HeartbeatRetentionDays(),
+		"default_retention_days":   models.DefaultHeartbeatRetentionDays,
+		"max_retention_days":       models.MaxHeartbeatRetentionDays,
+		"uptime_window_hours":      h.Settings.UptimeWindowHours(),
+		"uptime_windows":           models.UptimeWindowHoursAllowed,
 	})
 }
 
-// updateAdminSettings stores the locale/theme defaults and the instance name.
+// updateAdminSettings stores the locale/theme defaults, the instance name and
+// the housekeeping values. Every field is optional: an omitted one keeps its
+// current value.
 func (h *Container) updateAdminSettings(c *gin.Context) {
 	var payload struct {
 		DefaultLocale string `json:"default_locale"`
 		DefaultTheme  string `json:"default_theme"`
 		TimeFormat    string `json:"time_format"`
 		AppName       string `json:"app_name"`
+		// Pointers so an omitted field keeps the current value (0 is a valid
+		// retention: it means "never purge").
+		HeartbeatRetentionDays *int `json:"heartbeat_retention_days"`
+		UptimeWindowHours      *int `json:"uptime_window_hours"`
 	}
 	if !bindJSON(c, &payload) {
 		return
@@ -185,6 +200,18 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 	}
 	if payload.AppName != "" {
 		if err := h.Settings.Set(c.Request.Context(), models.SettingAppName, payload.AppName); err != nil {
+			api.WriteServiceError(c, err)
+			return
+		}
+	}
+	if payload.HeartbeatRetentionDays != nil {
+		if err := h.Settings.SetHeartbeatRetentionDays(c.Request.Context(), *payload.HeartbeatRetentionDays); err != nil {
+			api.WriteServiceError(c, err)
+			return
+		}
+	}
+	if payload.UptimeWindowHours != nil {
+		if err := h.Settings.SetUptimeWindowHours(c.Request.Context(), *payload.UptimeWindowHours); err != nil {
 			api.WriteServiceError(c, err)
 			return
 		}

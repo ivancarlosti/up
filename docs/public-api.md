@@ -66,11 +66,15 @@ Query: `search`, `type`, `tag`, `active`, `include_secrets`.
 
 ```json
 [{"id":6,"name":"HTTP Health","type":"http","active":true,
-  "status":"up","uptime_24h":99.99,"last_latency_ms":12,
-  "last_check_at":"...","tags":"core",
+  "status":"up","uptime":99.99,"uptime_hours":24,"uptime_24h":99.99,
+  "last_latency_ms":12,"last_check_at":"...","tags":"core",
   "config":{"url":"https://api.example.com/health","method":"GET","basic_pass":"***"},
   "notification_ids":[1]}]
 ```
+
+`uptime`/`uptime_hours` follow the configured window (Admin > Settings);
+`uptime_24h`, `uptime_7d` and `uptime_30d` remain the fixed windows, so existing
+consumers keep working.
 
 Credentials are masked with `***` unless `include_secrets=true`. The payload is
 the same decorated monitor the dashboard uses, so a monitor that watches its

@@ -21,30 +21,51 @@ type StatsService struct {
 // NewStatsService builds the statistics service.
 func NewStatsService(db *gorm.DB) *StatsService { return &StatsService{db: db} }
 
-// windowRow is the raw aggregate row of the Windows query.
+// windowRow is the raw aggregate row of the History query.
 type windowRow struct {
-	MonitorID  uint     `gorm:"column:monitor_id"`
-	Up24h      int64    `gorm:"column:up_24h"`
-	Total24h   int64    `gorm:"column:total_24h"`
-	Down24h    int64    `gorm:"column:down_24h"`
-	Pending24h int64    `gorm:"column:pending_24h"`
-	Up7d       int64    `gorm:"column:up_7d"`
-	Total7d    int64    `gorm:"column:total_7d"`
-	Up30d      int64    `gorm:"column:up_30d"`
-	Total30d   int64    `gorm:"column:total_30d"`
-	AvgMS24h   *float64 `gorm:"column:avg_ms_24h"`
-	MinMS24h   *int64   `gorm:"column:min_ms_24h"`
-	MaxMS24h   *int64   `gorm:"column:max_ms_24h"`
+	MonitorID   uint     `gorm:"column:monitor_id"`
+	Up24h       int64    `gorm:"column:up_24h"`
+	Total24h    int64    `gorm:"column:total_24h"`
+	Down24h     int64    `gorm:"column:down_24h"`
+	Pending24h  int64    `gorm:"column:pending_24h"`
+	Up7d        int64    `gorm:"column:up_7d"`
+	Total7d     int64    `gorm:"column:total_7d"`
+	Up30d       int64    `gorm:"column:up_30d"`
+	Total30d    int64    `gorm:"column:total_30d"`
+	UpWindow    int64    `gorm:"column:up_window"`
+	TotalWindow int64    `gorm:"column:total_window"`
+	AvgMS24h    *float64 `gorm:"column:avg_ms_24h"`
+	MinMS24h    *int64   `gorm:"column:min_ms_24h"`
+	MaxMS24h    *int64   `gorm:"column:max_ms_24h"`
 }
 
-// Windows returns the 24h/7d/30d statistics of a set of monitors using a
-// single grouped query.
-func (s *StatsService) Windows(ctx context.Context, monitorIDs []uint) (map[uint]*models.UptimeStats, error) {
-	out := map[uint]*models.UptimeStats{}
+// MonitorHistory is the aggregated history of one monitor: the configured
+// window (what the UI shows) plus the fixed 24 h / 7 d / 30 d percentages the
+// API has always exposed.
+type MonitorHistory struct {
+	// Window carries the configured period: Uptime, Up/Down/Pending/Total,
+	// Hours and the latency figures.
+	Window *models.UptimeStats
+	// Uptime24h, Uptime7d and Uptime30d are the fixed windows of the public API.
+	Uptime24h float64
+	Uptime7d  float64
+	Uptime30d float64
+}
+
+// History returns the aggregated history of a set of monitors for the given
+// window using a single grouped query.
+//
+// The same query computes the fixed 24 h / 7 d / 30 d percentages, so the whole
+// dashboard decoration stays at ONE scan of the heartbeat table whatever period
+// is selected.
+func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHours int) (map[uint]MonitorHistory, error) {
+	out := map[uint]MonitorHistory{}
 	if len(monitorIDs) == 0 {
 		return out, nil
 	}
+	windowHours = models.NormalizeUptimeWindowHours(windowHours)
 	now := time.Now().UTC()
+
 	query := `
 		SELECT monitor_id,
 		       SUM(CASE WHEN status = 1 AND created_at >= ? THEN 1 ELSE 0 END)    AS up_24h,
@@ -55,6 +76,8 @@ func (s *StatsService) Windows(ctx context.Context, monitorIDs []uint) (map[uint
 		       SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END)                   AS total_7d,
 		       SUM(CASE WHEN status = 1 AND created_at >= ? THEN 1 ELSE 0 END)    AS up_30d,
 		       SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END)                   AS total_30d,
+		       SUM(CASE WHEN status = 1 AND created_at >= ? THEN 1 ELSE 0 END)    AS up_window,
+		       SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END)                   AS total_window,
 		       AVG(CASE WHEN status = 1 AND created_at >= ? THEN latency_ms END)  AS avg_ms_24h,
 		       MIN(CASE WHEN created_at >= ? THEN latency_ms END)                 AS min_ms_24h,
 		       MAX(CASE WHEN created_at >= ? THEN latency_ms END)                 AS max_ms_24h
@@ -65,12 +88,14 @@ func (s *StatsService) Windows(ctx context.Context, monitorIDs []uint) (map[uint
 	day := now.Add(-24 * time.Hour)
 	week := now.Add(-7 * 24 * time.Hour)
 	month := now.Add(-30 * 24 * time.Hour)
+	window := now.Add(-time.Duration(windowHours) * time.Hour)
 
 	var rows []windowRow
 	if err := s.db.WithContext(ctx).Raw(query,
 		day, day, day, day,
 		week, week,
 		month, month,
+		window, window,
 		day, day, day,
 		month, monitorIDs,
 	).Scan(&rows).Error; err != nil {
@@ -80,13 +105,13 @@ func (s *StatsService) Windows(ctx context.Context, monitorIDs []uint) (map[uint
 	for _, row := range rows {
 		stats := &models.UptimeStats{
 			MonitorID: row.MonitorID,
-			Hours:     24,
-			Up:        int(row.Up24h),
+			Hours:     windowHours,
+			Up:        int(row.UpWindow),
 			Down:      int(row.Down24h),
 			Pending:   int(row.Pending24h),
-			Total:     int(row.Total24h),
+			Total:     int(row.TotalWindow),
 		}
-		stats.Uptime = percentage(row.Up24h, row.Total24h)
+		stats.Uptime = percentage(row.UpWindow, row.TotalWindow)
 		if row.AvgMS24h != nil {
 			stats.AvgMS = *row.AvgMS24h
 		}
@@ -96,7 +121,12 @@ func (s *StatsService) Windows(ctx context.Context, monitorIDs []uint) (map[uint
 		if row.MaxMS24h != nil {
 			stats.MaxMS = *row.MaxMS24h
 		}
-		out[row.MonitorID] = stats
+		out[row.MonitorID] = MonitorHistory{
+			Window:    stats,
+			Uptime24h: percentage(row.Up24h, row.Total24h),
+			Uptime7d:  percentage(row.Up7d, row.Total7d),
+			Uptime30d: percentage(row.Up30d, row.Total30d),
+		}
 	}
 	return out, nil
 }

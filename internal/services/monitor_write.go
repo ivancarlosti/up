@@ -8,9 +8,150 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/ivancarlosti/up/internal/expiry"
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
 )
+
+// resolveDomainExpiresAt mirrors a manual domain expiration date to every
+// monitor of the same registrable domain and returns the ids it wrote.
+//
+// The date is a property of the DOMAIN, not of the monitor that happens to type
+// it: "www.example.com" and "app.example.com" share one registry registration,
+// and two different dates for one domain only produced two rows of the same
+// domain in Admin > TLD/SSL expiration. Mirroring the value on the siblings
+// keeps the per-monitor column (and the synchronisation payload that already
+// carries it) as the single source of truth, without adding a second table.
+//
+// Three rules make "one value per domain" hold:
+//
+//   - a monitor that types a date sets it for the domain (every sibling follows);
+//   - a monitor created or edited after the date was typed INHERITS it, so a new
+//     monitor of the domain can never disagree with its siblings;
+//   - clearing the date is explicit: it clears the siblings that carried one,
+//     while an unrelated edit of a monitor without a date changes nothing.
+//
+// previous is the stored value of the monitor before the write, which is what
+// tells an explicit clear from an unrelated edit.
+func (s *MonitorService) resolveDomainExpiresAt(tx *gorm.DB, monitor *models.Monitor, previous *time.Time) ([]uint, error) {
+	if !monitor.DomainWatch {
+		return nil, nil
+	}
+	domain := expiry.DomainFor(monitor)
+	if domain == "" {
+		return nil, nil
+	}
+	// One query for the whole domain: the siblings are both the target of the
+	// mirror and the source of the value when this monitor carries none.
+	var rows []models.Monitor
+	if err := tx.Select("id", "type", "config", "domain_watch", "domain_expires_at").
+		Where("domain_watch = ? AND id <> ?", true, monitor.ID).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	siblings := make([]struct {
+		ID      uint
+		Expires *time.Time
+	}, 0, len(rows))
+	for i := range rows {
+		if expiry.DomainFor(&rows[i]) != domain {
+			continue
+		}
+		siblings = append(siblings, struct {
+			ID      uint
+			Expires *time.Time
+		}{ID: rows[i].ID, Expires: validDate(rows[i].DomainExpiresAt)})
+	}
+
+	// The value of the domain: what this monitor typed, or the date of a sibling
+	// when the monitor NEVER carried one (a monitor added after the date was typed
+	// inherits it).
+	//
+	// An explicit clear (previous != nil, new value nil) never inherits: reading
+	// the sibling date back would silently undo the clear.
+	value := validDate(monitor.DomainExpiresAt)
+	if value == nil && previous == nil {
+		for _, sibling := range siblings {
+			if sibling.Expires == nil {
+				continue
+			}
+			if value == nil || sibling.Expires.After(*value) {
+				value = sibling.Expires
+			}
+		}
+	}
+	if value == nil && previous == nil {
+		// No date anywhere and none typed: nothing to mirror.
+		return nil, nil
+	}
+
+	// A monitor added after the date was typed adopts it, so the column of the
+	// new row agrees with the rest of the domain.
+	if value != nil && monitor.DomainExpiresAt == nil {
+		if err := tx.Model(&models.Monitor{}).Where("id = ?", monitor.ID).
+			Update("domain_expires_at", value).Error; err != nil {
+			return nil, err
+		}
+		monitor.DomainExpiresAt = value
+	}
+
+	// Only the siblings that do not already hold the value are written: saving an
+	// unrelated edit (or re-saving the same date) must not churn the whole domain.
+	mirror := make([]uint, 0, len(siblings))
+	for _, sibling := range siblings {
+		if !sameDate(sibling.Expires, value) {
+			mirror = append(mirror, sibling.ID)
+		}
+	}
+	if len(mirror) == 0 {
+		return nil, nil
+	}
+	updates := map[string]any{
+		"domain_expires_at": value,
+		// Same reasoning as a normal edit: the mirror is a new version of every
+		// sibling row, so a peer must not skip it.
+		"revision":   gorm.Expr("revision + 1"),
+		"updated_at": time.Now().UTC(),
+	}
+	if err := tx.Model(&models.Monitor{}).Where("id IN ?", mirror).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	s.log.Info("manual domain expiration mirrored",
+		"domain", domain, "source_monitor", monitor.ID, "monitors", len(mirror))
+	return mirror, nil
+}
+
+// validDate normalises the nullable date columns: nil and the zero time both
+// mean "no date".
+func validDate(value *time.Time) *time.Time {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	utc := value.UTC()
+	return &utc
+}
+
+// sameDate reports whether two nullable dates hold the same instant.
+func sameDate(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
+}
+
+// publishDomainSiblings records the mirrored monitors in the synchronisation
+// outbox, so a federated cluster converges on the same date.
+func (s *MonitorService) publishDomainSiblings(ctx context.Context, tx *gorm.DB, ids []uint) error {
+	if s.emit == nil || len(ids) == 0 {
+		return nil
+	}
+	for _, id := range ids {
+		if err := s.emit.EmitMonitor(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Create inserts a monitor, links the notification channels and the groups and
 // creates the aggregated state row.
@@ -23,6 +164,15 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 	monitor.OriginNodeID = s.cfg.NodeID
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(monitor).Error; err != nil {
+			return err
+		}
+		// A manual domain date typed here belongs to the whole domain: mirror it
+		// before the links are written, so everything lands in one transaction.
+		siblings, mirrorErr := s.resolveDomainExpiresAt(tx, monitor, nil)
+		if mirrorErr != nil {
+			return mirrorErr
+		}
+		if err := s.publishDomainSiblings(ctx, tx, siblings); err != nil {
 			return err
 		}
 		if err := replaceMonitorNotifications(tx, monitor.ID, notificationIDs); err != nil {
@@ -100,6 +250,18 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		if err != nil {
 			return err
 		}
+		// The previous manual date tells an explicit clear from an unrelated
+		// edit: only the former is mirrored to the siblings (see
+		// propagateDomainExpiresAt).
+		var existing struct {
+			DomainExpiresAt *time.Time `gorm:"column:domain_expires_at"`
+		}
+		if err := tx.Model(&models.Monitor{}).
+			Select("domain_expires_at").
+			Where("id = ?", monitor.ID).
+			Take(&existing).Error; err != nil {
+			return err
+		}
 		result := tx.Model(&models.Monitor{}).Where("id = ?", monitor.ID).Updates(updates)
 		if result.Error != nil {
 			return result.Error
@@ -116,6 +278,15 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 			if err := replaceMonitorGroups(tx, monitor.ID, groupIDs); err != nil {
 				return err
 			}
+		}
+		// A manual date edited (or cleared) here belongs to the whole domain:
+		// mirror it to the siblings in the same transaction.
+		siblings, mirrorErr := s.resolveDomainExpiresAt(tx, monitor, existing.DomainExpiresAt)
+		if mirrorErr != nil {
+			return mirrorErr
+		}
+		if err := s.publishDomainSiblings(ctx, tx, siblings); err != nil {
+			return err
 		}
 		return s.publishMonitor(ctx, tx, monitor.ID, before)
 	})
