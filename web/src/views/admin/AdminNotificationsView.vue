@@ -17,7 +17,16 @@ import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/format'
 import { useToastStore } from '@/stores/toast'
-import type { Notification, NotificationConfig, NotificationLog, SMTPConfig, WebhookConfig } from '@/lib/types'
+import type {
+  DiscordConfig,
+  Notification,
+  NotificationConfig,
+  NotificationLog,
+  SlackConfig,
+  SMTPConfig,
+  TelegramConfig,
+  WebhookConfig,
+} from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -53,6 +62,20 @@ function blankWebhook(): WebhookConfig {
   return { url: '', method: 'POST', content_type: 'application/json', headers: [], body_template: '' }
 }
 
+function blankSlack(): SlackConfig {
+  return { token: '', channel: '', bot_name: '', icon: '', thread_ts: '' }
+}
+
+function blankDiscord(): DiscordConfig {
+  return { webhook_id: '', token: '', username: '', avatar_url: '', thread_id: '' }
+}
+
+function blankTelegram(): TelegramConfig {
+  // "None" keeps the body plain: shoutrrr then renders the alert title itself,
+  // escaping the text, which is the only mode that cannot break a delivery.
+  return { token: '', chats: '', parse_mode: 'None', disable_notification: false, disable_preview: false }
+}
+
 function blankChannel(): Notification {
   return {
     id: 0,
@@ -78,6 +101,9 @@ function ensureConfig(): void {
   if (!form.value.config) form.value.config = {}
   if (form.value.type === 'smtp' && !form.value.config.smtp) form.value.config.smtp = blankSMTP()
   if (form.value.type === 'webhook' && !form.value.config.webhook) form.value.config.webhook = blankWebhook()
+  if (form.value.type === 'slack' && !form.value.config.slack) form.value.config.slack = blankSlack()
+  if (form.value.type === 'discord' && !form.value.config.discord) form.value.config.discord = blankDiscord()
+  if (form.value.type === 'telegram' && !form.value.config.telegram) form.value.config.telegram = blankTelegram()
 }
 
 // The dialog must follow the type selector, not only the moment it is opened.
@@ -97,9 +123,35 @@ function removeHeader(index: number): void {
 const typeOptions = computed(() => [
   { value: 'smtp', label: t('notifications.typeSmtp') },
   { value: 'webhook', label: t('notifications.typeWebhook') },
+  { value: 'slack', label: t('notifications.typeSlack') },
+  { value: 'discord', label: t('notifications.typeDiscord') },
+  { value: 'telegram', label: t('notifications.typeTelegram') },
 ])
 
 const methodOptions = ['POST', 'PUT', 'PATCH', 'GET', 'DELETE'].map((value) => ({ value, label: value }))
+
+/** The parse modes accepted by the telegram service of shoutrrr. */
+const parseModeOptions = ['None', 'Markdown', 'HTML', 'MarkdownV2'].map((value) => ({ value, label: value }))
+
+/**
+ * channelTarget is the one line summary shown on the card: the destination of
+ * the channel, per type.
+ */
+function channelTarget(channel: Notification): string {
+  switch (channel.type) {
+    case 'smtp':
+      return channel.config.smtp?.host ?? ''
+    case 'webhook':
+      return channel.config.webhook?.url ?? ''
+    case 'slack':
+      return channel.config.slack?.channel ?? ''
+    case 'discord':
+      return channel.config.discord?.webhook_id ?? ''
+    case 'telegram':
+      return channel.config.telegram?.chats ?? ''
+  }
+  return ''
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -147,6 +199,36 @@ function channelPayload(): Partial<Notification> {
       body_template: webhook.body_template ?? '',
       // A header without a name is a typo, not a header.
       headers: (webhook.headers ?? []).filter((header) => header.key.trim() !== ''),
+    }
+  }
+  if (channel.type === 'slack' && channel.config.slack) {
+    const slack = channel.config.slack
+    config.slack = {
+      token: slack.token.trim(),
+      channel: slack.channel.trim(),
+      bot_name: (slack.bot_name ?? '').trim(),
+      icon: (slack.icon ?? '').trim(),
+      thread_ts: (slack.thread_ts ?? '').trim(),
+    }
+  }
+  if (channel.type === 'discord' && channel.config.discord) {
+    const discord = channel.config.discord
+    config.discord = {
+      webhook_id: discord.webhook_id.trim(),
+      token: discord.token.trim(),
+      username: (discord.username ?? '').trim(),
+      avatar_url: (discord.avatar_url ?? '').trim(),
+      thread_id: (discord.thread_id ?? '').trim(),
+    }
+  }
+  if (channel.type === 'telegram' && channel.config.telegram) {
+    const telegram = channel.config.telegram
+    config.telegram = {
+      token: telegram.token.trim(),
+      chats: telegram.chats.trim(),
+      parse_mode: telegram.parse_mode || 'None',
+      disable_notification: Boolean(telegram.disable_notification),
+      disable_preview: Boolean(telegram.disable_preview),
     }
   }
   return {
@@ -242,7 +324,7 @@ onMounted(load)
               {{ channel.name }}
             </h2>
             <p class="mt-1 text-[11px] text-muted-foreground">
-              {{ channel.type === 'smtp' ? channel.config.smtp?.host : channel.config.webhook?.url }}
+              {{ channelTarget(channel) }}
             </p>
           </div>
           <div class="flex shrink-0 flex-col items-end gap-1">
@@ -404,6 +486,93 @@ onMounted(load)
               {{ t('notifications.webhookBody') }}
             </Label>
             <Textarea id="webhook-body" v-model="form.config.webhook.body_template" :rows="8" />
+          </div>
+        </template>
+
+        <template v-else-if="form.type === 'slack' && form.config.slack">
+          <div class="grid gap-1">
+            <Label for="slack-token" required :help="t('notifications.slackTokenHelp')">
+              {{ t('notifications.slackToken') }}
+            </Label>
+            <Input id="slack-token" v-model="form.config.slack.token" type="password" placeholder="xoxb-..." />
+          </div>
+          <div class="grid gap-1">
+            <Label for="slack-channel" required :help="t('notifications.slackChannelHelp')">
+              {{ t('notifications.slackChannel') }}
+            </Label>
+            <Input id="slack-channel" v-model="form.config.slack.channel" placeholder="C0123456789" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="slack-bot-name">{{ t('notifications.slackBotName') }}</Label>
+            <Input id="slack-bot-name" v-model="form.config.slack.bot_name" placeholder="Up" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="slack-icon" :help="t('notifications.slackIconHelp')">
+              {{ t('notifications.slackIcon') }}
+            </Label>
+            <Input id="slack-icon" v-model="form.config.slack.icon" placeholder=":satellite:" />
+          </div>
+          <div class="grid gap-1 sm:col-span-2">
+            <Label for="slack-thread" :help="t('notifications.threadHelp')">
+              {{ t('notifications.slackThread') }}
+            </Label>
+            <Input id="slack-thread" v-model="form.config.slack.thread_ts" placeholder="1712345678.000100" />
+          </div>
+        </template>
+
+        <template v-else-if="form.type === 'discord' && form.config.discord">
+          <div class="grid gap-1">
+            <Label for="discord-id" required :help="t('notifications.discordWebhookHelp')">
+              {{ t('notifications.discordWebhookID') }}
+            </Label>
+            <Input id="discord-id" v-model="form.config.discord.webhook_id" placeholder="123456789012345678" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="discord-token" required>{{ t('notifications.discordToken') }}</Label>
+            <Input id="discord-token" v-model="form.config.discord.token" type="password" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="discord-username">{{ t('notifications.discordUsername') }}</Label>
+            <Input id="discord-username" v-model="form.config.discord.username" placeholder="Up" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="discord-avatar">{{ t('notifications.discordAvatar') }}</Label>
+            <Input id="discord-avatar" v-model="form.config.discord.avatar_url" placeholder="https://..." />
+          </div>
+          <div class="grid gap-1 sm:col-span-2">
+            <Label for="discord-thread" :help="t('notifications.threadHelp')">
+              {{ t('notifications.discordThread') }}
+            </Label>
+            <Input id="discord-thread" v-model="form.config.discord.thread_id" />
+          </div>
+        </template>
+
+        <template v-else-if="form.type === 'telegram' && form.config.telegram">
+          <div class="grid gap-1">
+            <Label for="telegram-token" required :help="t('notifications.telegramTokenHelp')">
+              {{ t('notifications.telegramToken') }}
+            </Label>
+            <Input id="telegram-token" v-model="form.config.telegram.token" type="password" placeholder="123456789:AA..." />
+          </div>
+          <div class="grid gap-1">
+            <Label for="telegram-parse-mode" :help="t('notifications.telegramParseModeHelp')">
+              {{ t('notifications.telegramParseMode') }}
+            </Label>
+            <Select id="telegram-parse-mode" v-model="form.config.telegram.parse_mode" :options="parseModeOptions" />
+          </div>
+          <div class="grid gap-1 sm:col-span-2">
+            <Label for="telegram-chats" required :help="t('notifications.telegramChatsHelp')">
+              {{ t('notifications.telegramChats') }}
+            </Label>
+            <Input id="telegram-chats" v-model="form.config.telegram.chats" placeholder="-1001234567890, @mychannel" />
+          </div>
+          <div class="flex flex-wrap items-end gap-4 pb-1 sm:col-span-2">
+            <Switch v-model="form.config.telegram.disable_notification">
+              {{ t('notifications.telegramSilent') }}
+            </Switch>
+            <Switch v-model="form.config.telegram.disable_preview">
+              {{ t('notifications.telegramNoPreview') }}
+            </Switch>
           </div>
         </template>
       </div>

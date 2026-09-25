@@ -38,7 +38,7 @@ of nodes that vote on the real status.
 | **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge on the dashboard/detail/admin list, free thresholds (`7,6,5,30`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Domain expiration** | registry watching for the monitor's domain: RDAP first, per-TLD WHOIS parsers (Admin > TLD/SSL expiration) and a manual date for the TLDs that publish none; free thresholds and daily `domain_expiring`/`domain_expired` reminders |
 | **Expiry scheduling** | one daily, configurable-time check for certificates and domains, **deduplicated by target** (many monitors on the same host/domain = one lookup) with an admin rate limit per registry, a target list and a per-target *check now* |
-| **Notifications** | SMTP and Webhook through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, delivery history, test button |
+| **Notifications** | SMTP, Webhook, Slack, Discord and Telegram through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, delivery history, test button |
 | **Status pages** | public pages with groups, per-page toggles (uptime, charts, tags) and an **opt-in expiry badge**, plus a shields.io style badge |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
 | **Cluster** | two modes. **`shared`** (default): several nodes on the same external database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting and `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. **`federated`**: one database per node, the configuration, the votes and the notification ownership synchronised over the signed peer API (`CLUSTER_PEER_API`), with a derived leader, a notification election (`leader`/`hash`/`origin`), `run_on=some`, opt-in channel/settings/session-secret sync and push. See [clustering.md](docs/clustering.md) and [clustering-modes.md](docs/clustering-modes.md) |
@@ -179,7 +179,7 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 | [architecture.md](docs/architecture.md) | components, boot sequence, heartbeat lifecycle, concurrency, where to change what |
 | [database.md](docs/database.md) | connection, complete DDL, queries, indexes, migrations, retention |
 | [monitors.md](docs/monitors.md) | every monitor type and option, retries, upside down mode |
-| [notifications.md](docs/notifications.md) | SMTP, Webhook, template variables, delivery log, troubleshooting |
+| [notifications.md](docs/notifications.md) | SMTP, Webhook, Slack, Discord, Telegram, template variables, delivery log, troubleshooting |
 | [authentication.md](docs/authentication.md) | `none`/`account`/`keycloak`, sessions, allow list, reCAPTCHA |
 | [api.md](docs/api.md) | every endpoint with examples and the error code catalogue |
 | [public-api.md](docs/public-api.md) | tokens, scopes and recipes for the `/api/v1` surface |

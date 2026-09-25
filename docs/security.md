@@ -144,11 +144,11 @@ marked `Secure` automatically.
 | `CLUSTER_PRIVATE_KEY` | `settings.cluster_private_key` (or env) | Admin > Cluster > regenerate (nodes must rejoin) |
 | `session_secret` | `settings.session_secret` | delete the row and restart (invalidates sessions); propagated between nodes only when `CLUSTER_SYNC_SESSION_SECRET=true` |
 | API tokens | `api_tokens.token_hash` | revoke/delete in Admin > Security |
-| SMTP/webhook credentials | `notifications.config` (JSON) | edit the channel in Admin > Notifications |
+| notification channel credentials (SMTP password, webhook/Slack/Discord/Telegram tokens) | `notifications.config` (JSON) | edit the channel in Admin > Notifications |
 
-The database therefore contains credentials (SMTP passwords, cluster key):
-protect the database accordingly and remember that the MySQL connection is
-plaintext unless `DB_SSL=true`.
+The database therefore contains credentials (SMTP passwords, chat tokens, the
+cluster key): protect the database accordingly and remember that the MySQL
+connection is plaintext unless `DB_SSL=true`.
 
 ## 9. Peer API trust model
 

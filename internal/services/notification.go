@@ -15,8 +15,9 @@ import (
 	"github.com/ivancarlosti/up/internal/notify"
 )
 
-// NotificationService owns the notification channels (SMTP and Webhook), the
-// delivery log and the dispatch of the status change events.
+// NotificationService owns the notification channels (SMTP, Webhook, Slack,
+// Discord and Telegram), the delivery log and the dispatch of the status change
+// events.
 type NotificationService struct {
 	db     *gorm.DB
 	cfg    *config.Config

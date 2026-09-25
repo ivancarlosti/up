@@ -273,7 +273,8 @@ UI emit strings, the API does not accept them).
 
 Validation problems answer `400` with `ERR_NOTIFICATION_CONFIG_INVALID` and the
 offending field in `message` (`config.webhook.url must start with http:// or
-https://`); the UI shows that detail next to the translated sentence.
+https://`, `config.telegram.token must look like <bot id>:<secret>`); the UI
+shows that detail next to the translated sentence.
 
 ## 6. Status pages
 

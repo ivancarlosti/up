@@ -24,7 +24,7 @@ Up is a minimalist, cluster-ready uptime monitor:
 - **Authentication is environment driven**: `none`, `account` (single account)
   or `keycloak` (OIDC + e-mail/domain allow list).
 - **Notifications** use [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) as
-  the delivery engine; the UI exposes SMTP and Webhook.
+  the delivery engine; the UI exposes SMTP, Webhook, Slack, Discord and Telegram.
 - **Expiration watches**: beyond the probe, Up watches the TLS certificate of an
   endpoint and the registry registration of a domain (RDAP first, per-TLD WHOIS
   rules, or a manual date). Both are refreshed by one daily, deduplicated job with
@@ -45,7 +45,7 @@ internal/
   middleware/        request id, real IP, logging, security headers, CORS,
                      recovery, IP rules, rate limit, session/token auth
   models/            GORM entities, enums, monitor configuration structs
-  notify/            shoutrrr wrapper: SMTP + Webhook (+ body templating)
+  notify/            shoutrrr wrapper: SMTP + Webhook + Slack/Discord/Telegram
   scheduler/         per monitor goroutines, retries, maintenance loops
   services/          business rules (monitors, stats, notifications, cluster,
                      status pages, tokens, IP rules, sessions, settings)
@@ -109,7 +109,7 @@ flowchart LR
   WSH -. live updates .-> BROWSER[Browser dashboard]
   API <--> BROWSER
   SCH --> EXT[Monitored targets]
-  SVC --> NOTIF[SMTP / Webhook]
+  SVC --> NOTIF[SMTP, Webhook, Slack, Discord, Telegram]
 ```
 
 ## 5. The lifecycle of one heartbeat

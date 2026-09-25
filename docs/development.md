@@ -148,10 +148,12 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > Two more checks use the same driver. `npm run check:i18n` compiles every message
 > of every locale with vue-i18n (a `{{.Event}}` placeholder in a translated string
 > is a message compilation error, and rendering it takes the whole page down: the
-> webhook body help did exactly that). `npm run e2e:notifications` fills the
-> notification channel dialog in a real browser, saves a webhook channel, edits it
-> and deletes it again, so it needs a running instance **and writes to the
-> database** (`npm run e2e:notifications -- --url http://localhost:3000`).
+> webhook body help did exactly that). `npm run e2e:notifications` walks the
+> notification channel dialog in a real browser: it switches through the
+> Slack/Discord/Telegram forms (each one must render its own fields), then saves,
+> edits and deletes a webhook channel, so it needs a running instance **and
+> writes to the database** (`npm run e2e:notifications -- --url
+> http://localhost:3000`).
 >
 > `npm run e2e:groups` does the same for the monitor groups: it creates a group
 > with members, clones it shallow and deep, renames it, deletes it through the UI
@@ -383,6 +385,10 @@ Inspect what arrived:
 curl -s localhost:8025/api/v1/messages | python3 -m json.tool | head -20
 tail -5 /tmp/up-webhook-sink.log
 ```
+
+The chat channels have no local equivalent: Slack, Discord and Telegram are
+validated with **Admin > Notifications > Test**, which posts to the real API and
+stores the returned error in the delivery log (see `docs/notifications.md` §6).
 
 ## 9. Two node cluster in three commands
 

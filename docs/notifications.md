@@ -2,8 +2,8 @@
 
 > Notifications are delivered by the
 > [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine. The UI exposes
-> two channels, **SMTP** and **Webhook**, and each monitor can be linked to any
-> number of them.
+> five channels - **SMTP**, **Webhook**, **Slack**, **Discord** and
+> **Telegram** - and each monitor can be linked to any number of them.
 
 ## 1. When a notification is sent
 
@@ -89,6 +89,60 @@ what a channel created from the UI uses):
   "timestamp": "{{.Timestamp}}"
 }
 ```
+
+### Slack
+
+| Field | Notes |
+|---|---|
+| `token` | bot token (`xoxb-…`) or incoming webhook token (`hook:T…-B…-X…`) |
+| `channel` | channel id (`C0123456789`) or `#channel`; with a webhook token it must be `webhook` |
+| `bot_name` | overrides the app name of the message |
+| `icon` | emoji (`:satellite:`) or an `https://` image URL |
+| `thread_ts` | posts the message as a reply inside that thread (`1712345678.000100`) |
+
+```
+slack://xoxb-...@C0123456789?botname=Up&icon=%3Asatellite%3A
+```
+
+### Discord
+
+| Field | Notes |
+|---|---|
+| `webhook_id` | first half of the webhook URL (`discord.com/api/webhooks/<webhook_id>/<token>`) |
+| `token` | second half of that URL |
+| `username` | overrides the webhook default username |
+| `avatar_url` | overrides the webhook avatar |
+| `thread_id` | posts the message into that thread |
+
+```
+discord://<token>@<webhook_id>?splitlines=no&username=Up
+```
+
+`splitlines=no` is forced by Up: shoutrrr would otherwise render one embed per
+line of the body, turning a single alert into a stack of messages.
+
+### Telegram
+
+| Field | Notes |
+|---|---|
+| `token` | bot token from @BotFather, `<bot id>:<secret>` |
+| `chats` | one or more chat ids, `@channel` names or `<chat id>:<thread id>` pairs, comma separated |
+| `parse_mode` | `None` (default), `Markdown`, `HTML` or `MarkdownV2` |
+| `disable_notification` | sends the message silently |
+| `disable_preview` | hides the link previews of the URLs in the body |
+
+```
+telegram://123456789:AA...@telegram?chats=-1001234567890%2C%40mychannel&notification=yes&parsemode=None&preview=yes
+```
+
+`None` (what the UI pre-selects) is the safe choice: shoutrrr then renders the
+bold title itself and escapes the body. With a Markdown mode the body travels
+verbatim, so the check detail has to be escaped by the operator.
+
+The three chat channels send the same plain text body as SMTP
+(`Message.Text()`): the title becomes the Slack header, the Discord embed title
+and the Telegram bold first line. The `body_template` of the Webhook channel is
+not used by them.
 
 Available template data (the `notify.Message` struct):
 
@@ -183,6 +237,73 @@ curl -b cookies.txt -X POST http://localhost:3000/api/notifications \
   }'
 ```
 
+Create a Slack channel (bot token):
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/notifications \
+  -H 'Content-Type: application/json' -d '{
+    "name": "Ops Slack",
+    "type": "slack",
+    "active": true,
+    "config": {
+      "slack": {
+        "token": "xoxb-...",
+        "channel": "C0123456789",
+        "bot_name": "Up",
+        "icon": ":satellite:",
+        "thread_ts": ""
+      }
+    }
+  }'
+```
+
+Create a Discord channel (the two halves of the webhook URL):
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/notifications \
+  -H 'Content-Type: application/json' -d '{
+    "name": "Ops Discord",
+    "type": "discord",
+    "active": true,
+    "config": {
+      "discord": {
+        "webhook_id": "123456789012345678",
+        "token": "abcdefghijklmnopqrstuvwxyz",
+        "username": "Up",
+        "avatar_url": "",
+        "thread_id": ""
+      }
+    }
+  }'
+```
+
+Create a Telegram channel (bot token from @BotFather, one or more chats):
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/notifications \
+  -H 'Content-Type: application/json' -d '{
+    "name": "Ops Telegram",
+    "type": "telegram",
+    "active": true,
+    "config": {
+      "telegram": {
+        "token": "123456789:AA...",
+        "chats": "-1001234567890,@mychannel",
+        "parse_mode": "None",
+        "disable_notification": false,
+        "disable_preview": false
+      }
+    }
+  }'
+```
+
+Only the credentials and the destination are mandatory (`slack.token` +
+`slack.channel`, `discord.webhook_id` + `discord.token`, `telegram.token` +
+`telegram.chats`); every other field is optional. A chat channel can be created
+without the matching block only for `smtp`/`webhook`: for the other three the
+API answers `config.slack is required for Slack notifications` (and the
+equivalents).
+
 Link channels to a monitor through the monitor payload (`notification_ids`).
 
 Only the writable fields belong in the body: `name`, `type`, `active`,
@@ -200,7 +321,7 @@ Every attempt produces one row in `notification_logs`:
 | `notification_id`, `monitor_id` | who/what |
 | `event` | `down`, `up`, `test`, `cert_expiring`, `cert_expired`, `domain_expiring` or `domain_expired` |
 | `success` | delivery accepted by the endpoint |
-| `error` | reason when `success=0` (SMTP/shoutrrr message) |
+| `error` | reason when `success=0` (the shoutrrr error message, whatever the channel) |
 | `duration_ms` | time of the attempt |
 | `node_id` | cluster node that performed the send |
 
@@ -233,6 +354,12 @@ external service; `docs/development.md` documents both commands. Remember that a
 container must use `host.docker.internal` instead of `127.0.0.1` to reach
 services running on the Docker host.
 
+The chat channels have no local sink: the *Test* button (and the endpoint above)
+talks to the real Slack/Discord/Telegram API, which is exactly what validates a
+bot token, a webhook id or a chat id. The delivery log row keeps the API error
+verbatim (`invalid token`, `Unknown Channel`, `chat not found`, ...), so a
+failing configuration can be diagnosed without reading the application log.
+
 ## 6. Common failures
 
 | Log error | Cause |
@@ -241,4 +368,11 @@ services running on the Docker host.
 | `smtp: ... x509: certificate signed by unknown authority` | self-signed relay: enable `skip_tls_verify` |
 | `smtp: error applying params ...` | unknown parameter sent to the smtp service (a bug: only `title` is forwarded) |
 | `generic: failed to send notification ... server returned unexpected response status code` | the webhook answered 4xx/5xx (the status is in the error) |
+| `slack: failed to send slack notification: invalid_auth` | wrong/revoked bot token, or the app was removed from the channel |
+| `slack: ... channel_not_found` | `channel` is not the id of a channel the bot can post to (invite the app first) |
+| `discord: 404 Not Found` | `webhook_id` or `token` truncated (copy both halves of the webhook URL) |
+| `discord: 400 Bad Request` | `thread_id` that does not belong to the webhook channel |
+| `telegram: invalid telegram token: ...` | `token` is not `<bot id>:<secret>` (the value from @BotFather, including the colon) |
+| `telegram: ... chat not found` | bad `chats` entry, or the bot was never started/added to that chat |
+| `telegram: ... can't parse entities` | a Markdown parse mode with unescaped characters in the check detail: use `None` |
 | Notification sent but not received and no log row | the monitor was never linked to the channel (`notification_ids`) |

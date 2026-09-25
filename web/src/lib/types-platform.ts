@@ -34,12 +34,39 @@ export interface WebhookConfig {
   body_template: string
 }
 
+export interface SlackConfig {
+  token: string
+  channel: string
+  bot_name: string
+  icon: string
+  thread_ts: string
+}
+
+export interface DiscordConfig {
+  webhook_id: string
+  token: string
+  username: string
+  avatar_url: string
+  thread_id: string
+}
+
+export interface TelegramConfig {
+  token: string
+  chats: string
+  parse_mode: string
+  disable_notification: boolean
+  disable_preview: boolean
+}
+
 export interface NotificationConfig {
   smtp?: SMTPConfig
   webhook?: WebhookConfig
+  slack?: SlackConfig
+  discord?: DiscordConfig
+  telegram?: TelegramConfig
 }
 
-export type NotificationType = 'smtp' | 'webhook'
+export type NotificationType = 'smtp' | 'webhook' | 'slack' | 'discord' | 'telegram'
 
 export interface Notification {
   id: number

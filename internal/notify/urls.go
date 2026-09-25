@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -96,6 +97,129 @@ func buildWebhookURL(cfg *models.WebhookConfig) (string, error) {
 		Scheme:   "generic",
 		Host:     parsed.Host,
 		Path:     parsed.Path,
+		RawQuery: query.Encode(),
+	}
+	return serviceURL.String(), nil
+}
+
+// buildSlackURL translates the Slack settings into the shoutrrr service URL:
+//
+//	slack://token@channel?botname=...&icon=...&thread_ts=...
+//
+// The token travels in the userinfo part: a bot token (xoxb-…) or an incoming
+// webhook token (hook:T…-B…-X…) are both understood. The channel is the host
+// part, so it must stay free of separators (`C0123456789` is what the UI
+// suggests).
+func buildSlackURL(cfg *models.SlackConfig) (string, error) {
+	token := strings.TrimSpace(cfg.Token)
+	if token == "" {
+		return "", errors.New("the Slack token is missing")
+	}
+	channel := strings.TrimSpace(cfg.Channel)
+	if channel == "" {
+		return "", errors.New("the Slack channel is missing")
+	}
+
+	query := url.Values{}
+	if cfg.BotName != "" {
+		query.Set("botname", cfg.BotName)
+	}
+	if cfg.Icon != "" {
+		query.Set("icon", cfg.Icon)
+	}
+	if cfg.ThreadTS != "" {
+		query.Set("thread_ts", cfg.ThreadTS)
+	}
+
+	serviceURL := url.URL{
+		Scheme:   "slack",
+		User:     slackUserinfo(token),
+		Host:     channel,
+		RawQuery: query.Encode(),
+	}
+	return serviceURL.String(), nil
+}
+
+// slackUserinfo splits a "type:rest" token (hook:…, xoxb:…) the way shoutrrr
+// does when it renders the URL itself: the identifier in the username and the
+// rest in the password. A bare token (xoxb-…) travels whole, so the colons of
+// an incoming webhook token are not percent escaped into the userinfo.
+func slackUserinfo(token string) *url.Userinfo {
+	if identifier, rest, found := strings.Cut(token, ":"); found && identifier != "" && rest != "" {
+		return url.UserPassword(identifier, rest)
+	}
+	return url.User(token)
+}
+
+// buildDiscordURL translates the Discord settings into the shoutrrr service
+// URL:
+//
+//	discord://token@webhook_id?username=...&avatar=...&thread_id=...
+//
+// "splitlines=no" is forced: shoutrrr defaults to one embedded item per line,
+// which would turn a multi line alert into a stack of embeds.
+func buildDiscordURL(cfg *models.DiscordConfig) (string, error) {
+	webhookID := strings.TrimSpace(cfg.WebhookID)
+	if webhookID == "" {
+		return "", errors.New("the Discord webhook id is missing")
+	}
+	token := strings.TrimSpace(cfg.Token)
+	if token == "" {
+		return "", errors.New("the Discord webhook token is missing")
+	}
+
+	query := url.Values{}
+	query.Set("splitlines", "no")
+	if cfg.Username != "" {
+		query.Set("username", cfg.Username)
+	}
+	if cfg.AvatarURL != "" {
+		query.Set("avatar", cfg.AvatarURL)
+	}
+	if cfg.ThreadID != "" {
+		query.Set("thread_id", cfg.ThreadID)
+	}
+
+	serviceURL := url.URL{
+		Scheme:   "discord",
+		User:     url.User(token),
+		Host:     webhookID,
+		RawQuery: query.Encode(),
+	}
+	return serviceURL.String(), nil
+}
+
+// buildTelegramURL translates the Telegram settings into the shoutrrr service
+// URL:
+//
+//	telegram://bot_id:secret@telegram?chats=a,b&parsemode=None&notification=yes&preview=no
+//
+// The bot token is a "id:secret" pair, so it is split and sent as the userinfo
+// password (shoutrrr rebuilds it verbatim).
+func buildTelegramURL(cfg *models.TelegramConfig) (string, error) {
+	botID, secret, found := strings.Cut(strings.TrimSpace(cfg.Token), ":")
+	if !found || strings.TrimSpace(botID) == "" || strings.TrimSpace(secret) == "" {
+		return "", errors.New("the Telegram bot token must look like <bot id>:<secret>")
+	}
+	chats := models.SplitList(cfg.Chats)
+	if len(chats) == 0 {
+		return "", errors.New("the Telegram chat list is empty")
+	}
+	parseMode, ok := models.TelegramParseMode(cfg.ParseMode)
+	if !ok {
+		return "", fmt.Errorf("unknown Telegram parse mode %q", cfg.ParseMode)
+	}
+
+	query := url.Values{}
+	query.Set("chats", strings.Join(chats, ","))
+	query.Set("parsemode", parseMode)
+	query.Set("notification", yesNo(!cfg.DisableNotification))
+	query.Set("preview", yesNo(!cfg.DisablePreview))
+
+	serviceURL := url.URL{
+		Scheme:   "telegram",
+		User:     url.UserPassword(strings.TrimSpace(botID), strings.TrimSpace(secret)),
+		Host:     "telegram",
 		RawQuery: query.Encode(),
 	}
 	return serviceURL.String(), nil

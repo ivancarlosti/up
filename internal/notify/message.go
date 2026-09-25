@@ -1,5 +1,6 @@
 // Package notify wraps the shoutrrr engine and turns an internal Message into
-// the payload expected by the SMTP and Webhook channels.
+// the payload expected by the SMTP, Webhook, Slack, Discord and Telegram
+// channels.
 //
 // Design notes (see docs/notifications.md):
 //   - SMTP is delivered through shoutrrr's "smtp" service.
@@ -8,6 +9,9 @@
 //     request body (shoutrrr sends params["message"] verbatim when no template
 //     is configured), so operators get full control over the payload while the
 //     transport (method, headers, TLS) stays inside shoutrrr.
+//   - Slack, Discord and Telegram are delivered through their shoutrrr services
+//     using the same plain text body as SMTP (Message.Text); the message title
+//     travels in shoutrrr's "title" parameter.
 package notify
 
 import (

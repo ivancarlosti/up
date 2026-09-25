@@ -1,9 +1,12 @@
 package notify
 
 import (
+	"io"
+	"log/slog"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ivancarlosti/up/internal/models"
 )
@@ -155,6 +158,228 @@ func TestMonitorTarget(t *testing.T) {
 			t.Errorf("MonitorTarget() = %q, want %q", got, tc.want)
 		}
 	}
+}
+
+func TestBuildSlackURL(t *testing.T) {
+	config := &models.SlackConfig{
+		Token:    slackBotToken(),
+		Channel:  "C0123456789",
+		BotName:  "Up",
+		Icon:     ":satellite:",
+		ThreadTS: "1712345678.000100",
+	}
+	raw, err := buildSlackURL(config)
+	if err != nil {
+		t.Fatalf("build slack URL: %v", err)
+	}
+	parsed := mustParse(t, raw)
+	if parsed.Scheme != "slack" || parsed.Host != "C0123456789" {
+		t.Fatalf("unexpected service URL: %s", raw)
+	}
+	if user := parsed.User.Username(); user != config.Token {
+		t.Fatalf("the bot token must survive the URL round trip: %q (%s)", user, raw)
+	}
+	query := parsed.Query()
+	if query.Get("botname") != "Up" || query.Get("icon") != ":satellite:" {
+		t.Fatalf("the identity overrides are lost: %s", raw)
+	}
+	if query.Get("thread_ts") != "1712345678.000100" {
+		t.Fatalf("the thread timestamp is lost: %s", raw)
+	}
+
+	// An incoming webhook token keeps its "hook:" prefix and needs no extras.
+	hook, err := buildSlackURL(&models.SlackConfig{
+		Token:   "hook:T00000000-B00000000-XXXXXXXXXXXXXXXXXXXXXXXX",
+		Channel: "webhook",
+	})
+	if err != nil {
+		t.Fatalf("build slack URL (webhook token): %v", err)
+	}
+	if user := mustParse(t, hook).User.Username(); user != "hook" {
+		t.Fatalf("the webhook token must keep its identifier: %q (%s)", user, hook)
+	}
+	if len(mustParse(t, hook).Query()) != 0 {
+		t.Fatalf("optional parameters must stay out of the URL: %s", hook)
+	}
+
+	if _, err := buildSlackURL(&models.SlackConfig{Channel: "C0123456789"}); err == nil {
+		t.Fatal("a Slack channel without a token must be rejected")
+	}
+	if _, err := buildSlackURL(&models.SlackConfig{Token: "xoxb-1"}); err == nil {
+		t.Fatal("a Slack token without a channel must be rejected")
+	}
+}
+
+func TestBuildDiscordURL(t *testing.T) {
+	config := &models.DiscordConfig{
+		WebhookID: "123456789012345678",
+		Token:     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123",
+		Username:  "Up",
+		AvatarURL: "https://cdn.example.com/up.png",
+		ThreadID:  "987654321098765432",
+	}
+	raw, err := buildDiscordURL(config)
+	if err != nil {
+		t.Fatalf("build discord URL: %v", err)
+	}
+	parsed := mustParse(t, raw)
+	if parsed.Scheme != "discord" || parsed.Host != config.WebhookID {
+		t.Fatalf("unexpected service URL: %s", raw)
+	}
+	if user := parsed.User.Username(); user != config.Token {
+		t.Fatalf("the webhook token must survive the URL round trip: %q (%s)", user, raw)
+	}
+	query := parsed.Query()
+	if query.Get("splitlines") != "no" {
+		t.Fatalf("one alert must stay one message, not one embed per line: %s", raw)
+	}
+	if query.Get("username") != "Up" || query.Get("thread_id") != config.ThreadID {
+		t.Fatalf("the overrides are lost: %s", raw)
+	}
+	if query.Get("avatar") != config.AvatarURL {
+		t.Fatalf("the avatar override is lost: %s", raw)
+	}
+
+	bare, err := buildDiscordURL(&models.DiscordConfig{WebhookID: "1", Token: "t"})
+	if err != nil {
+		t.Fatalf("build discord URL (required fields only): %v", err)
+	}
+	if len(mustParse(t, bare).Query()) != 1 { // splitlines only
+		t.Fatalf("optional parameters must stay out of the URL: %s", bare)
+	}
+
+	if _, err := buildDiscordURL(&models.DiscordConfig{Token: "t"}); err == nil {
+		t.Fatal("a Discord webhook without an id must be rejected")
+	}
+	if _, err := buildDiscordURL(&models.DiscordConfig{WebhookID: "1"}); err == nil {
+		t.Fatal("a Discord webhook without a token must be rejected")
+	}
+}
+
+func TestBuildTelegramURL(t *testing.T) {
+	config := &models.TelegramConfig{
+		Token:               telegramBotToken(),
+		Chats:               "-1001234567890, @mychannel",
+		ParseMode:           "HTML",
+		DisableNotification: true,
+		DisablePreview:      true,
+	}
+	raw, err := buildTelegramURL(config)
+	if err != nil {
+		t.Fatalf("build telegram URL: %v", err)
+	}
+	parsed := mustParse(t, raw)
+	if parsed.Scheme != "telegram" || parsed.Host != "telegram" {
+		t.Fatalf("unexpected service URL: %s", raw)
+	}
+	if parsed.User.Username() != "1234" {
+		t.Fatalf("the bot id must be the userinfo username: %s", raw)
+	}
+	if secret, _ := parsed.User.Password(); secret != "up-telegram-test-token" {
+		t.Fatalf("the bot secret must survive URL encoding: %s", raw)
+	}
+	query := parsed.Query()
+	if query.Get("chats") != "-1001234567890,@mychannel" {
+		t.Fatalf("chats must be a comma separated list: %q", query.Get("chats"))
+	}
+	if query.Get("parsemode") != "HTML" {
+		t.Fatalf("the parse mode is lost: %s", raw)
+	}
+	if query.Get("notification") != "no" || query.Get("preview") != "no" {
+		t.Fatalf("the delivery flags are lost: %s", raw)
+	}
+
+	quiet, err := buildTelegramURL(&models.TelegramConfig{Token: "1:abc", Chats: "1"})
+	if err != nil {
+		t.Fatalf("build telegram URL (defaults): %v", err)
+	}
+	quietQuery := mustParse(t, quiet).Query()
+	if quietQuery.Get("parsemode") != models.DefaultTelegramParseMode ||
+		quietQuery.Get("notification") != "yes" || quietQuery.Get("preview") != "yes" {
+		t.Fatalf("unexpected defaults: %s", quiet)
+	}
+
+	if _, err := buildTelegramURL(&models.TelegramConfig{Token: "123456789", Chats: "1"}); err == nil {
+		t.Fatal("a Telegram token without a secret must be rejected")
+	}
+	if _, err := buildTelegramURL(&models.TelegramConfig{Token: "1:abc"}); err == nil {
+		t.Fatal("a Telegram channel without a chat must be rejected")
+	}
+	if _, err := buildTelegramURL(&models.TelegramConfig{Token: "1:abc", Chats: "1", ParseMode: "Text"}); err == nil {
+		t.Fatal("an unknown Telegram parse mode must be rejected")
+	}
+}
+
+// TestChatServiceURLsAreAcceptedByShoutrrr feeds every generated URL back into
+// the shoutrrr config parser: a shape the engine refuses (a token the service
+// does not recognise, a missing chat) would otherwise only surface as a failed
+// delivery, at the first alert.
+func TestChatServiceURLsAreAcceptedByShoutrrr(t *testing.T) {
+	engine := NewEngine(slog.New(slog.NewTextHandler(io.Discard, nil)), time.Second)
+
+	slackBot, err := buildSlackURL(&models.SlackConfig{
+		Token:   slackBotToken(),
+		Channel: "C0123456789",
+	})
+	if err != nil {
+		t.Fatalf("build slack URL: %v", err)
+	}
+	slackHook, err := buildSlackURL(&models.SlackConfig{
+		Token:   "hook:T00000000-B00000000-XXXXXXXXXXXXXXXXXXXXXXXX",
+		Channel: "webhook",
+	})
+	if err != nil {
+		t.Fatalf("build slack URL (webhook token): %v", err)
+	}
+	discordURL, err := buildDiscordURL(&models.DiscordConfig{
+		WebhookID: "123456789012345678",
+		Token:     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123",
+		ThreadID:  "987654321098765432",
+	})
+	if err != nil {
+		t.Fatalf("build discord URL: %v", err)
+	}
+	telegramURL, err := buildTelegramURL(&models.TelegramConfig{
+		Token: telegramBotToken(),
+		Chats: "-1001234567890,@mychannel",
+	})
+	if err != nil {
+		t.Fatalf("build telegram URL: %v", err)
+	}
+
+	for name, serviceURL := range map[string]string{
+		"slack (bot token)":     slackBot,
+		"slack (webhook token)": slackHook,
+		"discord":               discordURL,
+		"telegram":              telegramURL,
+	} {
+		if _, err := engine.newRouter(serviceURL); err != nil {
+			t.Errorf("%s: shoutrrr rejected the generated URL %q: %v", name, serviceURL, err)
+		}
+	}
+}
+
+// Fixtures for the chat service tests.
+//
+// Both tokens are fabricated, but their literal form matters: GitHub secret
+// scanning matches the *patterns* of real credentials and rejects the push of
+// any commit containing one ("Push cannot contain secrets"), whether or not the
+// value is a live secret. A "xoxb-<12>-<12>-<24>" string matches the Slack API
+// token pattern and a "<9 digits>:AA<35 chars>" string matches the Telegram bot
+// token pattern, so neither may appear verbatim in the repository.
+//
+// slackBotToken assembles the Slack token at run time. shoutrrr validates the
+// shape of the token, so the fixture has to keep it: three dash separated
+// groups of 12, 12 and 24 characters after the identifier.
+func slackBotToken() string {
+	return "xox" + "b-" + strings.Repeat("1", 12) + "-" + strings.Repeat("2", 12) + "-" + strings.Repeat("f", 24)
+}
+
+// telegramBotToken is a synthetic <bot id>:<secret> pair. The id and the secret
+// are deliberately short: shoutrrr only checks for "<digits>:<non empty>", and
+// a realistic looking pair would match the Telegram bot token pattern above.
+func telegramBotToken() string {
+	return "1234:up-telegram-test-token"
 }
 
 func mustQuery(t *testing.T, raw string) url.Values {

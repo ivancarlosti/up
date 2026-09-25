@@ -95,7 +95,7 @@ flowchart TB
   S2 -->|"same endpoints, opposite direction"| S1
   U["operator browser"] --> N1
   U --> N2
-  M["SMTP / Webhook"] <-- "one elected sender" --- N1
+  M["Notification channels"] <-- "one elected sender" --- N1
   M <-- "one elected sender" --- N2
 ```
 
@@ -583,7 +583,8 @@ dependency in phase 0).
 - Requests are HMAC-signed with the cluster key (timestamp + nonce), so a leaked
   log line cannot be replayed.
 - The cluster key is never logged; sync payloads are size-capped.
-- Secrets (SMTP password, webhook URL, session secret) only sync behind an
+- Secrets (SMTP password, webhook URLs, Slack/Discord/Telegram tokens, session
+  secret) only sync behind an
   explicit opt-in and must run over TLS; `CLUSTER_INSECURE_SKIP_VERIFY` exists
   only for internal labs and logs a warning on every boot.
 - `docs/security.md` has a "peer trust model" section: every node is trusted

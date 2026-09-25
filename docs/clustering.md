@@ -31,7 +31,7 @@ flowchart TB
   N2 <-.->|join handshake + liveness| N3
   U["Operator browser"] --> N1
   U --> N2
-  EMAIL[SMTP / Webhook] <-- notifications (elected sender) --- N1
+  EMAIL[Notification channels] <-- notifications (elected sender) --- N1
   EMAIL <-- notifications (elected sender) --- N2
 ```
 

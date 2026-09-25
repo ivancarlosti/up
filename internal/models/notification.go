@@ -8,19 +8,25 @@ import (
 	"gorm.io/gorm"
 )
 
-// NotificationType is the delivery channel kind. Only SMTP and Webhook are
-// exposed by the UI; both are executed by the shoutrrr engine.
+// NotificationType is the delivery channel kind. SMTP and Webhook are the
+// generic transports; Slack, Discord and Telegram are the chat services. Every
+// one of them is executed by the shoutrrr engine.
 type NotificationType string
 
 // Supported notification types.
 const (
-	NotificationSMTP    NotificationType = "smtp"
-	NotificationWebhook NotificationType = "webhook"
+	NotificationSMTP     NotificationType = "smtp"
+	NotificationWebhook  NotificationType = "webhook"
+	NotificationSlack    NotificationType = "slack"
+	NotificationDiscord  NotificationType = "discord"
+	NotificationTelegram NotificationType = "telegram"
 )
 
 // AllNotificationTypes lists the channels offered to the operator.
 func AllNotificationTypes() []NotificationType {
-	return []NotificationType{NotificationSMTP, NotificationWebhook}
+	return []NotificationType{
+		NotificationSMTP, NotificationWebhook, NotificationSlack, NotificationDiscord, NotificationTelegram,
+	}
 }
 
 // Notification is a delivery channel that can be linked to any number of
@@ -71,8 +77,11 @@ func (n *Notification) BeforeCreate(tx *gorm.DB) error {
 // NotificationConfig groups the per-type settings. Only the block matching the
 // notification type is used.
 type NotificationConfig struct {
-	SMTP    *SMTPConfig    `json:"smtp,omitempty"`
-	Webhook *WebhookConfig `json:"webhook,omitempty"`
+	SMTP     *SMTPConfig     `json:"smtp,omitempty"`
+	Webhook  *WebhookConfig  `json:"webhook,omitempty"`
+	Slack    *SlackConfig    `json:"slack,omitempty"`
+	Discord  *DiscordConfig  `json:"discord,omitempty"`
+	Telegram *TelegramConfig `json:"telegram,omitempty"`
 }
 
 // SMTPConfig describes the SMTP (e-mail) delivery settings.
@@ -113,6 +122,69 @@ const DefaultWebhookBodyTemplate = `{
   "timestamp": "{{.Timestamp}}"
 }`
 
+// SlackConfig describes the Slack delivery settings. The token is either a bot
+// token (xoxb-…) or an incoming webhook token (hook:T…-B…-X…).
+type SlackConfig struct {
+	Token string `json:"token"`
+	// Channel is the id (Cxxxxxxxxxx) or the name (#general) to post to.
+	Channel string `json:"channel"`
+	// BotName and Icon override the app identity of the message.
+	BotName string `json:"bot_name"`
+	Icon    string `json:"icon"`
+	// ThreadTS posts the message as a reply in the thread of that timestamp.
+	ThreadTS string `json:"thread_ts"`
+}
+
+// DiscordConfig describes the Discord delivery settings. The webhook id and the
+// token are the two halves of the webhook URL
+// (discord.com/api/webhooks/<webhook_id>/<token>).
+type DiscordConfig struct {
+	WebhookID string `json:"webhook_id"`
+	Token     string `json:"token"`
+	Username  string `json:"username"`
+	AvatarURL string `json:"avatar_url"`
+	ThreadID  string `json:"thread_id"`
+}
+
+// TelegramConfig describes the Telegram delivery settings.
+type TelegramConfig struct {
+	// Token is the bot token from @BotFather (<bot id>:<secret>).
+	Token string `json:"token"`
+	// Chats is a comma separated list of chat ids, @channel names or
+	// "chat id:thread id" pairs.
+	Chats string `json:"chats"`
+	// ParseMode is how Telegram parses the message body. Every value but None
+	// requires the operator to escape the text themselves.
+	ParseMode string `json:"parse_mode"`
+	// DisableNotification sends the message silently.
+	DisableNotification bool `json:"disable_notification"`
+	// DisablePreview hides the link previews of the URLs in the message.
+	DisablePreview bool `json:"disable_preview"`
+}
+
+// TelegramParseModes are the parse modes accepted by the telegram service of
+// shoutrrr.
+var TelegramParseModes = []string{"None", "Markdown", "HTML", "MarkdownV2"}
+
+// DefaultTelegramParseMode keeps the body plain and lets shoutrrr render the
+// message title with its own HTML escaping.
+const DefaultTelegramParseMode = "None"
+
+// TelegramParseMode normalises an operator provided parse mode and reports
+// whether it is one of TelegramParseModes (an empty string means the default).
+func TelegramParseMode(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return DefaultTelegramParseMode, true
+	}
+	for _, mode := range TelegramParseModes {
+		if strings.EqualFold(trimmed, mode) {
+			return mode, true
+		}
+	}
+	return "", false
+}
+
 // Normalize applies the defaults of the optional fields.
 func (n *Notification) Normalize() {
 	switch n.Type {
@@ -140,6 +212,36 @@ func (n *Notification) Normalize() {
 		}
 		if w.Headers == nil {
 			w.Headers = []Header{}
+		}
+	case NotificationSlack:
+		if n.Config.Slack == nil {
+			n.Config.Slack = &SlackConfig{}
+		}
+		s := n.Config.Slack
+		s.Token = strings.TrimSpace(s.Token)
+		s.Channel = strings.TrimSpace(s.Channel)
+		s.BotName = strings.TrimSpace(s.BotName)
+		s.Icon = strings.TrimSpace(s.Icon)
+		s.ThreadTS = strings.TrimSpace(s.ThreadTS)
+	case NotificationDiscord:
+		if n.Config.Discord == nil {
+			n.Config.Discord = &DiscordConfig{}
+		}
+		d := n.Config.Discord
+		d.WebhookID = strings.TrimSpace(d.WebhookID)
+		d.Token = strings.TrimSpace(d.Token)
+		d.Username = strings.TrimSpace(d.Username)
+		d.AvatarURL = strings.TrimSpace(d.AvatarURL)
+		d.ThreadID = strings.TrimSpace(d.ThreadID)
+	case NotificationTelegram:
+		if n.Config.Telegram == nil {
+			n.Config.Telegram = &TelegramConfig{ParseMode: DefaultTelegramParseMode}
+		}
+		t := n.Config.Telegram
+		t.Token = strings.TrimSpace(t.Token)
+		t.Chats = strings.Join(SplitList(t.Chats), ",")
+		if mode, ok := TelegramParseMode(t.ParseMode); ok {
+			t.ParseMode = mode
 		}
 	}
 }
@@ -180,8 +282,45 @@ func (n *Notification) Validate() string {
 		default:
 			return "config.webhook.method must be GET, POST, PUT, PATCH or DELETE"
 		}
+	case NotificationSlack:
+		if n.Config.Slack == nil {
+			return "config.slack is required for Slack notifications"
+		}
+		s := n.Config.Slack
+		if s.Token == "" {
+			return "config.slack.token is required"
+		}
+		if s.Channel == "" {
+			return "config.slack.channel is required"
+		}
+	case NotificationDiscord:
+		if n.Config.Discord == nil {
+			return "config.discord is required for Discord notifications"
+		}
+		d := n.Config.Discord
+		if d.WebhookID == "" {
+			return "config.discord.webhook_id is required"
+		}
+		if d.Token == "" {
+			return "config.discord.token is required"
+		}
+	case NotificationTelegram:
+		if n.Config.Telegram == nil {
+			return "config.telegram is required for Telegram notifications"
+		}
+		t := n.Config.Telegram
+		botID, secret, found := strings.Cut(t.Token, ":")
+		if !found || strings.TrimSpace(botID) == "" || strings.TrimSpace(secret) == "" {
+			return "config.telegram.token must look like <bot id>:<secret>"
+		}
+		if len(SplitList(t.Chats)) == 0 {
+			return "config.telegram.chats requires at least one chat"
+		}
+		if _, ok := TelegramParseMode(t.ParseMode); !ok {
+			return "config.telegram.parse_mode must be None, Markdown, HTML or MarkdownV2"
+		}
 	default:
-		return "type must be smtp or webhook"
+		return "type must be smtp, webhook, slack, discord or telegram"
 	}
 	return ""
 }

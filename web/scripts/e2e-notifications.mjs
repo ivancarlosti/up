@@ -98,6 +98,42 @@ try {
   })`)
   check('webhook fields rendered', fields.url && fields.method && fields.body, JSON.stringify(fields))
 
+  // The same selector drives the chat channels: every type must render its own
+  // block (a missing one is exactly the regression this script guards).
+  const chatFields = await page.evaluate(`(async () => {
+    const select = document.getElementById('channel-type')
+    const set = (value) => {
+      select.value = value
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 250))
+    const read = () => ({
+      slackToken: !!document.getElementById('slack-token'),
+      slackChannel: !!document.getElementById('slack-channel'),
+      discordId: !!document.getElementById('discord-id'),
+      discordToken: !!document.getElementById('discord-token'),
+      telegramToken: !!document.getElementById('telegram-token'),
+      telegramChats: !!document.getElementById('telegram-chats'),
+      telegramParseMode: !!document.getElementById('telegram-parse-mode'),
+    })
+    set('slack'); await wait()
+    const slack = read()
+    set('discord'); await wait()
+    const discord = read()
+    set('telegram'); await wait()
+    const telegram = read()
+    set('webhook'); await wait()
+    return { slack, discord, telegram, back: !!document.getElementById('webhook-url') }
+  })()`)
+  check('slack fields rendered', chatFields.slack.slackToken && chatFields.slack.slackChannel, JSON.stringify(chatFields.slack))
+  check('discord fields rendered', chatFields.discord.discordId && chatFields.discord.discordToken, JSON.stringify(chatFields.discord))
+  check(
+    'telegram fields rendered',
+    chatFields.telegram.telegramToken && chatFields.telegram.telegramChats && chatFields.telegram.telegramParseMode,
+    JSON.stringify(chatFields.telegram),
+  )
+  check('type switched back to webhook', chatFields.back)
+
   await setValue(page, '#channel-name', name)
   await setValue(page, '#webhook-url', endpoint)
   check('header row added', await clickButton(page, LABELS.add))

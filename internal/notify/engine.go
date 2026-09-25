@@ -42,6 +42,12 @@ func (e *Engine) Send(notification *models.Notification, msg Message) error {
 		return e.SendSMTP(notification, msg)
 	case models.NotificationWebhook:
 		return e.SendWebhook(notification, msg)
+	case models.NotificationSlack:
+		return e.SendSlack(notification, msg)
+	case models.NotificationDiscord:
+		return e.SendDiscord(notification, msg)
+	case models.NotificationTelegram:
+		return e.SendTelegram(notification, msg)
 	}
 	return fmt.Errorf("unsupported notification type %q", notification.Type)
 }
@@ -92,6 +98,56 @@ func (e *Engine) SendWebhook(notification *models.Notification, msg Message) err
 	// as the request body; the Content-Type is forced through a custom header.
 	params := types.Params{"message": body, "title": msg.Title}
 	return joinSendErrors(serviceRouter.Send(body, &params))
+}
+
+// SendSlack delivers a message through shoutrrr's slack service.
+func (e *Engine) SendSlack(notification *models.Notification, msg Message) error {
+	if notification.Config.Slack == nil {
+		return errors.New("slack configuration is missing")
+	}
+	serviceURL, err := buildSlackURL(notification.Config.Slack)
+	if err != nil {
+		return err
+	}
+	return e.sendChat("slack", serviceURL, msg)
+}
+
+// SendDiscord delivers a message through shoutrrr's discord service.
+func (e *Engine) SendDiscord(notification *models.Notification, msg Message) error {
+	if notification.Config.Discord == nil {
+		return errors.New("discord configuration is missing")
+	}
+	serviceURL, err := buildDiscordURL(notification.Config.Discord)
+	if err != nil {
+		return err
+	}
+	return e.sendChat("discord", serviceURL, msg)
+}
+
+// SendTelegram delivers a message through shoutrrr's telegram service.
+func (e *Engine) SendTelegram(notification *models.Notification, msg Message) error {
+	if notification.Config.Telegram == nil {
+		return errors.New("telegram configuration is missing")
+	}
+	serviceURL, err := buildTelegramURL(notification.Config.Telegram)
+	if err != nil {
+		return err
+	}
+	return e.sendChat("telegram", serviceURL, msg)
+}
+
+// sendChat delivers the plain text body through one chat service.
+//
+// The chat services take the body as their message argument and accept no send
+// time parameter other than "title": an unknown key (for example "message")
+// makes shoutrrr reject the whole send, so only the title is forwarded.
+func (e *Engine) sendChat(service, serviceURL string, msg Message) error {
+	serviceRouter, err := e.newRouter(serviceURL)
+	if err != nil {
+		return fmt.Errorf("initializing the %s service: %w", service, err)
+	}
+	params := types.Params{"title": msg.Title}
+	return joinSendErrors(serviceRouter.Send(msg.Text(), &params))
 }
 
 // newRouter creates a shoutrrr router for a single service URL.

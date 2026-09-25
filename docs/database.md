@@ -56,7 +56,7 @@ FLUSH PRIVILEGES;
 | `whois_parsers` | per-TLD rules that read an expiry date from a raw WHOIS response | few |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
-| `notifications` | SMTP / Webhook channels | few |
+| `notifications` | notification channels (SMTP, Webhook, Slack, Discord, Telegram) | few |
 | `notification_logs` | delivery history (success/failure + reason); kept forever unless `NOTIFICATION_LOG_RETENTION_DAYS` is set | thousands |
 | `notification_locks` | de-duplication lock for ANY_WITH_LOCK; pruned after 24 h | thousands (60 s window) |
 | `nodes` | cluster members, liveness and role | few |
