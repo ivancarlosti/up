@@ -26,7 +26,7 @@ const track = computed(() =>
       @update:model-value="emit('update:modelValue', $event === true)"
     >
       <SwitchThumb
-        class="pointer-events-none block h-4 w-4 rounded-full bg-card shadow transition-transform data-[state=checked]:translate-x-4"
+        class="pointer-events-none block h-4 w-4 rounded-full bg-card shadow transition-transform data-[state=checked]:translate-x-4 rtl:data-[state=checked]:-translate-x-4"
       />
     </SwitchRoot>
     <span v-if="label || $slots.default" class="select-none">

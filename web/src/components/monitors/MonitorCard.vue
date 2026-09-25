@@ -58,7 +58,7 @@ const targetHref = computed(() => {
   >
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
-        <button class="block max-w-full text-left" @click="emit('open', monitor)">
+        <button class="block max-w-full text-start" @click="emit('open', monitor)">
           <h3 class="truncate text-sm font-semibold">{{ monitor.name }}</h3>
         </button>
         <a

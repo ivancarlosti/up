@@ -17,7 +17,7 @@ function classesFor(type: string): string {
 </script>
 
 <template>
-  <div class="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2">
+  <div class="pointer-events-none fixed bottom-4 end-4 z-[60] flex w-80 flex-col gap-2">
     <div v-for="toast in items" :key="toast.id" :class="classesFor(toast.type)" class="pointer-events-auto">
       <CheckCircle2 v-if="toast.type === 'success'" class="mt-0.5 h-4 w-4 text-status-up" aria-hidden="true" />
       <AlertTriangle v-else-if="toast.type === 'error'" class="mt-0.5 h-4 w-4 text-status-down" aria-hidden="true" />

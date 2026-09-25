@@ -178,12 +178,12 @@ watch(hours, load)
       <Badge v-if="monitor.template_name" variant="outline" :title="t('monitor.templateSection')">
         {{ monitor.template_name }}
       </Badge>
-      <StatusBadge :status="monitor.status" pulse class="ml-2" />
+      <StatusBadge :status="monitor.status" pulse class="ms-2" />
       <Badge
         v-if="monitor.certificate"
         :variant="expiryVariant(monitor.certificate.days_left)"
         :title="certificateTitle(monitor.certificate, locale)"
-        class="ml-1"
+        class="ms-1"
       >
         {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
       </Badge>
@@ -191,7 +191,7 @@ watch(hours, load)
         v-if="monitor.domain"
         :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
         :title="domainTitle(monitor.domain, locale)"
-        class="ml-1"
+        class="ms-1"
       >
         <template v-if="monitor.domain.status === 'ok'">
           {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
@@ -200,7 +200,7 @@ watch(hours, load)
         <template v-else-if="monitor.domain.status === 'unsupported'">{{ t('domain.unsupported') }}</template>
         <template v-else>{{ t('domain.unavailable') }}</template>
       </Badge>
-      <div class="ml-auto flex items-center gap-2">
+      <div class="ms-auto flex items-center gap-2">
         <Button variant="outline" size="sm" @click="openEdit">
           <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('common.edit') }}

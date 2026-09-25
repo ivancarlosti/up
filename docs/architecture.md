@@ -53,7 +53,7 @@ internal/
   version/           build metadata injected with -ldflags
 web/                 Vue 3 + Vite + TypeScript + Tailwind frontend
   embed.go           //go:embed all:dist -> Dist()/Available()
-  src/locales/       en-US.json, pt-BR.json, es-MX.json
+  src/locales/       one JSON bundle per language (en-US is the source)
 docker/              docker-compose.yml (external DB), docker-compose-bundle.yml
                      (MariaDB included), .env, .env.example (nothing else)
 docs/                this documentation set

@@ -3,7 +3,8 @@
 // Up never translates messages on the server: every error response contains a
 // machine readable "code" (plus a developer oriented "detail"), and the Vue
 // frontend translates the code with vue-i18n. That keeps a single source of
-// truth for en-US, pt-BR and es-MX.
+// truth for every shipped language (en-US, pt-BR, es-MX, fr-FR, zh-CN, hi-IN,
+// ar-SA).
 package i18n
 
 // Error codes. Every code has a matching key in web/src/locales/*.json under

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/lib/api'
-import { detectLocale, i18n, isSupportedLocale, LOCALE_STORAGE_KEY } from '@/i18n'
+import { applyDocumentDirection, detectLocale, i18n, isSupportedLocale, LOCALE_STORAGE_KEY } from '@/i18n'
 import { hour12FromSetting, setHour12Preference } from '@/lib/format'
 import { useThemeStore } from '@/stores/theme'
 import type { Identity, PublicSettings, SessionResponse } from '@/lib/types'
@@ -58,6 +58,7 @@ export const useAppStore = defineStore('app', () => {
     i18n.global.locale.value = value
     localStorage.setItem(LOCALE_STORAGE_KEY, value)
     document.documentElement.lang = value
+    applyDocumentDirection(value)
   }
 
   /** setTheme changes the theme and persists the choice. */

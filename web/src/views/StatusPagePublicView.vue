@@ -113,7 +113,7 @@ watch(slug, load)
       <div class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
         <span class="h-3 w-3 rounded-full" :class="banner.color" />
         <p class="text-sm font-medium">{{ t(banner.key) }}</p>
-        <span class="ml-auto text-[11px] text-muted-foreground">
+        <span class="ms-auto text-[11px] text-muted-foreground">
           {{ t('publicStatus.updatedAt', { time: formatRelative(new Date().toISOString(), locale) }) }}
         </span>
       </div>
@@ -151,7 +151,7 @@ watch(slug, load)
                 {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
               </Badge>
 
-              <span class="ml-auto text-[11px] text-muted-foreground">{{ t(`status.${monitor.status}`) }}</span>
+              <span class="ms-auto text-[11px] text-muted-foreground">{{ t(`status.${monitor.status}`) }}</span>
             </div>
 
             <HeartbeatBar v-if="page.show_charts" class="mt-3" :heartbeats="monitor.heartbeats" :size="40" />

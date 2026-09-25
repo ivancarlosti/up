@@ -382,14 +382,14 @@ onMounted(load)
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-xs">
-          <thead class="text-left text-muted-foreground">
+          <thead class="text-start text-muted-foreground">
             <tr class="border-b border-border">
-              <th class="py-2 pr-3 font-medium">{{ t('common.type') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('expiry.targetLabel') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('expiry.targetMonitorsLabel') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('common.status') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('expiry.targetLastCheck') }}</th>
-              <th class="py-2 text-right font-medium">{{ t('common.actions') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('common.type') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('expiry.targetLabel') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('expiry.targetMonitorsLabel') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('common.status') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('expiry.targetLastCheck') }}</th>
+              <th class="py-2 text-end font-medium">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -398,17 +398,17 @@ onMounted(load)
               :key="`${target.kind}:${target.key}`"
               class="border-b border-border/60 last:border-0"
             >
-              <td class="py-2 pr-3">
+              <td class="py-2 pe-3">
                 <Badge variant="secondary">
                   {{ target.kind === 'domain' ? t('expiry.targetKindDomain') : t('expiry.targetKindCertificate') }}
                 </Badge>
-                <Badge v-if="target.manual" variant="outline" class="ml-1">{{ t('expiry.targetManual') }}</Badge>
+                <Badge v-if="target.manual" variant="outline" class="ms-1">{{ t('expiry.targetManual') }}</Badge>
               </td>
-              <td class="py-2 pr-3">
+              <td class="py-2 pe-3">
                 <span class="font-mono">{{ target.label }}</span>
                 <span
                   v-if="target.server_name && target.server_name !== target.address"
-                  class="ml-1 text-muted-foreground"
+                  class="ms-1 text-muted-foreground"
                 >
                   ({{ target.server_name }})
                 </span>
@@ -416,8 +416,8 @@ onMounted(load)
                   {{ target.monitors.map((monitor) => monitor.name).join(', ') }}
                 </div>
               </td>
-              <td class="py-2 pr-3">{{ target.monitors.length }}</td>
-              <td class="py-2 pr-3">
+              <td class="py-2 pe-3">{{ target.monitors.length }}</td>
+              <td class="py-2 pe-3">
                 <Badge
                   v-if="targetBadge(target)"
                   :variant="expiryStateVariant(target.status, target.days_left)"
@@ -426,10 +426,10 @@ onMounted(load)
                 </Badge>
                 <span v-else class="text-muted-foreground">{{ t('expiry.targetPending') }}</span>
               </td>
-              <td class="py-2 pr-3 text-muted-foreground">
+              <td class="py-2 pe-3 text-muted-foreground">
                 {{ target.checked_at ? formatDateTime(target.checked_at, locale) : '—' }}
               </td>
-              <td class="py-2 text-right">
+              <td class="py-2 text-end">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -463,28 +463,28 @@ onMounted(load)
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-xs">
-          <thead class="text-left text-muted-foreground">
+          <thead class="text-start text-muted-foreground">
             <tr class="border-b border-border">
-              <th class="py-2 pr-3 font-medium">{{ t('expiry.tld') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('expiry.server') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('expiry.rateOverride') }}</th>
-              <th class="py-2 pr-3 font-medium">{{ t('common.status') }}</th>
-              <th class="py-2 text-right font-medium">{{ t('common.actions') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('expiry.tld') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('expiry.server') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('expiry.rateOverride') }}</th>
+              <th class="py-2 pe-3 font-medium">{{ t('common.status') }}</th>
+              <th class="py-2 text-end font-medium">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="parser in parsers" :key="parser.id" class="border-b border-border/60 last:border-0">
-              <td class="py-2 pr-3 font-mono">.{{ parser.tld }}</td>
-              <td class="py-2 pr-3 font-mono">{{ parser.server || t('expiry.serverAuto') }}</td>
-              <td class="py-2 pr-3">
+              <td class="py-2 pe-3 font-mono">.{{ parser.tld }}</td>
+              <td class="py-2 pe-3 font-mono">{{ parser.server || t('expiry.serverAuto') }}</td>
+              <td class="py-2 pe-3">
                 {{ parser.min_interval_ms ? `${parser.min_interval_ms} ms` : t('expiry.rateGlobal') }}
               </td>
-              <td class="py-2 pr-3">
+              <td class="py-2 pe-3">
                 <Badge :variant="parser.enabled ? 'success' : 'secondary'">
                   {{ parser.enabled ? t('common.enabled') : t('common.disabled') }}
                 </Badge>
               </td>
-              <td class="py-2 text-right">
+              <td class="py-2 text-end">
                 <div class="flex items-center justify-end gap-1">
                   <Button variant="ghost" size="sm" :title="t('common.edit')" @click="openEdit(parser)">
                     <Pencil class="h-3.5 w-3.5" aria-hidden="true" />

@@ -2,10 +2,17 @@ import { createI18n } from 'vue-i18n'
 import enUS from '@/locales/en-US.json'
 import ptBR from '@/locales/pt-BR.json'
 import esMX from '@/locales/es-MX.json'
+import frFR from '@/locales/fr-FR.json'
+import zhCN from '@/locales/zh-CN.json'
+import hiIN from '@/locales/hi-IN.json'
+import arSA from '@/locales/ar-SA.json'
 
 /** Languages shipped with the frontend (must match DEFAULT_LOCALE values). */
-export const SUPPORTED_LOCALES = ['en-US', 'pt-BR', 'es-MX'] as const
+export const SUPPORTED_LOCALES = ['en-US', 'pt-BR', 'es-MX', 'fr-FR', 'zh-CN', 'hi-IN', 'ar-SA'] as const
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number]
+
+/** Base languages written right to left, used to set the document direction. */
+const RTL_LANGUAGES = new Set(['ar', 'fa', 'he', 'ur'])
 
 export const LOCALE_STORAGE_KEY = 'up.locale'
 export const THEME_STORAGE_KEY = 'up.theme'
@@ -19,8 +26,25 @@ export const i18n = createI18n({
     'en-US': enUS,
     'pt-BR': ptBR,
     'es-MX': esMX,
+    'fr-FR': frFR,
+    'zh-CN': zhCN,
+    'hi-IN': hiIN,
+    'ar-SA': arSA,
   },
 })
+
+/** isRtlLocale reports whether a language is written right to left. */
+export function isRtlLocale(locale: string): boolean {
+  return RTL_LANGUAGES.has(locale.split('-')[0].toLowerCase())
+}
+
+/**
+ * applyDocumentDirection keeps <html dir> in sync with the active language so
+ * an RTL language (Arabic) mirrors the whole layout, not just the text runs.
+ */
+export function applyDocumentDirection(locale: string): void {
+  document.documentElement.dir = isRtlLocale(locale) ? 'rtl' : 'ltr'
+}
 
 /** isSupportedLocale guards a value coming from localStorage or the API. */
 export function isSupportedLocale(value: unknown): value is SupportedLocale {

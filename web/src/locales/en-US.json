@@ -1,4 +1,5 @@
 {
+  "language": "English (US)",
   "app": {
     "name": "Up",
     "tagline": "Minimalist, cluster ready uptime monitoring",

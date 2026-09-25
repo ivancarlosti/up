@@ -11,9 +11,10 @@
     <meta name="description" content="Up - minimalista, cluster ready uptime monitoring" />
     <title>Up</title>
     <script>
-      // Apply the persisted theme before the first paint so the UI never
-      // flashes the wrong palette. The locale is handled by vue-i18n once the
-      // application boots.
+      // Apply the persisted theme and the text direction before the first paint
+      // so the UI never flashes the wrong palette or a left to right layout in a
+      // right to left language. The translated strings are handled by vue-i18n
+      // once the application boots.
       (function () {
         try {
           var stored = localStorage.getItem('up.theme')
@@ -21,6 +22,11 @@
           var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
           document.documentElement.classList.toggle('dark', dark)
           document.documentElement.dataset.theme = mode
+
+          var locale = localStorage.getItem('up.locale') || ''
+          var base = locale.split('-')[0].toLowerCase()
+          var rtl = ['ar', 'fa', 'he', 'ur'].indexOf(base) !== -1
+          document.documentElement.dir = rtl ? 'rtl' : 'ltr'
         } catch (error) {
           /* private mode: fall back to the system preference */
         }

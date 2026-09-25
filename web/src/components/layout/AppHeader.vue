@@ -99,7 +99,7 @@ async function signOut(): Promise<void> {
       {{ $t(realtimeKey) }}
     </span>
 
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ms-auto flex items-center gap-2">
       <LocaleSwitcher />
       <ThemeToggle />
 
@@ -119,7 +119,7 @@ async function signOut(): Promise<void> {
 
         <div
           v-if="menuOpen"
-          class="absolute right-0 mt-2 w-56 rounded-lg border border-border bg-card p-1 shadow-lg"
+          class="absolute end-0 mt-2 w-56 rounded-lg border border-border bg-card p-1 shadow-lg"
           @mouseleave="menuOpen = false"
         >
           <div class="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
@@ -128,7 +128,7 @@ async function signOut(): Promise<void> {
           </div>
           <button
             type="button"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-xs hover:bg-accent"
             @click="signOut"
           >
             <LogOut class="h-3.5 w-3.5" aria-hidden="true" />

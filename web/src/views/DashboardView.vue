@@ -206,7 +206,7 @@ onMounted(async () => {
     <div class="flex flex-wrap items-center gap-2">
       <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
       <Select v-model="typeFilter" :options="typeOptions" class="max-w-[12rem]" />
-      <span class="ml-auto text-[11px] text-muted-foreground">
+      <span class="ms-auto text-[11px] text-muted-foreground">
         {{ t('common.lastCheck') }}: {{ formatRelative(monitors.summary ? new Date().toISOString() : null, locale) }}
       </span>
     </div>

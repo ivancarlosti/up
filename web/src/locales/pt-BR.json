@@ -1,4 +1,5 @@
 {
+  "language": "Português (Brasil)",
   "app": {
     "name": "Up",
     "tagline": "Monitoramento de uptime minimalista e pronto para cluster",

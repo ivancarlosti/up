@@ -62,7 +62,7 @@ const (
 // SupportedLocales and SupportedThemes are the values accepted by
 // DEFAULT_LOCALE / DEFAULT_THEME and by the Admin > Settings page.
 var (
-	SupportedLocales = []string{"en-US", "pt-BR", "es-MX"}
+	SupportedLocales = []string{"en-US", "pt-BR", "es-MX", "fr-FR", "zh-CN", "hi-IN", "ar-SA"}
 	SupportedThemes  = []string{"system", "light", "dark"}
 	// SupportedTimeFormats is what DEFAULT_TIME_FORMAT and Admin > Settings
 	// accept: auto follows the browser locale, the other two force a clock.

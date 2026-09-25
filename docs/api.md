@@ -49,7 +49,7 @@ Public bootstrap payload used by the SPA:
   "auth_method":"account", "auth_enabled":true,
   "recaptcha_enabled":false, "recaptcha_client_id":"",
   "default_locale":"en-US", "default_theme":"system",
-  "supported_locales":["en-US","pt-BR","es-MX"],
+  "supported_locales":["en-US","pt-BR","es-MX","fr-FR","zh-CN","hi-IN","ar-SA"],
   "supported_themes":["system","light","dark"],
   "cluster_enabled":true, "node_id":"up-node-1", "node_name":"Primary Node"
 }

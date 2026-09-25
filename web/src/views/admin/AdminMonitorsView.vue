@@ -332,10 +332,10 @@ onMounted(load)
         <tbody>
           <tr v-for="monitor in sorted" :key="monitor.id">
             <td>
-              <button class="text-left hover:underline" @click="router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })">
+              <button class="text-start hover:underline" @click="router.push({ name: 'monitor-detail', params: { id: String(monitor.id) } })">
                 {{ monitor.name }}
               </button>
-              <Badge v-if="monitor.template_name" variant="outline" class="ml-1">
+              <Badge v-if="monitor.template_name" variant="outline" class="ms-1">
                 {{ monitor.template_name }}
               </Badge>
             </td>

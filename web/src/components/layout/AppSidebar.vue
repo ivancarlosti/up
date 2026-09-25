@@ -55,8 +55,8 @@ function isActive(name: string): boolean {
         // window bottom even on pages with little content. The page scrolls
         // underneath it (the nav itself scrolls through overflow-y-auto) and z-20
         // keeps it under the header (z-30).
-        'fixed top-14 bottom-0 left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-3 py-4 transition-transform lg:sticky lg:bottom-auto lg:h-[calc(100vh-3.5rem)] lg:translate-x-0',
-        props.mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        'fixed top-14 bottom-0 start-0 z-20 w-60 shrink-0 overflow-y-auto border-e border-border bg-card px-3 py-4 transition-transform lg:sticky lg:bottom-auto lg:h-[calc(100vh-3.5rem)] lg:translate-x-0',
+        props.mobileOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
       )
     "
   >

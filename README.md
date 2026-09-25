@@ -44,7 +44,7 @@ of nodes that vote on the real status.
 | **Cluster** | two modes. **`shared`** (default): several nodes on the same external database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting and `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. **`federated`**: one database per node, the configuration, the votes and the notification ownership synchronised over the signed peer API (`CLUSTER_PEER_API`), with a derived leader, a notification election (`leader`/`hash`/`origin`), `run_on=some`, opt-in channel/settings/session-secret sync and push. See [clustering.md](docs/clustering.md) and [clustering-modes.md](docs/clustering-modes.md) |
 | **Public status pages** | per-slug pages with theme, monitor selection, uptime/charts and a README badge |
 | **Public REST API** | scoped bearer tokens (`read`/`write`), IP allow/deny rules, rate limiting |
-| **i18n & theme** | en-US, pt-BR, es-MX, light/dark/system and a 12/24-hour clock preference, with configurable defaults for new visitors |
+| **i18n & theme** | en-US, pt-BR, es-MX, fr-FR, zh-CN, hi-IN, ar-SA (with RTL), light/dark/system and a 12/24-hour clock preference, with configurable defaults for new visitors |
 
 ## Quick start (Docker + external MariaDB)
 
@@ -142,7 +142,7 @@ AUTH_METHOD=account                    # none | account | keycloak
 ACCOUNT_LOGIN=admin@example.com
 ACCOUNT_PASSWORD=admin123
 
-DEFAULT_LOCALE=en-US                   # en-US | pt-BR | es-MX
+DEFAULT_LOCALE=en-US                   # en-US | pt-BR | es-MX | fr-FR | zh-CN | hi-IN | ar-SA
 DEFAULT_THEME=system                   # system | light | dark
 
 CLUSTER_ENABLED=false
