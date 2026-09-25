@@ -26,17 +26,20 @@
           var locale = localStorage.getItem('up.locale') || ''
           var base = locale.split('-')[0].toLowerCase()
           var rtl = ['ar', 'fa', 'he', 'ur'].indexOf(base) !== -1
+          // Keep lang and dir consistent: the Tailwind ltr:/rtl: variants match
+          // on :lang() or [dir], so a stale lang could select the opposite rule.
+          if (locale) document.documentElement.lang = locale
           document.documentElement.dir = rtl ? 'rtl' : 'ltr'
         } catch (error) {
           /* private mode: fall back to the system preference */
         }
       })()
     </script>
-    <script type="module" crossorigin src="/assets/index-ByzxTF-X.js"></script>
+    <script type="module" crossorigin src="/assets/index-CPgF74r6.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/utils-vKijObja.js">
     <link rel="modulepreload" crossorigin href="/assets/i18n-C8Kyc4GM.js">
     <link rel="modulepreload" crossorigin href="/assets/format-9yins6gv.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-Bt4RjYvV.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-COnL1e4n.css">
   </head>
   <body>
     <div id="app"></div>

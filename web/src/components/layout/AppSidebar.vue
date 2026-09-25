@@ -56,7 +56,13 @@ function isActive(name: string): boolean {
         // underneath it (the nav itself scrolls through overflow-y-auto) and z-20
         // keeps it under the header (z-30).
         'fixed top-14 bottom-0 start-0 z-20 w-60 shrink-0 overflow-y-auto border-e border-border bg-card px-3 py-4 transition-transform lg:sticky lg:bottom-auto lg:h-[calc(100vh-3.5rem)] lg:translate-x-0',
-        props.mobileOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
+        // The off-canvas drawer only exists below `lg`; scoping it with `max-lg:`
+        // keeps it away from the `lg:sticky` layout, where the panel is always
+        // visible. `ltr:`/`rtl:` are mutually exclusive, so the transform never
+        // depends on which variant Tailwind emits last (the `rtl:` variant is
+        // emitted after `lg:`, which used to push the sidebar off screen on every
+        // width in Arabic).
+        props.mobileOpen ? 'translate-x-0' : 'max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full',
       )
     "
   >

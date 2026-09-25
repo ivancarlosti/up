@@ -26,6 +26,9 @@
           var locale = localStorage.getItem('up.locale') || ''
           var base = locale.split('-')[0].toLowerCase()
           var rtl = ['ar', 'fa', 'he', 'ur'].indexOf(base) !== -1
+          // Keep lang and dir consistent: the Tailwind ltr:/rtl: variants match
+          // on :lang() or [dir], so a stale lang could select the opposite rule.
+          if (locale) document.documentElement.lang = locale
           document.documentElement.dir = rtl ? 'rtl' : 'ltr'
         } catch (error) {
           /* private mode: fall back to the system preference */
