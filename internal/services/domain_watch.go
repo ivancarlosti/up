@@ -113,6 +113,13 @@ func domainMessage(row *models.MonitorDomain, daysLeft int, expired bool, plan E
 // opening a socket. It runs at boot (and after a settings change) so a date
 // entered while the process was down is evaluated immediately.
 func (s *DomainService) Refresh(ctx context.Context) error {
+	now := time.Now().UTC()
+	// The operator's manual dates come first: they need no lookup, so a date
+	// typed while the process was down (or one that was just typed) is applied
+	// instead of waiting for this pass to age a row that does not exist yet.
+	if _, err := s.applyManual(ctx, now, ""); err != nil {
+		return err
+	}
 	rows, monitors, err := s.All(ctx)
 	if err != nil {
 		return err
@@ -121,7 +128,6 @@ func (s *DomainService) Refresh(ctx context.Context) error {
 		s.log.Debug("domain watcher: nothing to watch")
 		return nil
 	}
-	now := time.Now().UTC()
 	byID := map[uint]*models.Monitor{}
 	for _, monitor := range monitors {
 		byID[monitor.ID] = monitor

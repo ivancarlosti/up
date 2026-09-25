@@ -95,14 +95,14 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 	if monitor.DomainExpiresAt != nil && monitor.DomainExpiresAt.IsZero() {
 		monitor.DomainExpiresAt = nil
 	}
-	if monitor.DomainExpiresAt != nil && !monitor.DomainWatch {
-		return ErrBadRequest(i18n.CodeMonitorDomain, "domain_expires_at requires domain_watch")
-	}
 	if !monitor.DomainWatch {
-		// A monitor that does not watch its domain keeps no stale configuration.
+		// A monitor that does not watch its domain keeps no stale notification
+		// configuration. The manual date is NOT part of this: it belongs to the
+		// DOMAIN (the registry registration), so the watch switch must never
+		// erase a truth the operator typed (turning the switch off used to take
+		// the date away from every sibling of the domain).
 		monitor.DomainNotify = false
 		monitor.DomainWarnDays = ""
-		monitor.DomainExpiresAt = nil
 	}
 
 	// The template link: the template must exist and describe the same kind of

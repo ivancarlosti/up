@@ -99,6 +99,43 @@ func TestExpirySettingsNormalize(t *testing.T) {
 	}
 }
 
+// TestManualDomainInfo documents the observation built from a date the operator
+// typed: it is ok/manual immediately, so a stale "unsupported" (the "no parser"
+// badge) cannot hide a date that is already known.
+func TestManualDomainInfo(t *testing.T) {
+	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	date := time.Date(2028, 1, 9, 0, 0, 0, 0, time.UTC)
+
+	info := ManualDomainInfo("example.com", &date, now)
+	if info == nil {
+		t.Fatal("a date must produce an observation")
+	}
+	if info.Status != DomainStatusOK || info.Source != DomainSourceManual {
+		t.Fatalf("status/source = %s/%s", info.Status, info.Source)
+	}
+	if !info.ExpiresAt.Equal(date) || info.Domain != "example.com" {
+		t.Fatalf("info = %+v", info)
+	}
+	if want := DaysLeft(date, now); info.DaysLeft != want {
+		t.Fatalf("days_left = %d, want %d", info.DaysLeft, want)
+	}
+	if !info.HasExpiry() || info.Expired() {
+		t.Fatalf("a future manual date is a valid, unexpired expiry: %+v", info)
+	}
+
+	if ManualDomainInfo("example.com", nil, now) != nil {
+		t.Fatal("no date means no observation")
+	}
+	zero := time.Time{}
+	if ManualDomainInfo("example.com", &zero, now) != nil {
+		t.Fatal("a zero date means no date")
+	}
+	expired := now.AddDate(0, 0, -1)
+	if info := ManualDomainInfo("example.com", &expired, now); info == nil || !info.Expired() {
+		t.Fatalf("an expired manual date must report itself: %+v", info)
+	}
+}
+
 // TestWhoisParserValidate covers the rule validation.
 func TestWhoisParserValidate(t *testing.T) {
 	valid := &WhoisParser{TLD: ".com.BR ", ExpiryRegex: `Expiry:\s*(.+)`}

@@ -124,11 +124,13 @@ export function sanitizeMonitorPayload(payload: MonitorPayload, options: Sanitiz
     clean.cert_warn_days = ''
   }
 
-  // The domain watch is available everywhere, but nothing can outlive it.
+  // The domain watch is available everywhere, but nothing can outlive it —
+  // except the manual date, which belongs to the DOMAIN: the server mirrors it
+  // to every monitor of the domain, so clearing it here just because the switch
+  // is off would take the date away from all of them.
   if (!clean.domain_watch) {
     clean.domain_notify = false
     clean.domain_warn_days = ''
-    clean.domain_expires_at = null
   }
 
   if (clean.template_uuid && options.templateType && options.templateType !== type) {

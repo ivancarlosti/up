@@ -398,7 +398,18 @@ smallest one the reminder repeats **once a day**. The events are
    that typed it: saving it mirrors the value to every monitor of the same domain
    (`app.example.com` and `www.example.com` share it), and clearing it clears the
    siblings. A domain is therefore always ONE row in the expiry worklist, marked
-   `manual date`, whichever of its monitors carries the date.
+   `manual date`, whichever of its monitors carries the date. Two properties make
+   the "one value per domain" rule hold in practice:
+
+   - the calendar is **independent of the watch switch**. `domain_watch` decides
+     what is looked up and what is notified, never what is remembered: turning
+     the watch off — or editing a monitor that never watched — used to clear the
+     date for the whole domain, and no longer does. A monitor whose watch is off
+     still shows the date of its domain;
+   - the date is applied to the stored observation **as soon as it is saved**
+     (and at boot, before the daily pass). The badge shows the real date
+     immediately, instead of keeping an older `unsupported` status — the
+     *no parser* badge — until the next daily run.
 2. **RDAP** — the IANA bootstrap (`https://data.iana.org/rdap/dns.json`) says
    whether the TLD has RDAP; when it does, the registry answers the `expiration`
    event (and the registrar) on `<bootstrap-base>/domain/<name>` (the bootstrap
@@ -437,8 +448,12 @@ so a manual check cannot produce a different observation than the scheduled one.
 
 A row whose domain has a manual date (typed in any of its monitors) is marked
 `manual date`: it is still listed (the operator must see it) but no network
-lookup happens for it. `kind` is `certificate` (key `host:port|sni`) or `domain`
-(key is the registrable domain) — one row per domain, whatever its monitors.
+lookup happens for it, and every monitor that watches the domain reports the date
+as `ok`/`manual` right away. `kind` is `certificate` (key `host:port|sni`) or
+`domain` (key is the registrable domain) — one row per domain, whatever its
+monitors. A certificate target is **not** deduplicated by registrable domain: the
+key carries the dialled host, the port and the SNI, so two subdomains served by
+different certificates stay two rows (and two handshakes) on purpose.
 
 ## 11. The `ssl` monitor type
 

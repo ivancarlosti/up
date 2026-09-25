@@ -115,13 +115,28 @@ func NormalizeDomain(host string) string {
 	return registrable
 }
 
-// DomainFor derives the registrable domain of a monitor (empty when the target
-// yields none).
-func DomainFor(monitor *models.Monitor) string {
-	if monitor == nil || !monitor.DomainWatch || !monitor.Type.SupportsDomainWatch() {
+// DomainName returns the registrable domain of a monitor target, whether or not
+// the monitor watches its domain.
+//
+// The manual expiration date is a property of the DOMAIN, not of the watch: it
+// is remembered even when the monitor that holds it has domain_watch off, so the
+// write path (which mirrors the date and applies it to the stored observation)
+// needs the name in that case too. DomainFor stays the watch gated answer the
+// daily job iterates.
+func DomainName(monitor *models.Monitor) string {
+	if monitor == nil || !monitor.Type.SupportsDomainWatch() {
 		return ""
 	}
 	return NormalizeDomain(hostFromMonitor(monitor))
+}
+
+// DomainFor derives the registrable domain of a monitor (empty when the target
+// yields none, or when the monitor does not watch its domain).
+func DomainFor(monitor *models.Monitor) string {
+	if monitor == nil || !monitor.DomainWatch {
+		return ""
+	}
+	return DomainName(monitor)
 }
 
 // hostFromMonitor extracts the hostname of the monitor target, whatever the type.

@@ -370,12 +370,18 @@ function submit(): void {
             </Label>
             <Input id="monitor-domain-warn" v-model="form.domain_warn_days" placeholder="30,14,7,1" />
           </div>
-          <div class="grid gap-1 sm:max-w-sm">
-            <Label for="monitor-domain-expires" :help="t('monitor.domainExpiresAtHelp')">
-              {{ t('monitor.domainExpiresAt') }}
-            </Label>
-            <Input id="monitor-domain-expires" v-model="form.domain_expires_at as string" type="date" />
-          </div>
+        </div>
+        <!--
+          The calendar is NOT gated by the watch switch: the manual date belongs
+          to the DOMAIN (the registry registration is the same for every monitor
+          of it), so it stays visible and editable when the watch is off, and
+          toggling the watch never erases a date the operator typed.
+        -->
+        <div class="grid gap-1 sm:max-w-sm">
+          <Label for="monitor-domain-expires" :help="t('monitor.domainExpiresAtHelp')">
+            {{ t('monitor.domainExpiresAt') }}
+          </Label>
+          <Input id="monitor-domain-expires" v-model="form.domain_expires_at as string" type="date" />
         </div>
       </section>
 

@@ -116,7 +116,14 @@ export async function launch({ chrome, width = 1440, height = 900, port = 9222 }
       /* already closed */
     }
     child.kill('SIGKILL')
-    rmSync(profile, { recursive: true, force: true })
+    try {
+      rmSync(profile, { recursive: true, force: true })
+    } catch {
+      // Chrome can still be flushing its profile directory when the process is
+      // killed, and a half written tree makes rmdir fail with ENOTEMPTY. The
+      // directory lives in tmpdir: leaking it is harmless, while throwing here
+      // killed the script after every check had already passed.
+    }
   }
 
   return { sendRaw, onEvent: (listener) => listeners.add(listener), close, child }

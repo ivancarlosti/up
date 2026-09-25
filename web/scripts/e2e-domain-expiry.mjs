@@ -135,6 +135,25 @@ try {
   if (!first) throw new Error('the first monitor was not created')
   check('the thresholds were stored verbatim', first.domain_warn_days === '30,20,19', first.domain_warn_days)
 
+  // The date must reach BOTH monitors of the domain immediately, before anyone
+  // runs the job: the second monitor inherits it, and neither of them may keep
+  // the stale "unsupported" (*no parser*) status while the date is already
+  // known. This is the regression the suite pins.
+  for (const name of names) {
+    const monitor = monitors.find((item) => item.name === name)
+    const live = await api(`fetch('/api/monitors/' + ${monitor.id}).then((r) => r.json())`)
+    check(
+      `${name}: the manual date is reported before the job runs`,
+      live.domain?.source === 'manual' && live.domain?.status === 'ok' && live.domain?.domain === 'localhost',
+      JSON.stringify(live.domain ?? {}),
+    )
+    check(
+      `${name}: the remaining validity is right before the job runs`,
+      live.domain?.days_left === 19 || live.domain?.days_left === 20,
+      String(live.domain?.days_left),
+    )
+  }
+
   // The daily job (the manual date path needs no registry lookup).
   const run = await api(`fetch('/api/admin/expiry/run', { method: 'POST' }).then((r) => r.json())`)
   check('the job ran', run.ran === true)

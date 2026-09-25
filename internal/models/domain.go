@@ -83,6 +83,28 @@ func (d *DomainInfo) Expired() bool {
 	return d.ExpiresAt.Before(d.CheckedAt)
 }
 
+// ManualDomainInfo builds the observation of a manual expiration date.
+//
+// It is what the read path exposes while the daily job has not refreshed the
+// domain yet: the operator typed the date, so it wins over a stale lookup (an
+// unsupported TLD used to keep reading as "no parser") instead of waiting for
+// the next run, and no network access is involved because the value is already
+// known. expiresAt nil means "no manual date" and yields nil.
+func ManualDomainInfo(domain string, expiresAt *time.Time, now time.Time) *DomainInfo {
+	if expiresAt == nil || expiresAt.IsZero() {
+		return nil
+	}
+	date := expiresAt.UTC()
+	return &DomainInfo{
+		Domain:    domain,
+		ExpiresAt: date,
+		Source:    DomainSourceManual,
+		Status:    DomainStatusOK,
+		DaysLeft:  DaysLeft(date, now),
+		CheckedAt: now.UTC(),
+	}
+}
+
 // Column budgets of monitor_domains. The domain comes from a monitor target and
 // the registrar from a registry response, so both are clipped to what the schema
 // can hold instead of failing the insert.

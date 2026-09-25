@@ -101,6 +101,31 @@ func TestDomainFor(t *testing.T) {
 	}
 }
 
+// TestDomainNameIgnoresTheWatchSwitch documents why the write path needs a name
+// that does not depend on domain_watch: the manual date is remembered even when
+// the switch is off (the date belongs to the domain), so it can never be erased
+// by toggling the watch.
+func TestDomainNameIgnoresTheWatchSwitch(t *testing.T) {
+	off := &models.Monitor{
+		Type: models.MonitorTypeHTTP, DomainWatch: false,
+		Config: models.MonitorConfig{URL: "https://www.example.com/x"},
+	}
+	if got := DomainFor(off); got != "" {
+		t.Fatalf("DomainFor = %q, want empty (the monitor does not watch)", got)
+	}
+	if got := DomainName(off); got != "example.com" {
+		t.Fatalf("DomainName = %q, want example.com", got)
+	}
+	// An IP has no registration, whatever the switch says.
+	ip := &models.Monitor{Type: models.MonitorTypeTCP, DomainWatch: true, Config: models.MonitorConfig{Host: "10.0.0.1"}}
+	if got := DomainName(ip); got != "" {
+		t.Fatalf("DomainName(ip) = %q, want empty", got)
+	}
+	if got := DomainName(nil); got != "" {
+		t.Fatalf("DomainName(nil) = %q, want empty", got)
+	}
+}
+
 // TestLimiterSpacesLookups documents the per-registry pace.
 func TestLimiterSpacesLookups(t *testing.T) {
 	limiter := NewLimiter()

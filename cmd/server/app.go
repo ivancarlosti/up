@@ -71,6 +71,10 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	domains.SetMonitorService(monitors)
 	domains.SetNotificationService(notifications)
 	domains.SetClusterService(cluster)
+	// The monitor write path applies a manual date to the stored observation of
+	// the whole domain as soon as it is saved, so the badge appears without
+	// waiting for the daily job.
+	monitors.SetDomainService(domains)
 	heartbeats.SetPublisher(hub)
 	notifications.SetPublisher(hub)
 	cluster.SetPublisher(hub)

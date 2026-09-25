@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/ivancarlosti/up/internal/config"
+	"github.com/ivancarlosti/up/internal/expiry"
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
 )
@@ -51,6 +53,10 @@ type MonitorService struct {
 	// not publish (anything but federated mode), and every helper below is a no-op
 	// in that case.
 	emit *SyncEmitter
+	// domains materialises a manual domain expiration date into the stored
+	// observation of the whole domain. It is optional: a nil value just leaves the
+	// date to the daily job.
+	domains *DomainService
 }
 
 // SetSyncEmitter injects the publisher of the synchronisation outbox.
@@ -288,6 +294,12 @@ func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*mod
 				m.Domain = info
 			}
 		}
+		// The manual date is the operator's truth: it is reported as soon as it is
+		// typed, even while the stored observation is still an older lookup. A
+		// stale "unsupported" used to read as "no parser" for up to a day.
+		if manual := manualDomainInfo(m, m.Domain); manual != nil {
+			m.Domain = manual
+		}
 		if name, ok := templates[m.TemplateUUID]; ok {
 			m.TemplateName = name
 		}
@@ -320,6 +332,30 @@ func (s *MonitorService) templateNamesFor(ctx context.Context, monitors []*model
 		out[row.UUID] = row.Name
 	}
 	return out, nil
+}
+
+// manualDomainInfo returns the observation of the manual date of a monitor (nil
+// when it carries none).
+//
+// The domain the date belongs to comes from the stored observation when there is
+// one, and from the monitor target otherwise, so the badge names the right
+// registration even before the first lookup ever ran.
+func manualDomainInfo(monitor *models.Monitor, stored *models.DomainInfo) *models.DomainInfo {
+	if monitor == nil {
+		return nil
+	}
+	date := validDate(monitor.DomainExpiresAt)
+	if date == nil {
+		return nil
+	}
+	domain := ""
+	if stored != nil {
+		domain = stored.Domain
+	}
+	if domain == "" {
+		domain = expiry.DomainName(monitor)
+	}
+	return models.ManualDomainInfo(domain, date, time.Now().UTC())
 }
 
 // domainsFor returns the stored domain expiration of every monitor that watches

@@ -23,29 +23,41 @@ import (
 // keeps the per-monitor column (and the synchronisation payload that already
 // carries it) as the single source of truth, without adding a second table.
 //
+// The date does NOT belong to the watch switch: domain_watch decides what is
+// looked up and what is notified, never what is remembered. Turning the switch
+// off (or editing a monitor that never watched) used to send an explicit clear
+// for the whole domain, which is why the mirror now runs for any monitor that
+// carries a date.
+//
 // Three rules make "one value per domain" hold:
 //
 //   - a monitor that types a date sets it for the domain (every sibling follows);
-//   - a monitor created or edited after the date was typed INHERITS it, so a new
-//     monitor of the domain can never disagree with its siblings;
+//   - a monitor that WATCHES the domain and carries no date INHERITS the date of
+//     its siblings, so a new watcher can never disagree with them;
 //   - clearing the date is explicit: it clears the siblings that carried one,
 //     while an unrelated edit of a monitor without a date changes nothing.
 //
 // previous is the stored value of the monitor before the write, which is what
 // tells an explicit clear from an unrelated edit.
 func (s *MonitorService) resolveDomainExpiresAt(tx *gorm.DB, monitor *models.Monitor, previous *time.Time) ([]uint, error) {
-	if !monitor.DomainWatch {
+	// A monitor that neither watches its domain nor carries a date (and never
+	// did) has nothing to mirror: a plain edit of an unrelated monitor must not
+	// scan the table.
+	if !monitor.DomainWatch && monitor.DomainExpiresAt == nil && previous == nil {
 		return nil, nil
 	}
-	domain := expiry.DomainFor(monitor)
+	domain := expiry.DomainName(monitor)
 	if domain == "" {
 		return nil, nil
 	}
 	// One query for the whole domain: the siblings are both the target of the
-	// mirror and the source of the value when this monitor carries none.
+	// mirror and the source of the value when this monitor carries none. A
+	// sibling without the watch is included when it carries a date (the date it
+	// holds is part of the domain's truth), but a bare monitor without a watch
+	// and without a date is left alone.
 	var rows []models.Monitor
 	if err := tx.Select("id", "type", "config", "domain_watch", "domain_expires_at").
-		Where("domain_watch = ? AND id <> ?", true, monitor.ID).
+		Where("id <> ? AND (domain_watch = ? OR domain_expires_at IS NOT NULL)", monitor.ID, true).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -54,7 +66,7 @@ func (s *MonitorService) resolveDomainExpiresAt(tx *gorm.DB, monitor *models.Mon
 		Expires *time.Time
 	}, 0, len(rows))
 	for i := range rows {
-		if expiry.DomainFor(&rows[i]) != domain {
+		if expiry.DomainName(&rows[i]) != domain {
 			continue
 		}
 		siblings = append(siblings, struct {
@@ -64,11 +76,14 @@ func (s *MonitorService) resolveDomainExpiresAt(tx *gorm.DB, monitor *models.Mon
 	}
 
 	// The value of the domain: what this monitor typed, or the date of a sibling
-	// when the monitor NEVER carried one (a monitor added after the date was typed
-	// inherits it).
+	// when the monitor NEVER carried one (a watcher added after the date was typed
+	// inherits it, so it can never disagree with its siblings).
 	//
 	// An explicit clear (previous != nil, new value nil) never inherits: reading
-	// the sibling date back would silently undo the clear.
+	// the sibling date back would silently undo the clear. A monitor that does
+	// not watch the domain never reaches this branch (the guard at the top
+	// returns for a monitor with no date and no previous value), which is what
+	// keeps the inherit rule a watcher rule.
 	value := validDate(monitor.DomainExpiresAt)
 	if value == nil && previous == nil {
 		for _, sibling := range siblings {
@@ -153,6 +168,38 @@ func (s *MonitorService) publishDomainSiblings(ctx context.Context, tx *gorm.DB,
 	return nil
 }
 
+// SetDomainService injects the domain expiration service. The write path asks it
+// to apply a manual date to the stored observation of the whole domain, so the
+// badge is right the moment the date is saved instead of at the next daily run.
+func (s *MonitorService) SetDomainService(d *DomainService) { s.domains = d }
+
+// applyManualDomainDate materialises the manual date of a monitor's domain.
+//
+// It runs AFTER the transaction commits, never inside it: an observation written
+// for a date the transaction rolled back would claim a truth that was never
+// stored.
+func (s *MonitorService) applyManualDomainDate(ctx context.Context, monitor *models.Monitor, previous *time.Time) {
+	if s.domains == nil || monitor == nil {
+		return
+	}
+	// Only a save that touched a date can change what the observation must say.
+	// An inherit counts as touching one: resolveDomainExpiresAt already stamped
+	// the value on the monitor before this runs. A bulk import of watchers
+	// without a date therefore stays off this path, instead of scanning the
+	// domain once per row.
+	if validDate(monitor.DomainExpiresAt) == nil && previous == nil {
+		return
+	}
+	domain := expiry.DomainName(monitor)
+	if domain == "" {
+		return
+	}
+	if _, err := s.domains.ApplyManual(ctx, domain); err != nil {
+		s.log.Warn("could not apply the manual domain expiration date",
+			"monitor_id", monitor.ID, "domain", domain, "error", err)
+	}
+}
+
 // Create inserts a monitor, links the notification channels and the groups and
 // creates the aggregated state row.
 func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, notificationIDs, groupIDs []uint) error {
@@ -196,6 +243,10 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 	if err != nil {
 		return ErrInternal(fmt.Errorf("creating monitor: %w", err))
 	}
+	// The date the operator typed is applied to the stored observation now: the
+	// monitor (and every other watcher of the domain) shows it without waiting for
+	// the next run of the daily job.
+	s.applyManualDomainDate(ctx, monitor, nil)
 	s.log.Info("monitor created", "id", monitor.ID, "name", monitor.Name, "type", monitor.Type)
 	s.publish("monitor.created", monitor)
 	return nil
@@ -244,6 +295,9 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		"updated_at": time.Now().UTC(),
 	}
 
+	// The stored value of the date before this edit: it tells an explicit clear
+	// from an unrelated edit, and it is what the post-commit pass needs.
+	var previous *time.Time
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Captured before the write, so the relation diff knows what moved.
 		before, err := s.snapshotLinks(ctx, tx, monitor.ID)
@@ -252,7 +306,7 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		}
 		// The previous manual date tells an explicit clear from an unrelated
 		// edit: only the former is mirrored to the siblings (see
-		// propagateDomainExpiresAt).
+		// resolveDomainExpiresAt).
 		var existing struct {
 			DomainExpiresAt *time.Time `gorm:"column:domain_expires_at"`
 		}
@@ -262,6 +316,7 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 			Take(&existing).Error; err != nil {
 			return err
 		}
+		previous = existing.DomainExpiresAt
 		result := tx.Model(&models.Monitor{}).Where("id = ?", monitor.ID).Updates(updates)
 		if result.Error != nil {
 			return result.Error
@@ -281,7 +336,7 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		}
 		// A manual date edited (or cleared) here belongs to the whole domain:
 		// mirror it to the siblings in the same transaction.
-		siblings, mirrorErr := s.resolveDomainExpiresAt(tx, monitor, existing.DomainExpiresAt)
+		siblings, mirrorErr := s.resolveDomainExpiresAt(tx, monitor, previous)
 		if mirrorErr != nil {
 			return mirrorErr
 		}
@@ -296,6 +351,9 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 	if err != nil {
 		return ErrInternal(fmt.Errorf("updating monitor %d: %w", monitor.ID, err))
 	}
+	// A date that was typed, changed or cleared is applied to the stored
+	// observation now, so the badge never waits for the daily job.
+	s.applyManualDomainDate(ctx, monitor, previous)
 	s.log.Info("monitor updated", "id", monitor.ID, "name", monitor.Name, "active", monitor.Active)
 	s.publish("monitor.updated", monitor)
 	return nil
