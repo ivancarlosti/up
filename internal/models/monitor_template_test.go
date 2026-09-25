@@ -99,6 +99,38 @@ func TestMonitorTemplateNormalize(t *testing.T) {
 	}
 }
 
+// TestMonitorTemplateNormalizeStripsAuth documents the rule that makes a monitor
+// free to hold its own credentials: however a template is written (the API still
+// accepts the fields for compatibility, an older UI sends them, a peer on an older
+// release syncs them), what gets stored and handed back is credential free.
+func TestMonitorTemplateNormalizeStripsAuth(t *testing.T) {
+	template := &MonitorTemplate{
+		Name: "blueprint",
+		Type: MonitorTypeHTTP,
+		Config: MonitorConfig{
+			Method:      "POST",
+			AuthType:    "basic",
+			BasicUser:   "operator",
+			BasicPass:   "hunter2",
+			BearerToken: "token",
+		},
+	}
+	template.Normalize()
+	if template.Config.AuthType != "none" || template.Config.BasicUser != "" ||
+		template.Config.BasicPass != "" || template.Config.BearerToken != "" {
+		t.Fatalf("credentials survived Normalize: %+v", template.Config)
+	}
+	// The rest of the blueprint is untouched: a template still describes the probe.
+	if template.Config.Method != "POST" || template.Config.Encoding != "json" {
+		t.Fatalf("the probe options must be kept: %+v", template.Config)
+	}
+	// A credential free template is a valid one: nothing in the template rules
+	// depends on the authentication any more.
+	if problem := template.Validate(); problem != "" {
+		t.Fatalf("a credential free template must be valid: %s", problem)
+	}
+}
+
 // TestMonitorTypeTargetField keeps the bulk importer honest: the column a row
 // fills is the target of the type, and ssl is a host:port probe like tcp.
 func TestMonitorTypeTargetField(t *testing.T) {

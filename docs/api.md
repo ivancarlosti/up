@@ -235,6 +235,11 @@ A **template** is a monitor without a target: `type`, `config` and `defaults`
 certificate/domain watches; never the groups or the tags). A monitor can **follow**
 a template through `template_uuid` (the template's global uuid), and editing the
 template pushes its defaults to every follower unless `propagate` is false.
+Authentication is never part of a template: `auth_type`, `basic_user`,
+`basic_pass` and `bearer_token` are accepted in the payload for compatibility but
+stripped on write, stripped again on read, and the apply path keeps the
+credentials the monitor already has (two monitors can follow one template with
+different users).
 `type` is one of `http`, `keyword`, `tcp`, `dns`, `ssl`, and the defaults must be
 coherent with it: a `cert_watch` on a type that cannot read a certificate, a
 `domain_watch` on a type without a registrable domain, `run_on=node` without a
@@ -490,4 +495,7 @@ The complete, stable catalogue (also present in `web/src/locales/*.json` under
 - `notification_ids` is always present on a monitor (possibly empty).
 - The public API masks credentials (`basic_pass`, `bearer_token` -> `***`) unless
   `?include_secrets=true` is passed.
+- Monitor templates never return credentials: a template holds neither
+  `auth_type` nor `basic_user`/`basic_pass`/`bearer_token` (they belong to the
+  monitors, see [monitors.md](monitors.md) §8).
 - `Cache-Control: no-store` is set on public status/badge responses.

@@ -146,6 +146,23 @@ func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
 	return MonitorConfig{}
 }
 
+// WithoutAuth returns a copy of the configuration without the HTTP
+// authentication options.
+//
+// Authentication is a property of the MONITOR, never of a template: two monitors
+// can follow the same template against the same host with different credentials
+// (or none), and a template edit must never overwrite what the operator typed on
+// a single monitor. The template write path (`MonitorTemplate.Normalize`) strips
+// the credentials with this helper, and the apply path restores the ones of the
+// monitor it writes (`withMonitorAuth` in the template service).
+func (c MonitorConfig) WithoutAuth() MonitorConfig {
+	c.AuthType = "none"
+	c.BasicUser = ""
+	c.BasicPass = ""
+	c.BearerToken = ""
+	return c
+}
+
 // DefaultSSLPort is the port a ssl monitor dials when none is configured.
 const DefaultSSLPort = 443
 

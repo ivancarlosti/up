@@ -153,7 +153,9 @@ func addChange(changes *[]FieldChange, field, from, to string) {
 }
 
 // configChanges reports the probe options that differ. The target is never part
-// of it: a template does not carry a target.
+// of it (a template does not carry a target) and neither is the authentication: a
+// template has none, and the credentials of a monitor belong to the monitor, so
+// applying a template can never change them (`applyTemplate` restores them).
 //
 // Every option of every type is compared (and only the non-secret ones: the
 // basic password and the bearer token must never travel into a preview), so a
@@ -163,7 +165,6 @@ func configChanges(monitor *models.Monitor, template *models.MonitorTemplate) []
 	from, to := monitor.Config, template.Config
 	addChange(&changes, "config.method", from.Method, to.Method)
 	addChange(&changes, "config.encoding", from.Encoding, to.Encoding)
-	addChange(&changes, "config.auth_type", from.AuthType, to.AuthType)
 	addChange(&changes, "config.accepted_status_codes", from.AcceptedStatusCodes, to.AcceptedStatusCodes)
 	addChange(&changes, "config.ignore_tls", strconv.FormatBool(from.IgnoreTLS), strconv.FormatBool(to.IgnoreTLS))
 	addChange(&changes, "config.max_redirects", strconv.Itoa(from.MaxRedirects), strconv.Itoa(to.MaxRedirects))
@@ -217,7 +218,10 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 				notificationIDs = []uint{}
 			}
 		case "config":
-			updated.Config = withProbeTarget(template.Config, monitor.Config, monitor.Type)
+			// The template never carries credentials: the monitor keeps its own
+			// (`withMonitorAuth`), so following a template is compatible with a
+			// per monitor authentication.
+			updated.Config = withMonitorAuth(withProbeTarget(template.Config, monitor.Config, monitor.Type), monitor.Config)
 		case "cert_watch":
 			updated.CertWatch = template.Defaults.CertWatch
 		case "cert_notify":
@@ -260,6 +264,23 @@ func withProbeTarget(config models.MonitorConfig, target models.MonitorConfig, m
 	case models.MonitorTypeDNS:
 		config.Hostname = target.Hostname
 	}
+	return config
+}
+
+// withMonitorAuth restores the authentication of the monitor on the
+// configuration taken from the template.
+//
+// It is the second half of the "a template never carries credentials" rule: the
+// configuration is copied from the template (methods, headers, encoding, the
+// keyword, the probe options of every type) but the four auth fields are the ones
+// the operator typed on THIS monitor, so two monitors can follow one template
+// against the same host with different users — or with no authentication at all —
+// and a bulk apply or a propagation never overwrites them.
+func withMonitorAuth(config models.MonitorConfig, monitor models.MonitorConfig) models.MonitorConfig {
+	config.AuthType = monitor.AuthType
+	config.BasicUser = monitor.BasicUser
+	config.BasicPass = monitor.BasicPass
+	config.BearerToken = monitor.BearerToken
 	return config
 }
 

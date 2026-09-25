@@ -287,6 +287,7 @@
     "deleteTitle": "Excluir template",
     "deleteWarning": "O template é removido; os monitores criados a partir dele permanecem.",
     "certHelp": "Vigilância de certificado aplicada aos monitores criados com este template.",
+    "authHelp": "A autenticação é configurada em cada monitor, nunca no template: cada monitor mantém as próprias credenciais (ou nenhuma) ao segui-lo.",
     "domainHelp": "Vigilância de expiração do domínio aplicada aos monitores criados com este template.",
     "propagate": "Atualizar os monitores vinculados quando este template mudar",
     "propagateHelp": "Todo monitor que segue este template recebe os padrões acima quando ele é editado (nunca os grupos ou as etiquetas).",

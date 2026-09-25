@@ -155,6 +155,66 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	}
 }
 
+// TestApplyTemplateKeepsAuth is the safety net of the "a template never carries
+// credentials" rule: applying the configuration of a template must keep the
+// authentication of the monitor, so two monitors can follow one template against
+// the same host with different users (or none), and editing the template can never
+// reset what the operator typed on a single monitor.
+func TestApplyTemplateKeepsAuth(t *testing.T) {
+	monitor := &models.Monitor{
+		Name: "API",
+		Type: models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{
+			URL:       "https://api.example.com/health",
+			Method:    "GET",
+			AuthType:  "basic",
+			BasicUser: "operator",
+			BasicPass: "hunter2",
+		},
+	}
+	// The template is credential free (Normalize stripped it), so the copy the
+	// apply writes must take the four fields from the monitor.
+	template := &models.MonitorTemplate{
+		Type:   models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{Method: "POST"}.WithoutAuth(),
+	}
+
+	updated, _, _ := applyTemplate(monitor, template, []string{"config"})
+	if updated.Config.AuthType != "basic" || updated.Config.BasicUser != "operator" || updated.Config.BasicPass != "hunter2" {
+		t.Fatalf("the monitor authentication was lost: %+v", updated.Config)
+	}
+	// The probe options of the template did apply, and the target was kept.
+	if updated.Config.Method != "POST" || updated.Config.URL != "https://api.example.com/health" {
+		t.Fatalf("the template config was not applied: %+v", updated.Config)
+	}
+
+	// A monitor without authentication stays without one: the template must not
+	// invent credentials either.
+	anonymous := &models.Monitor{Type: models.MonitorTypeHTTP, Config: models.MonitorConfig{URL: "https://public.example.com"}}
+	template.Config = models.MonitorConfig{
+		Method: "POST", AuthType: "bearer", BearerToken: "from-a-bypassed-write",
+	}
+	updated, _, _ = applyTemplate(anonymous, template, []string{"config"})
+	if updated.Config.AuthType != "" || updated.Config.BearerToken != "" {
+		t.Fatalf("the template leaked credentials into the monitor: %+v", updated.Config)
+	}
+}
+
+// TestConfigChangesIgnoresAuth documents that the preview cannot promise (or even
+// mention) an authentication change: a template has no credentials, so applying
+// one never touches the authentication of a monitor.
+func TestConfigChangesIgnoresAuth(t *testing.T) {
+	changes := configChanges(
+		&models.Monitor{Type: models.MonitorTypeHTTP, Config: models.MonitorConfig{AuthType: "basic", BasicUser: "operator"}},
+		&models.MonitorTemplate{Type: models.MonitorTypeHTTP, Config: models.MonitorConfig{}},
+	)
+	for _, change := range changes {
+		if strings.Contains(change.Field, "auth") || strings.Contains(change.Field, "user") {
+			t.Fatalf("the authentication must never appear in the diff: %+v", change)
+		}
+	}
+}
+
 // TestConfigChangesCoversEveryType is the safety net of the dry run: a preview
 // that reports "no change" while the apply would rewrite the probe is worse than
 // no preview at all (which is what the tcp/dns/ssl options used to do).

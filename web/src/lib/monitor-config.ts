@@ -94,6 +94,29 @@ export function pruneMonitorConfig(type: MonitorType, config?: MonitorConfig | n
   return pruned as MonitorConfig
 }
 
+/**
+ * stripMonitorAuth returns a copy of a probe configuration without the HTTP
+ * authentication options.
+ *
+ * Authentication is a property of the MONITOR, never of a template: two monitors
+ * can follow the same template against the same host with different credentials
+ * (or none), so the template dialog renders the probe fields without the auth
+ * inputs (`MonitorConfigFields` `withAuth`) and saves the configuration through
+ * this helper.
+ *
+ * It is the TypeScript twin of `models.MonitorConfig.WithoutAuth`, which strips
+ * the same four fields on every template write: the UI is not the guarantee, it
+ * is the first of the two.
+ */
+export function stripMonitorAuth(config?: MonitorConfig | null): MonitorConfig {
+  const clean: MonitorConfig = { ...(config ?? {}) }
+  clean.auth_type = 'none'
+  delete clean.basic_user
+  delete clean.basic_pass
+  delete clean.bearer_token
+  return clean
+}
+
 /** What the sanitizer needs to know about the template the monitor follows. */
 export interface SanitizeOptions {
   /**

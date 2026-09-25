@@ -252,6 +252,17 @@ create.
 **never touches the target** of a monitor even when the probe options are applied,
 so applying a template to 40 monitors cannot repoint them at the same address.
 
+**Authentication is never part of a template.** `auth_type`, `basic_user`,
+`basic_pass` and `bearer_token` belong to the monitor: the template dialog hides
+them, the API strips them from whatever a client sends
+(`models.MonitorConfig.WithoutAuth`, on the create, the update and the incoming
+synchronisation) and the apply path keeps the credentials of the monitor it
+writes. Two monitors can therefore follow the same template against the same host
+with different users — or with no authentication at all — and editing the
+template never resets them. A template stored by an older release had its
+credentials removed at boot (`database.BackfillTemplateAuth`, idempotent, run by
+every node on its own copy).
+
 ### Following a template
 
 A monitor can be **linked** to a template (`template_uuid`): the monitor form has a

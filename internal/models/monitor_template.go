@@ -21,13 +21,19 @@ type MonitorTemplate struct {
 	UUID string `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
 	// OriginNodeID and Revision complete the sync identity of the row (the UUID
 	// is the global id; see docs/clustering-modes.md).
-	OriginNodeID string           `gorm:"size:64" json:"origin_node_id"`
-	Revision     int64            `gorm:"not null;default:1" json:"revision"`
-	Name         string           `gorm:"size:150;not null;uniqueIndex" json:"name"`
-	Description  string           `gorm:"size:500" json:"description"`
-	Type         MonitorType      `gorm:"size:20;not null" json:"type"`
-	Config       MonitorConfig    `gorm:"serializer:json;type:json" json:"config"`
-	Defaults     TemplateDefaults `gorm:"serializer:json;type:json" json:"defaults"`
+	OriginNodeID string      `gorm:"size:64" json:"origin_node_id"`
+	Revision     int64       `gorm:"not null;default:1" json:"revision"`
+	Name         string      `gorm:"size:150;not null;uniqueIndex" json:"name"`
+	Description  string      `gorm:"size:500" json:"description"`
+	Type         MonitorType `gorm:"size:20;not null" json:"type"`
+	// Config carries the probe options of the blueprint and NEVER its
+	// authentication: `auth_type`, `basic_user`, `basic_pass` and `bearer_token`
+	// belong to the monitor (two monitors can follow one template with different
+	// credentials), so Normalize strips them on every write, AfterFind strips
+	// them on every read and the apply path keeps the credentials of the monitor
+	// it writes. See models.MonitorConfig.WithoutAuth.
+	Config   MonitorConfig    `gorm:"serializer:json;type:json" json:"config"`
+	Defaults TemplateDefaults `gorm:"serializer:json;type:json" json:"defaults"`
 	// Propagate pushes the defaults to every monitor that follows this template
 	// each time it is edited (see MonitorTemplateService.Propagate).
 	Propagate bool `gorm:"not null;default:true" json:"propagate"`
@@ -44,6 +50,15 @@ func (t *MonitorTemplate) BeforeCreate(tx *gorm.DB) error {
 	if t.Revision == 0 {
 		t.Revision = 1
 	}
+	return nil
+}
+
+// AfterFind makes the invariant hold on the READ path as well: a credential can
+// only be absent from a template, so a row written before this rule existed (or
+// by a peer running an older release) can never hand one back to the UI, to the
+// apply path or to a propagation.
+func (t *MonitorTemplate) AfterFind(tx *gorm.DB) error {
+	t.Config = t.Config.WithoutAuth()
 	return nil
 }
 
@@ -98,6 +113,13 @@ func TemplateDefaultFields() []string {
 }
 
 // Normalize fills the defaults of a template.
+//
+// It also enforces the one rule a template cannot break: authentication belongs
+// to the monitor, so the configuration of a template is stored without
+// credentials whatever the request carried (the UI does not offer them any more
+// and the API keeps accepting the field for compatibility). Two monitors can
+// therefore follow the same template with different credentials, and editing the
+// template never touches what the operator typed on a monitor.
 func (t *MonitorTemplate) Normalize() {
 	t.Name = strings.TrimSpace(t.Name)
 	t.Description = strings.TrimSpace(t.Description)
@@ -120,6 +142,7 @@ func (t *MonitorTemplate) Normalize() {
 		t.Defaults.GroupIDs = []uint{}
 	}
 	t.Config.Normalize(t.Type)
+	t.Config = t.Config.WithoutAuth()
 }
 
 // Validate checks the template (empty string means "valid").

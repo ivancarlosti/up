@@ -128,6 +128,119 @@ try {
   )
   check('the propagate switch persisted', edited?.propagate === false, String(edited?.propagate))
 
+  // --- authentication belongs to the monitor, never to the template ---------
+  // The template dialog offers no auth control at all: reopen the edit dialog and
+  // look for the id the monitor form uses.
+  await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
+  const reopened = await api(`(() => {
+    const name = ${JSON.stringify(editedName)}
+    const card = [...document.querySelectorAll('*')].find(
+      (el) => el.innerText?.includes(name) && el.querySelector('button[aria-label]'),
+    )
+    const button = [...(card?.querySelectorAll('button[aria-label]') ?? [])].find((el) =>
+      /^(edit|editar)$/i.test(el.getAttribute('aria-label') ?? ''),
+    )
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  check('the template dialog reopens', reopened)
+  await sleep(600)
+  check(
+    'the template dialog hides the authentication',
+    await api(`(() => {
+      const dialog = document.querySelector('[role="dialog"]')
+      return Boolean(dialog) && !dialog.querySelector('#monitor-auth')
+    })()`),
+  )
+  check('the template dialog closes', await clickButton(page, /^(cancel|cancelar)$/i))
+  await sleep(400)
+
+  // A client that still sends credentials (an older UI, a script) cannot store
+  // them: they are stripped on write and on read.
+  const templatePut = (interval) => ({
+    name: editedName,
+    description: '',
+    type: 'http',
+    propagate: true,
+    config: { method: 'POST', auth_type: 'basic', basic_user: 'operator', basic_pass: 'hunter2', bearer_token: 'token' },
+    defaults: { ...(edited?.defaults ?? {}), interval_seconds: interval },
+  })
+  const putTemplate = (interval) => `fetch('/api/monitor-templates/${template.id}', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: ${JSON.stringify(JSON.stringify(templatePut(interval)))},
+  }).then((r) => (r.ok ? r.json() : r.status))`
+  const stored = await api(putTemplate(300))
+  check('a template write with credentials is accepted', stored?.id === template?.id, JSON.stringify(stored))
+  const storedConfig = stored?.config ?? {}
+  check(
+    'the stored template has no credentials',
+    !storedConfig.basic_user && !storedConfig.basic_pass && !storedConfig.bearer_token && storedConfig.auth_type === 'none',
+    JSON.stringify(storedConfig),
+  )
+
+  // Two monitors follow that template with different credentials: editing the
+  // template propagates its defaults to both and keeps what each one holds.
+  const authMonitorNames = [`e2e auth ${stamp} a`, `e2e auth ${stamp} b`]
+  const authMonitors = await api(`(async () => {
+    const made = []
+    for (const [index, user] of [['a', 'alice'], ['b', 'bob']]) {
+      const response = await fetch('/api/monitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'e2e auth ${stamp} ' + index,
+          type: 'http',
+          active: false,
+          interval_seconds: 60,
+          timeout_seconds: 10,
+          template_uuid: ${JSON.stringify(template?.uuid ?? '')},
+          config: {
+            url: 'https://127.0.0.1:8099/${stamp}-' + index,
+            method: 'GET',
+            auth_type: 'basic',
+            basic_user: user,
+            basic_pass: 'secret-' + user,
+          },
+        }),
+      })
+      const body = await response.json()
+      made.push({ status: response.status, id: body.id, user: body.config?.basic_user, pass: body.config?.basic_pass, interval: body.interval_seconds })
+    }
+    return made
+  })()`)
+  check(
+    'two monitors hold their own credentials',
+    authMonitors.length === 2 &&
+      authMonitors[0]?.user === 'alice' && authMonitors[0]?.pass === 'secret-alice' &&
+      authMonitors[1]?.user === 'bob' && authMonitors[1]?.pass === 'secret-bob',
+    JSON.stringify(authMonitors),
+  )
+  created.monitors.push(...authMonitors.map((monitor) => monitor.id).filter(Boolean))
+
+  const propagated = await api(putTemplate(600))
+  check('the second template write is accepted', propagated?.id === template?.id, JSON.stringify(propagated))
+  const afterPropagation = await api(`fetch('/api/monitors?decorate=false')
+    .then((r) => r.json())
+    .then((list) => list.filter((m) => ${JSON.stringify(authMonitorNames)}.includes(m.name))
+      .map((m) => ({ name: m.name, user: m.config.basic_user, pass: m.config.basic_pass, interval: m.interval_seconds, method: m.config.method })))`)
+  check(
+    'the template edit reached the linked monitors',
+    afterPropagation.length === 2 && afterPropagation.every((m) => m.interval === 600),
+    JSON.stringify(afterPropagation),
+  )
+  check(
+    'the propagation kept the credentials of each monitor',
+    afterPropagation.some((m) => m.user === 'alice' && m.pass === 'secret-alice') &&
+      afterPropagation.some((m) => m.user === 'bob' && m.pass === 'secret-bob'),
+    JSON.stringify(afterPropagation),
+  )
+  // Put the template back where the UI edit above left it (the bulk edit below
+  // asserts on that interval).
+  check('the template interval is restored', (await api(putTemplate(240)))?.defaults?.interval_seconds === 240)
+
+
   // --- bulk add through the UI ---------------------------------------------
   await page.goto(`${url}/admin/monitors`, { settle: 1500 })
   check('bulk dialog opens', await clickButton(page, /add in bulk|adicionar em lote|agregar en lote/i))

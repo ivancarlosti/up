@@ -287,6 +287,7 @@
     "deleteTitle": "Eliminar plantilla",
     "deleteWarning": "La plantilla se elimina; los monitores creados con ella permanecen.",
     "certHelp": "Vigilancia de certificado aplicada a los monitores creados con esta plantilla.",
+    "authHelp": "La autenticación se configura en cada monitor, nunca en la plantilla: cada monitor conserva sus propias credenciales (o ninguna) mientras la sigue.",
     "domainHelp": "Vigilancia de expiración del dominio aplicada a los monitores creados con esta plantilla.",
     "propagate": "Actualizar los monitores vinculados cuando cambie esta plantilla",
     "propagateHelp": "Cada monitor que sigue esta plantilla recibe los valores de arriba cuando se edita (nunca los grupos ni las etiquetas).",

@@ -66,3 +66,38 @@ func TestMonitorConfigPruneToType(t *testing.T) {
 		t.Fatalf("unknown type = %+v", pruned)
 	}
 }
+
+// TestMonitorConfigWithoutAuth documents the helper that makes a template
+// credential free: every credential goes, the auth type falls back to "none", and
+// nothing else of the probe is touched (a monitor created from the template must
+// still know how to probe).
+func TestMonitorConfigWithoutAuth(t *testing.T) {
+	full := MonitorConfig{
+		URL: "https://example.com", Method: "POST", Encoding: "xml", Body: "{}",
+		Headers:     []Header{{Key: "X", Value: "1"}},
+		AuthType:    "basic",
+		BasicUser:   "operator",
+		BasicPass:   "hunter2",
+		BearerToken: "token",
+		IgnoreTLS:   true, MaxRedirects: 3, AcceptedStatusCodes: "200",
+		Keyword: "ok",
+	}
+
+	clean := full.WithoutAuth()
+	if clean.AuthType != "none" || clean.BasicUser != "" || clean.BasicPass != "" || clean.BearerToken != "" {
+		t.Fatalf("credentials survived: %+v", clean)
+	}
+	if clean.URL != full.URL || clean.Method != full.Method || clean.Encoding != full.Encoding ||
+		clean.Body != full.Body || !clean.IgnoreTLS || clean.MaxRedirects != full.MaxRedirects ||
+		clean.AcceptedStatusCodes != full.AcceptedStatusCodes || clean.Keyword != full.Keyword {
+		t.Fatalf("the probe options must be kept: %+v", clean)
+	}
+	if len(clean.Headers) != 1 || clean.Headers[0].Key != "X" {
+		t.Fatalf("the headers must be kept: %+v", clean.Headers)
+	}
+	// The receiver is a value, so stripping twice (Normalize then the store) is
+	// harmless and the original configuration is never mutated.
+	if full.AuthType != "basic" || full.BasicPass != "hunter2" {
+		t.Fatalf("the source config was mutated: %+v", full)
+	}
+}

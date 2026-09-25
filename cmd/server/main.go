@@ -58,6 +58,12 @@ func run() error {
 	if err := database.Backfill(ctx, db, cfg, log); err != nil {
 		return err
 	}
+	// Authentication is a property of the monitor, never of a template: the
+	// credentials a template may still store are removed here (see the doc of
+	// database.BackfillTemplateAuth). Idempotent as well.
+	if err := database.BackfillTemplateAuth(ctx, db, log); err != nil {
+		return err
+	}
 	if err := database.Seed(ctx, db, cfg, log); err != nil {
 		return err
 	}

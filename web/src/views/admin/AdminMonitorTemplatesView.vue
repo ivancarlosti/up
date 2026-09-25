@@ -20,6 +20,7 @@ import { translateError } from '@/lib/errors'
 import {
   pruneMonitorConfig,
   sanitizeTemplateDefaults,
+  stripMonitorAuth,
   supportsCertificate as typeSupportsCertificate,
   supportsDomainWatch as typeSupportsDomainWatch,
 } from '@/lib/monitor-config'
@@ -180,7 +181,7 @@ async function save(): Promise<void> {
       description: form.description,
       type: form.type,
       propagate: Boolean(form.propagate),
-      config: pruneMonitorConfig(form.type, form.config),
+      config: stripMonitorAuth(pruneMonitorConfig(form.type, form.config)),
       // The switches of the selected type only: the dialog keeps the values of
       // the type the operator experimented with hidden (like the monitor form
       // does), a certificate watch on a tcp template would be stored here and
@@ -388,7 +389,10 @@ onMounted(load)
           </div>
         </section>
 
-        <MonitorConfigFields :type="type" :config="config" :with-target="false" />
+        <MonitorConfigFields :type="type" :config="config" :with-target="false" :with-auth="false" />
+        <p v-if="type === 'http' || type === 'keyword'" class="-mt-3 text-[11px] text-muted-foreground">
+          {{ t('templates.authHelp') }}
+        </p>
 
         <section class="grid gap-3 border-t border-border pt-4 sm:grid-cols-3">
           <div class="grid gap-1">

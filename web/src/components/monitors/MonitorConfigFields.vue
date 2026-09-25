@@ -13,8 +13,9 @@ import type { Header, MonitorConfig, MonitorType } from '@/lib/types'
 /**
  * MonitorConfigFields renders the probe options of a monitor type. It is shared
  * by the monitor form and by the template form (a template is a monitor without
- * a target), which is why `withTarget` exists: a template never carries the URL,
- * the host:port or the hostname.
+ * a target), which is why `withTarget` and `withAuth` exist: a template carries
+ * neither the URL/host/hostname nor the HTTP credentials, because both belong to
+ * the monitor (see `stripMonitorAuth` in `@/lib/monitor-config`).
  *
  * The component mutates `config` in place: the object comes from a reactive form
  * of the parent, so a copy would break the two way binding.
@@ -24,8 +25,9 @@ const props = withDefaults(
     type: MonitorType
     config: MonitorConfig
     withTarget?: boolean
+    withAuth?: boolean
   }>(),
-  { withTarget: true },
+  { withTarget: true, withAuth: true },
 )
 const { t } = useI18n()
 
@@ -86,7 +88,7 @@ function removeHeader(index: number): void {
       </Button>
     </div>
 
-    <div class="grid gap-1">
+    <div v-if="withAuth" class="grid gap-1">
       <Label for="monitor-auth">{{ t('monitor.authentication') }}</Label>
       <Select id="monitor-auth" v-model="config.auth_type" :options="authOptions" />
     </div>
@@ -95,15 +97,15 @@ function removeHeader(index: number): void {
       <Input id="monitor-codes" v-model="config.accepted_status_codes" placeholder="200-299" />
       <span class="text-[11px] text-muted-foreground">{{ t('monitor.acceptedCodesHelp') }}</span>
     </div>
-    <div v-if="config.auth_type === 'basic'" class="grid gap-1">
+    <div v-if="withAuth && config.auth_type === 'basic'" class="grid gap-1">
       <Label for="monitor-user">{{ t('monitor.username') }}</Label>
       <Input id="monitor-user" v-model="config.basic_user" />
     </div>
-    <div v-if="config.auth_type === 'basic'" class="grid gap-1">
+    <div v-if="withAuth && config.auth_type === 'basic'" class="grid gap-1">
       <Label for="monitor-pass">{{ t('monitor.password') }}</Label>
       <Input id="monitor-pass" v-model="config.basic_pass" type="password" />
     </div>
-    <div v-if="config.auth_type === 'bearer'" class="grid gap-1 sm:col-span-2">
+    <div v-if="withAuth && config.auth_type === 'bearer'" class="grid gap-1 sm:col-span-2">
       <Label for="monitor-token">{{ t('monitor.token') }}</Label>
       <Input id="monitor-token" v-model="config.bearer_token" type="password" />
     </div>

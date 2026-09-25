@@ -300,7 +300,12 @@ func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload mo
 		}
 		// The config is written as a marshalled JSON string: GORM applies the
 		// serializer to model fields, not to raw map values.
-		configJSON, err := json.Marshal(payload.Config)
+		//
+		// Authentication never belongs to a template (a monitor holds its own),
+		// so a peer that still publishes credentials in the payload cannot
+		// reintroduce them locally: the copy that is stored is credential free,
+		// exactly like the one the local write path stores.
+		configJSON, err := json.Marshal(payload.Config.WithoutAuth())
 		if err != nil {
 			return 0, false, fmt.Errorf("encoding the config of template %s: %w", payload.UUID, err)
 		}
@@ -329,7 +334,7 @@ func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload mo
 		Name:         name,
 		Description:  payload.Description,
 		Type:         payload.Type,
-		Config:       payload.Config,
+		Config:       payload.Config.WithoutAuth(),
 		Defaults:     defaults,
 		UpdatedAt:    payload.UpdatedAt,
 	}

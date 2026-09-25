@@ -340,6 +340,18 @@ CREATE TABLE `monitor_templates` (
   UNIQUE KEY `idx_monitor_templates_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
+`monitor_templates.config` **never carries the HTTP authentication**: `auth_type`,
+`basic_user`, `basic_pass` and `bearer_token` are a property of the monitor, so
+`models.MonitorTemplate.Normalize` strips them from every write, the `AfterFind`
+hook strips them from every read (a peer on an older release cannot hand one back
+either) and `applyTemplate` keeps the credentials of the monitor it writes.
+`database.BackfillTemplateAuth` removes them from the rows written before the rule
+existed: it runs on every boot after the sync identity backfill, only rewrites the
+rows that actually store a credential (that is what makes it idempotent) and does
+not advance `revision` - every node cleans its own copy, so no change has to
+travel.
+
+
 CREATE TABLE `nodes` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(150) NOT NULL,
