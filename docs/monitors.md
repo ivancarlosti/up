@@ -238,6 +238,16 @@ different groups with different tags. A template exists for three jobs:
    many monitors at once, with a preview of the diff.
 3. **Be followed** by the monitors linked to it (see below).
 
+Every probe type is available as a template, `ssl` included: that is what turns
+"the same certificate check for 40 mail servers" into a single blueprint. The
+certificate switches only exist for the types that can read a certificate
+(`http`, `keyword`, `ssl`), so the template dialog hides them for `tcp`/`dns` and
+the API rejects a `cert_watch` the type cannot honour
+(`400 ERR_MONITOR_TEMPLATE_INVALID`) — the same rule a monitor follows.
+`run_on=node` requires `node_id` and `run_on=some` requires `run_on_nodes`, again
+like a monitor: a template must not describe a monitor the API would refuse to
+create.
+
 `internal/services/monitor_template*.go` implements all three; the bulk edit
 **never touches the target** of a monitor even when the probe options are applied,
 so applying a template to 40 monitors cannot repoint them at the same address.
@@ -277,7 +287,7 @@ name,target[,type,keyword,tags,interval]
 |---|---|
 | `name` | monitor name (required) |
 | `target` | URL (`http://`/`https://` required), `host` or `host:port` |
-| `type` | overrides the template type (`http`, `keyword`, `tcp`, `dns`) |
+| `type` | overrides the template type: any of `http`, `keyword`, `tcp`, `dns`, `ssl` |
 | `keyword` | required when the row is a keyword monitor |
 | `tags` | overrides the template tags |
 | `interval` | overrides the template interval (seconds, minimum 5) |
@@ -297,8 +307,16 @@ What the importer does for you:
 - 500 rows maximum per request.
 
 The target mapping per type is in `monitorFromBulkRow`: `url` for HTTP and
-Keyword, `host`/`port` for TCP (the template port is the fallback) and `hostname`
-for DNS.
+Keyword, `host`/`port` for TCP and SSL (the port of the template is the fallback,
+`443` for SSL when the template gives none) and `hostname` for DNS.
+
+A row whose `type` column **differs from the type of the template** is created
+with that probe type and keeps the scheduling defaults and the channels of the
+template, but it does **not** follow it: a template never describes another probe,
+so the link is dropped instead of failing the row (the same rule the monitor form
+applies when the type changes, and `MonitorService.Validate` enforces). The probe
+options of the template type are pruned from the created monitor, and the
+certificate/domain switches are kept only if the new type can honour them.
 
 ## 9. Certificates
 
@@ -479,6 +497,8 @@ exist.
 | Element | File |
 |---|---|
 | Form (all five types) | `web/src/components/monitors/MonitorForm.vue` |
+| Templates (type aware defaults) | `web/src/views/admin/AdminMonitorTemplatesView.vue` |
+| Bulk add / bulk edit dialogs | `web/src/components/monitors/BulkAddDialog.vue` (`ApplyTemplateDialog.vue`) |
 | Target fields per type | `web/src/components/monitors/MonitorConfigFields.vue` |
 | Type aware payload pruning | `web/src/lib/monitor-config.ts` |
 | Card with status/uptime/bars | `web/src/components/monitors/MonitorCard.vue` |
@@ -501,6 +521,13 @@ of another type. `web/src/lib/monitor-config.ts` owns that map (it mirrors the
 the operator experiments with the type, it is dropped when the dialog is saved
 and never reaches the API (which keeps rejecting an incoherent payload built by
 another client).
+
+The template dialog follows the same rule with its defaults
+(`sanitizeTemplateDefaults` in the same module): the certificate section is
+rendered only for the types that can read a certificate, the domain section for
+the types that have a registrable target, and the hidden switches are dropped
+before the save — a template never carries a switch its own monitors would be
+rejected for.
 
 All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
 `certificate.*`, `domain.*`, `expiry.*`).

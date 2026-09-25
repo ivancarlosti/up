@@ -187,6 +187,69 @@ try {
     after.map((m) => m.url).join(', '),
   )
 
+  // --- the ssl type and the type column of a row ---------------------------
+  // The templates page used to offer only http/keyword/tcp/dns (no ssl blueprint
+  // could be created) and the bulk importer knew only the http/tcp/dns target
+  // shapes while the type column of a row was rejected by the template link
+  // check: a bulk import could only ever create http monitors.
+  const sslTemplateName = `e2e ssl template ${stamp}`
+  const sslMonitorName = `e2e ssl ${stamp}`
+  const overrideName = `e2e override ${stamp}`
+
+  await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
+  check('new template dialog opens for ssl', await clickButton(page, /new template|novo template|nueva plantilla/i))
+  await sleep(500)
+  await setValue(page, '#template-name', sslTemplateName)
+  await setValue(page, '#template-type', 'ssl', 'change')
+  await sleep(300)
+  const sslDialog = await api(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+  check('the ssl template offers the certificate switches', /certificat|certificado/i.test(sslDialog))
+  check('ssl template saved', await clickButton(page, /^(save|salvar|guardar)$/i))
+  await sleep(1500)
+  const sslTemplate = await api(`fetch('/api/monitor-templates')
+    .then((r) => r.json())
+    .then((list) => list.find((t) => t.name === ${JSON.stringify(sslTemplateName)}) ?? null)`)
+  check('the ssl template persisted with its type', sslTemplate?.type === 'ssl', String(sslTemplate?.type))
+  if (sslTemplate) created.templates.push(sslTemplate.id)
+
+  // The ssl template imports host:port rows.
+  await page.goto(`${url}/admin/monitors`, { settle: 1200 })
+  check('bulk dialog opens for the ssl template', await clickButton(page, /add in bulk|adicionar em lote|agregar en lote/i))
+  await sleep(600)
+  if (sslTemplate) {
+    await setValue(page, '#bulk-template', String(sslTemplate.id), 'change')
+    await setValue(page, '#bulk-text', `${sslMonitorName},127.0.0.1:8443\n`)
+    await sleep(500)
+    check('the ssl row is ready', /(Ready|Prontas|Listas): 1/.test(await api(`document.body.innerText`)))
+    check('the ssl monitor is created', await clickButton(page, /^(create|criar|crear)$/i))
+    await sleep(1500)
+  }
+
+  // The type column of a row overrides the type of its template (the monitor is
+  // then not linked to it: a template never describes another probe type).
+  await page.goto(`${url}/admin/monitors`, { settle: 1200 })
+  check('bulk dialog opens for the override', await clickButton(page, /add in bulk|adicionar em lote|agregar en lote/i))
+  await sleep(600)
+  await setValue(page, '#bulk-template', String(template?.id ?? ''), 'change')
+  await setValue(page, '#bulk-text', `${overrideName},127.0.0.1:9000,tcp\n`)
+  await sleep(500)
+  check('the tcp override row is ready', /(Ready|Prontas|Listas): 1/.test(await api(`document.body.innerText`)))
+  check('the override monitor is created', await clickButton(page, /^(create|criar|crear)$/i))
+  await sleep(2000)
+  const imported = await api(`fetch('/api/monitors?decorate=false')
+    .then((r) => r.json())
+    .then((list) => list.filter((m) => [${JSON.stringify(sslMonitorName)}, ${JSON.stringify(overrideName)}].includes(m.name))
+      .map((m) => ({ id: m.id, name: m.name, type: m.type, template_uuid: m.template_uuid, host: m.config.host, port: m.config.port })))`)
+  const sslMonitor = imported.find((m) => m.name === sslMonitorName)
+  const overrideMonitor = imported.find((m) => m.name === overrideName)
+  check('the ssl monitor was imported', sslMonitor?.type === 'ssl' && sslMonitor?.port === 8443, JSON.stringify(sslMonitor))
+  check('the ssl monitor follows its template', Boolean(sslMonitor?.template_uuid), String(sslMonitor?.template_uuid))
+  check('the overridden monitor was imported', overrideMonitor?.type === 'tcp' && overrideMonitor?.port === 9000, JSON.stringify(overrideMonitor))
+  check('an overridden row is not linked to the template', !overrideMonitor?.template_uuid, String(overrideMonitor?.template_uuid))
+  created.monitors.push(...imported.map((m) => m.id))
+  check('bulk dialog closed', await clickButton(page, /^(close|fechar|cerrar)$/i))
+  await sleep(400)
+
   const consoleErrors = [...page.consoleMessages, ...page.exceptions].filter((line) =>
     /\[up\] unexpected error|ReferenceError|SyntaxError|TypeError|Uncaught/.test(line),
   )

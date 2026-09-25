@@ -123,20 +123,28 @@ const templateOptions = computed(() => [
  * withProbeTarget copies the template probe options but keeps the target of the
  * monitor, exactly like the backend does: applying a template never repoints a
  * monitor at another address.
+ *
+ * The address of the monitor wins **when it has one**; the target of the template
+ * stays otherwise, which is what makes the port of a tcp/ssl blueprint work (the
+ * form of a new monitor has no address yet, and the port of the template is the
+ * fallback the bulk importer documents as well).
  */
 function withProbeTarget(config: MonitorConfig, target: MonitorConfig, monitorType: MonitorType): MonitorConfig {
   const next: MonitorConfig = { ...config }
   switch (monitorType) {
     case 'http':
     case 'keyword':
-      next.url = target.url
+      if (target.url) next.url = target.url
       break
     case 'tcp':
-      next.host = target.host
-      next.port = target.port
+    case 'ssl':
+      // Both are host:port probes: the SNI and the TLS switches of a ssl
+      // template are options, the address belongs to the monitor.
+      if (target.host) next.host = target.host
+      if (target.port) next.port = target.port
       break
     case 'dns':
-      next.hostname = target.hostname
+      if (target.hostname) next.hostname = target.hostname
       break
   }
   return next

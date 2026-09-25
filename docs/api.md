@@ -227,6 +227,11 @@ A **template** is a monitor without a target: `type`, `config` and `defaults`
 certificate/domain watches; never the groups or the tags). A monitor can **follow**
 a template through `template_uuid` (the template's global uuid), and editing the
 template pushes its defaults to every follower unless `propagate` is false.
+`type` is one of `http`, `keyword`, `tcp`, `dns`, `ssl`, and the defaults must be
+coherent with it: a `cert_watch` on a type that cannot read a certificate, a
+`domain_watch` on a type without a registrable domain, `run_on=node` without a
+`node_id` or an out of range `retries_interval_seconds` answer
+`400 ERR_MONITOR_TEMPLATE_INVALID` (the same rules a monitor follows).
 The `apply` endpoint only writes the fields listed in `fields` (empty = every
 default field) and returns the diff per monitor; it **never touches the target**
 of a monitor, not even when `config` is applied. `monitor_ids` and an unknown
@@ -234,7 +239,11 @@ field answer `400 ERR_MONITOR_TEMPLATE_INVALID`.
 
 The **bulk importer** parses `name,target[,type,keyword,tags,interval]` (comma,
 semicolon or tab; header, `#` comments and blank lines ignored), validates every
-row against the template and answers a per row report:
+row against the template and answers a per row report. The `type` column accepts
+every monitor type (`http`, `keyword`, `tcp`, `dns`, `ssl`); a row that overrides
+the type of its template keeps the scheduling defaults and the channels but is
+not linked to it (`template_uuid` stays empty), because a template never describes
+another probe.
 
 ```json
 {"parsed":3,"created":2,"dry_run":0,"skipped":1,"failed":0,

@@ -1,4 +1,4 @@
-import type { MonitorConfig, MonitorPayload, MonitorType } from './types'
+import type { MonitorConfig, MonitorPayload, MonitorType, TemplateDefaults } from './types'
 
 /**
  * Type aware pruning of a monitor payload.
@@ -133,6 +133,35 @@ export function sanitizeMonitorPayload(payload: MonitorPayload, options: Sanitiz
 
   if (clean.template_uuid && options.templateType && options.templateType !== type) {
     clean.template_uuid = ''
+  }
+
+  return clean
+}
+
+/**
+ * sanitizeTemplateDefaults returns a copy of a template's defaults without the
+ * switches the type cannot honour, mirroring `sanitizeMonitorPayload` and the Go
+ * side (`models.MonitorTemplate.Validate`).
+ *
+ * A template is a monitor without a target: the certificate switches only exist
+ * for the types that can read a certificate (http, keyword, ssl) and nothing can
+ * outlive the watch it belongs to. Without this, a certificate watch kept while
+ * the operator tried another type would be stored on, say, a tcp template and
+ * every monitor created from it would be rejected by the API.
+ */
+export function sanitizeTemplateDefaults(type: MonitorType, defaults: TemplateDefaults): TemplateDefaults {
+  const clean: TemplateDefaults = { ...defaults }
+
+  if (!supportsCertificate(type) || !clean.cert_watch) {
+    clean.cert_watch = false
+    clean.cert_notify = false
+    clean.cert_warn_days = ''
+  }
+
+  if (!supportsDomainWatch(type) || !clean.domain_watch) {
+    clean.domain_watch = false
+    clean.domain_notify = false
+    clean.domain_warn_days = ''
   }
 
   return clean

@@ -107,6 +107,9 @@ func (t *MonitorTemplate) Normalize() {
 	if t.Defaults.TimeoutSeconds <= 0 {
 		t.Defaults.TimeoutSeconds = 10
 	}
+	if t.Defaults.RetriesIntervalSeconds <= 0 {
+		t.Defaults.RetriesIntervalSeconds = 60
+	}
 	if t.Defaults.RunOn == "" {
 		t.Defaults.RunOn = "all"
 	}
@@ -131,9 +134,19 @@ func (t *MonitorTemplate) Validate() string {
 		}
 		return "type must be " + strings.Join(types, ", ")
 	}
+	// The run_on rules mirror the monitor ones (MonitorService.Validate): a
+	// template must not describe a monitor the API would refuse to create.
 	switch t.Defaults.RunOn {
-	case "all", "primary", "node":
+	case "all", "primary":
+		t.Defaults.NodeID = ""
+		t.Defaults.RunOnNodes = ""
+	case "node":
+		if strings.TrimSpace(t.Defaults.NodeID) == "" {
+			return "node_id is required when run_on=node"
+		}
+		t.Defaults.RunOnNodes = ""
 	case "some":
+		t.Defaults.NodeID = ""
 		t.Defaults.RunOnNodes = NormalizeRunOnNodes(t.Defaults.RunOnNodes)
 		if t.Defaults.RunOnNodes == "" {
 			return "run_on_nodes is required when run_on=some"
@@ -150,11 +163,24 @@ func (t *MonitorTemplate) Validate() string {
 	if t.Defaults.Retries < 0 || t.Defaults.Retries > 50 {
 		return "retries must be between 0 and 50"
 	}
+	if t.Defaults.Retries > 0 && (t.Defaults.RetriesIntervalSeconds < 1 || t.Defaults.RetriesIntervalSeconds > 3600) {
+		return "retries_interval_seconds must be between 1 and 3600"
+	}
+	// The switches must describe a monitor that can actually exist: the monitor
+	// validation rejects a certificate watch on a type that cannot read one and a
+	// domain watch on a type without a registrable domain, so a template that
+	// carried them would only ever produce rows that cannot be created.
+	if t.Defaults.CertWatch && !t.Type.SupportsCertificate() {
+		return "cert_watch is only available for http, keyword and ssl monitors"
+	}
 	if t.Defaults.CertNotify && !t.Defaults.CertWatch {
 		return "cert_notify requires cert_watch"
 	}
 	if _, err := ParseCertWarnDays(t.Defaults.CertWarnDays); err != nil {
 		return "cert_warn_days must be a list of days before expiry: " + err.Error()
+	}
+	if t.Defaults.DomainWatch && !t.Type.SupportsDomainWatch() {
+		return "domain_watch is not available for " + string(t.Type) + " monitors"
 	}
 	if t.Defaults.DomainNotify && !t.Defaults.DomainWatch {
 		return "domain_notify requires domain_watch"
@@ -171,7 +197,7 @@ func (t MonitorType) TargetField() string {
 	switch t {
 	case MonitorTypeHTTP, MonitorTypeKeyword:
 		return "url"
-	case MonitorTypeTCP:
+	case MonitorTypeTCP, MonitorTypeSSL:
 		return "host"
 	case MonitorTypeDNS:
 		return "hostname"

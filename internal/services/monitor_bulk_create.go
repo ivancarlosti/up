@@ -105,6 +105,12 @@ func (s *MonitorService) BulkCreate(ctx context.Context, opts BulkOptions, templ
 
 // monitorFromBulkRow builds the monitor of one row: the template provides the type
 // and the options, the row provides the name and the target.
+//
+// A row may override the type of the template (the `type` column). The template
+// then describes another probe, so the options of its own type are dropped and
+// the monitor is not linked to it (a link between two different types is what
+// MonitorService.Validate rejects); the scheduling defaults and the channels of
+// the template still apply.
 func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts BulkOptions) (*models.Monitor, error) {
 	if row.Error != "" {
 		return nil, fmt.Errorf("%s", row.Error)
@@ -113,7 +119,11 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 	if row.Type != "" {
 		monitorType = models.MonitorType(row.Type)
 	}
+	overridden := monitorType != template.Type
 	config := template.Config
+	if overridden {
+		config = config.PruneToType(monitorType)
+	}
 	target := strings.TrimSpace(row.Target)
 
 	switch monitorType {
@@ -130,8 +140,14 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 				return nil, fmt.Errorf("a keyword monitor needs the keyword column")
 			}
 		}
-	case models.MonitorTypeTCP:
-		host, port, splitErr := splitHostPort(target, template.Config.Port)
+	case models.MonitorTypeTCP, models.MonitorTypeSSL:
+		fallbackPort := template.Config.Port
+		if monitorType == models.MonitorTypeSSL && fallbackPort == 0 {
+			// A ssl probe never dials port 0: with neither the template nor the
+			// row giving one it uses models.DefaultSSLPort (443).
+			fallbackPort = models.DefaultSSLPort
+		}
+		host, port, splitErr := splitHostPort(target, fallbackPort)
 		if splitErr != nil {
 			return nil, splitErr
 		}
@@ -139,6 +155,13 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		config.Port = port
 	case models.MonitorTypeDNS:
 		config.Hostname = target
+	}
+
+	// A monitor created from a row that overrides the type cannot follow the
+	// template: the template never describes the probe that was asked for.
+	templateUUID := template.UUID
+	if overridden {
+		templateUUID = ""
 	}
 
 	monitor := &models.Monitor{
@@ -162,7 +185,7 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		DomainWarnDays:         template.Defaults.DomainWarnDays,
 		// A monitor imported from a template follows it, so a later template edit
 		// reaches it too.
-		TemplateUUID: template.UUID,
+		TemplateUUID: templateUUID,
 		Config:       config,
 	}
 	if template.Defaults.Active != nil {
@@ -181,8 +204,29 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		}
 		monitor.IntervalSeconds = seconds
 	}
+	// The template defaults are copied verbatim above: a row that overrode the
+	// type may not be able to carry them (a certificate watch on a tcp probe),
+	// so the switches are brought in line before the row is validated.
+	sanitizeBulkDefaults(monitor)
 	monitor.Config.Normalize(monitorType)
 	return monitor, nil
+}
+
+// sanitizeBulkDefaults drops the switches a probe type cannot carry, exactly like
+// the payload sanitizer of the UI (`web/src/lib/monitor-config.ts`): a row may
+// override the type of its template, and the certificate/domain defaults of the
+// template would otherwise describe a monitor the API refuses to create.
+func sanitizeBulkDefaults(monitor *models.Monitor) {
+	if !monitor.Type.SupportsCertificate() || !monitor.CertWatch {
+		monitor.CertWatch = false
+		monitor.CertNotify = false
+		monitor.CertWarnDays = ""
+	}
+	if !monitor.Type.SupportsDomainWatch() || !monitor.DomainWatch {
+		monitor.DomainWatch = false
+		monitor.DomainNotify = false
+		monitor.DomainWarnDays = ""
+	}
 }
 
 // splitHostPort reads a `host` or `host:port` target.
@@ -230,7 +274,7 @@ func monitorTargetKey(monitor *models.Monitor) string {
 	switch monitor.Type {
 	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
 		return strings.ToLower(strings.TrimSpace(monitor.Config.URL))
-	case models.MonitorTypeTCP:
+	case models.MonitorTypeTCP, models.MonitorTypeSSL:
 		return fmt.Sprintf("%s:%d", strings.ToLower(strings.TrimSpace(monitor.Config.Host)), monitor.Config.Port)
 	case models.MonitorTypeDNS:
 		return strings.ToLower(strings.TrimSpace(monitor.Config.Hostname))

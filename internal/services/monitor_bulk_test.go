@@ -172,3 +172,138 @@ func TestSplitHostPort(t *testing.T) {
 		t.Fatal("a missing port without a template fallback must be rejected")
 	}
 }
+
+// TestMonitorFromBulkRowCoversEveryType documents that the bulk importer speaks
+// every probe type: each template type parses its own target shape, and the ssl
+// type (like tcp) takes the port of the template, then 443 when it has none.
+func TestMonitorFromBulkRowCoversEveryType(t *testing.T) {
+	defaults := models.TemplateDefaults{IntervalSeconds: 60, TimeoutSeconds: 10, RunOn: "all"}
+
+	// HTTP and Keyword: the target is an absolute url and the keyword comes from
+	// the row.
+	httpTemplate := &models.MonitorTemplate{UUID: "http-template", Type: models.MonitorTypeHTTP, Defaults: defaults}
+	httpRow, err := monitorFromBulkRow(httpTemplate, BulkRow{Name: "API", Target: "https://api.example.com"}, BulkOptions{})
+	if err != nil || httpRow.Config.URL != "https://api.example.com" {
+		t.Fatalf("http row = %+v err=%v", httpRow, err)
+	}
+	keywordRow, err := monitorFromBulkRow(httpTemplate, BulkRow{Name: "Site", Target: "https://example.com", Type: "keyword", Keyword: "sign in"}, BulkOptions{})
+	if err != nil || keywordRow.Type != models.MonitorTypeKeyword || keywordRow.Config.Keyword != "sign in" {
+		t.Fatalf("keyword row = %+v err=%v", keywordRow, err)
+	}
+
+	// TCP: host:port, the port of the template being the fallback of the row.
+	tcpTemplate := &models.MonitorTemplate{UUID: "tcp-template", Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Port: 5432}, Defaults: defaults}
+	tcpRow, err := monitorFromBulkRow(tcpTemplate, BulkRow{Name: "MariaDB", Target: "db.internal"}, BulkOptions{})
+	if err != nil || tcpRow.Config.Host != "db.internal" || tcpRow.Config.Port != 5432 {
+		t.Fatalf("tcp row = %+v err=%v", tcpRow, err)
+	}
+	tcpRow, err = monitorFromBulkRow(tcpTemplate, BulkRow{Name: "MariaDB", Target: "db.internal:3306"}, BulkOptions{})
+	if err != nil || tcpRow.Config.Port != 3306 {
+		t.Fatalf("the port of the row must win: %+v err=%v", tcpRow, err)
+	}
+
+	// SSL: host:port as well, the template port first and DefaultSSLPort (443)
+	// when the template does not give one.
+	sslTemplate := &models.MonitorTemplate{UUID: "ssl-template", Type: models.MonitorTypeSSL, Config: models.MonitorConfig{Port: 993}, Defaults: defaults}
+	sslRow, err := monitorFromBulkRow(sslTemplate, BulkRow{Name: "IMAPS", Target: "mail.example.com"}, BulkOptions{})
+	if err != nil || sslRow.Type != models.MonitorTypeSSL || sslRow.Config.Host != "mail.example.com" || sslRow.Config.Port != 993 {
+		t.Fatalf("ssl row = %+v err=%v", sslRow, err)
+	}
+	sslDefault := &models.MonitorTemplate{UUID: "ssl-default", Type: models.MonitorTypeSSL, Defaults: defaults}
+	sslRow, err = monitorFromBulkRow(sslDefault, BulkRow{Name: "Site", Target: "example.com"}, BulkOptions{})
+	if err != nil || sslRow.Config.Port != models.DefaultSSLPort {
+		t.Fatalf("the ssl default port must be 443: %+v err=%v", sslRow, err)
+	}
+	if _, err := monitorFromBulkRow(sslDefault, BulkRow{Name: "Site", Target: "example.com:abc"}, BulkOptions{}); err == nil {
+		t.Fatal("a non numeric port must be reported as invalid")
+	}
+
+	// DNS: the target is the name to resolve.
+	dnsTemplate := &models.MonitorTemplate{UUID: "dns-template", Type: models.MonitorTypeDNS, Defaults: defaults}
+	dnsRow, err := monitorFromBulkRow(dnsTemplate, BulkRow{Name: "example.com A", Target: "example.com"}, BulkOptions{})
+	if err != nil || dnsRow.Config.Hostname != "example.com" || dnsRow.Config.RecordType != "A" {
+		t.Fatalf("dns row = %+v err=%v", dnsRow, err)
+	}
+
+	// A row that keeps the type of its template follows it.
+	for _, monitor := range []*models.Monitor{httpRow, tcpRow, dnsRow, sslRow} {
+		if monitor.TemplateUUID == "" {
+			t.Fatalf("%s must follow the template: %+v", monitor.Name, monitor)
+		}
+	}
+}
+
+// TestMonitorFromBulkRowTypeOverride documents what the `type` column of a row
+// changes: the monitor is created with the type of the row, keeps the scheduling
+// defaults of the template, drops the options of the template type and is NOT
+// linked to it (a link between two different types is what the API rejects).
+func TestMonitorFromBulkRowTypeOverride(t *testing.T) {
+	template := &models.MonitorTemplate{
+		UUID: "template-uuid",
+		Type: models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{
+			Method: "HEAD", AcceptedStatusCodes: "200", Headers: []models.Header{{Key: "X", Value: "1"}},
+		},
+		Defaults: models.TemplateDefaults{
+			IntervalSeconds: 120, TimeoutSeconds: 5, Retries: 2, RetriesIntervalSeconds: 30,
+			RunOn: "all", CertWatch: true, CertNotify: true, CertWarnDays: "7",
+			NotificationIDs: []uint{3},
+		},
+	}
+
+	row, err := monitorFromBulkRow(template, BulkRow{Name: "MariaDB", Target: "db.internal:3306", Type: "tcp"}, BulkOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if row.Type != models.MonitorTypeTCP || row.Config.Host != "db.internal" || row.Config.Port != 3306 {
+		t.Fatalf("the type and the target of the row must win: %+v", row)
+	}
+	if row.IntervalSeconds != 120 || row.TimeoutSeconds != 5 || row.Retries != 2 || row.RetriesIntervalSeconds != 30 {
+		t.Fatalf("the scheduling defaults must be kept: %+v", row)
+	}
+	if row.Config.Method != "" || row.Config.AcceptedStatusCodes != "" || len(row.Config.Headers) != 0 {
+		t.Fatalf("the options of the template type must be dropped: %+v", row.Config)
+	}
+	if row.TemplateUUID != "" {
+		t.Fatalf("an overridden row cannot follow the template, got %q", row.TemplateUUID)
+	}
+	// A certificate watch only exists for the types that can read one: the API
+	// would reject the monitor otherwise.
+	if row.CertWatch || row.CertNotify || row.CertWarnDays != "" {
+		t.Fatalf("the certificate switches of an http template must not reach a tcp monitor: %+v", row)
+	}
+
+	// A row that keeps the type of its template follows it and inherits its
+	// certificate defaults.
+	same, err := monitorFromBulkRow(template, BulkRow{Name: "API", Target: "https://api.example.com"}, BulkOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if same.TemplateUUID != "template-uuid" || same.Config.Method != "HEAD" {
+		t.Fatalf("a row of the template type must follow it: %+v", same)
+	}
+	if !same.CertWatch || !same.CertNotify || same.CertWarnDays != "7" {
+		t.Fatalf("the certificate defaults must be kept for a supported type: %+v", same)
+	}
+}
+
+// TestMonitorTargetKeyPerType documents the identity the bulk importer uses to
+// recognise a duplicate. Without the ssl case every ssl row shared the empty key,
+// so all but the first one were reported as duplicates.
+func TestMonitorTargetKeyPerType(t *testing.T) {
+	cases := []struct {
+		monitor *models.Monitor
+		want    string
+	}{
+		{&models.Monitor{Type: models.MonitorTypeHTTP, Config: models.MonitorConfig{URL: "https://API.example.com/x"}}, "https://api.example.com/x"},
+		{&models.Monitor{Type: models.MonitorTypeKeyword, Config: models.MonitorConfig{URL: "https://example.com"}}, "https://example.com"},
+		{&models.Monitor{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Host: "DB.internal", Port: 3306}}, "db.internal:3306"},
+		{&models.Monitor{Type: models.MonitorTypeSSL, Config: models.MonitorConfig{Host: "mail.example.com", Port: 993}}, "mail.example.com:993"},
+		{&models.Monitor{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{Hostname: "Example.com"}}, "example.com"},
+	}
+	for _, testCase := range cases {
+		if got := monitorTargetKey(testCase.monitor); got != testCase.want {
+			t.Errorf("%s target key = %q, want %q", testCase.monitor.Type, got, testCase.want)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ivancarlosti/up/internal/models"
@@ -137,5 +138,80 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	dnsUpdated, _, _ := applyTemplate(dnsMonitor, &models.MonitorTemplate{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{RecordType: "AAAA"}}, []string{"config"})
 	if dnsUpdated.Config.Hostname != "example.com" || dnsUpdated.Config.RecordType != "AAAA" {
 		t.Fatalf("the dns target changed: %+v", dnsUpdated.Config)
+	}
+	// SSL keeps its own address too: the template port (993 for IMAPS) is the
+	// fallback of the bulk importer, never a silent repoint of a monitor. The SNI
+	// and the TLS switches are probe options of the template and do apply.
+	sslMonitor := &models.Monitor{Type: models.MonitorTypeSSL, Config: models.MonitorConfig{Host: "mail.example.com", Port: 465}}
+	sslUpdated, _, _ := applyTemplate(sslMonitor, &models.MonitorTemplate{
+		Type:   models.MonitorTypeSSL,
+		Config: models.MonitorConfig{Port: 993, ServerName: "smtp.example.com", IgnoreTLS: true},
+	}, []string{"config"})
+	if sslUpdated.Config.Host != "mail.example.com" || sslUpdated.Config.Port != 465 {
+		t.Fatalf("the ssl target changed: %s:%d", sslUpdated.Config.Host, sslUpdated.Config.Port)
+	}
+	if sslUpdated.Config.ServerName != "smtp.example.com" || !sslUpdated.Config.IgnoreTLS {
+		t.Fatalf("the ssl probe options were not applied: %+v", sslUpdated.Config)
+	}
+}
+
+// TestConfigChangesCoversEveryType is the safety net of the dry run: a preview
+// that reports "no change" while the apply would rewrite the probe is worse than
+// no preview at all (which is what the tcp/dns/ssl options used to do).
+func TestConfigChangesCoversEveryType(t *testing.T) {
+	tcp := configChanges(
+		&models.Monitor{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Host: "db.internal", Port: 3306, Send: "PING", Expect: "PONG"}},
+		&models.MonitorTemplate{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Send: "HELO", Expect: "250"}},
+	)
+	byField := map[string]FieldChange{}
+	for _, change := range tcp {
+		byField[change.Field] = change
+	}
+	if change, ok := byField["config.send"]; !ok || change.From != "PING" || change.To != "HELO" {
+		t.Fatalf("config.send change = %+v", change)
+	}
+	if change, ok := byField["config.expect"]; !ok || change.From != "PONG" || change.To != "250" {
+		t.Fatalf("config.expect change = %+v", change)
+	}
+	// The target stays out of the diff even though both configurations carry one.
+	if _, ok := byField["config.host"]; ok {
+		t.Fatal("the target must never appear in the diff")
+	}
+
+	dns := configChanges(
+		&models.Monitor{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{Hostname: "example.com", RecordType: "A", ExpectedValue: "93.184", InvertCheck: true}},
+		&models.MonitorTemplate{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{RecordType: "AAAA", ExpectedValue: "2606", InvertCheck: false}},
+	)
+	seen := map[string]bool{}
+	for _, change := range dns {
+		seen[change.Field] = true
+	}
+	for _, field := range []string{"config.record_type", "config.expected_value", "config.invert_check"} {
+		if !seen[field] {
+			t.Errorf("%s is missing from the dns diff: %+v", field, dns)
+		}
+	}
+
+	ssl := configChanges(
+		&models.Monitor{Type: models.MonitorTypeSSL, Config: models.MonitorConfig{Host: "mail.example.com", Port: 465}},
+		&models.MonitorTemplate{Type: models.MonitorTypeSSL, Config: models.MonitorConfig{ServerName: "smtp.example.com", IgnoreTLS: true}},
+	)
+	seen = map[string]bool{}
+	for _, change := range ssl {
+		seen[change.Field] = true
+	}
+	if !seen["config.server_name"] || !seen["config.ignore_tls"] {
+		t.Errorf("the ssl options are missing from the diff: %+v", ssl)
+	}
+
+	// The credentials never travel into a preview.
+	secret := &models.MonitorTemplate{
+		Type:   models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{BasicPass: "secret", BearerToken: "token", BasicUser: "operator"},
+	}
+	for _, change := range configChanges(&models.Monitor{Type: models.MonitorTypeHTTP}, secret) {
+		if strings.Contains(change.Field, "pass") || strings.Contains(change.Field, "token") {
+			t.Fatalf("a secret leaked into the diff: %+v", change)
+		}
 	}
 }

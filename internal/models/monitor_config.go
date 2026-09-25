@@ -106,6 +106,46 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 	}
 }
 
+// PruneToType returns a copy of the configuration keeping only the fields the
+// given type reads.
+//
+// It is the Go twin of `CONFIG_FIELDS` in `web/src/lib/monitor-config.ts` and is
+// what lets a bulk row override the type of its template: without it the options
+// of the template type would travel into a monitor of another type (the checker
+// ignores them, but they would show up in the stored JSON and in the API payload
+// of a monitor they do not describe).
+func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
+	switch monitorType {
+	case MonitorTypeHTTP:
+		return MonitorConfig{
+			URL: c.URL, Method: c.Method, Encoding: c.Encoding, Body: c.Body,
+			Headers: c.Headers, AuthType: c.AuthType, BasicUser: c.BasicUser,
+			BasicPass: c.BasicPass, BearerToken: c.BearerToken, IgnoreTLS: c.IgnoreTLS,
+			MaxRedirects: c.MaxRedirects, CacheBuster: c.CacheBuster,
+			AcceptedStatusCodes: c.AcceptedStatusCodes,
+		}
+	case MonitorTypeKeyword:
+		return MonitorConfig{
+			URL: c.URL, Method: c.Method, Encoding: c.Encoding, Body: c.Body,
+			Headers: c.Headers, AuthType: c.AuthType, BasicUser: c.BasicUser,
+			BasicPass: c.BasicPass, BearerToken: c.BearerToken, IgnoreTLS: c.IgnoreTLS,
+			MaxRedirects: c.MaxRedirects, CacheBuster: c.CacheBuster,
+			AcceptedStatusCodes: c.AcceptedStatusCodes,
+			Keyword:             c.Keyword, InvertKeyword: c.InvertKeyword, CaseSensitive: c.CaseSensitive,
+		}
+	case MonitorTypeTCP:
+		return MonitorConfig{Host: c.Host, Port: c.Port, Send: c.Send, Expect: c.Expect}
+	case MonitorTypeDNS:
+		return MonitorConfig{
+			Hostname: c.Hostname, ResolverServer: c.ResolverServer,
+			RecordType: c.RecordType, ExpectedValue: c.ExpectedValue, InvertCheck: c.InvertCheck,
+		}
+	case MonitorTypeSSL:
+		return MonitorConfig{Host: c.Host, Port: c.Port, ServerName: c.ServerName, IgnoreTLS: c.IgnoreTLS}
+	}
+	return MonitorConfig{}
+}
+
 // DefaultSSLPort is the port a ssl monitor dials when none is configured.
 const DefaultSSLPort = 443
 

@@ -17,7 +17,12 @@ import Textarea from '@/components/ui/Textarea.vue'
 import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
-import { pruneMonitorConfig } from '@/lib/monitor-config'
+import {
+  pruneMonitorConfig,
+  sanitizeTemplateDefaults,
+  supportsCertificate as typeSupportsCertificate,
+  supportsDomainWatch as typeSupportsDomainWatch,
+} from '@/lib/monitor-config'
 import { useToastStore } from '@/stores/toast'
 import type { MonitorConfig, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
 
@@ -74,6 +79,7 @@ function blank(): TemplateForm {
       run_on: 'all',
       run_on_nodes: '',
       node_id: '',
+      active: true,
       description: '',
       notification_ids: [],
       cert_watch: false,
@@ -91,6 +97,7 @@ const typeOptions = computed(() => [
   { value: 'keyword', label: t('monitor.typeKeyword') },
   { value: 'tcp', label: t('monitor.typeTcp') },
   { value: 'dns', label: t('monitor.typeDns') },
+  { value: 'ssl', label: t('monitor.typeSsl') },
 ])
 const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
@@ -101,6 +108,14 @@ const runOnOptions = computed(() => [
 
 const type = computed(() => (form.type ?? 'http') as MonitorType)
 const config = computed(() => form.config ?? {})
+
+/**
+ * The capability predicates live in `@/lib/monitor-config`, shared with the
+ * monitor form (and with the backend, `models.MonitorType`): the template dialog
+ * must not offer a switch the selected probe type cannot honour.
+ */
+const supportsCertificate = computed(() => typeSupportsCertificate(type.value))
+const supportsDomain = computed(() => typeSupportsDomainWatch(type.value))
 
 async function load(): Promise<void> {
   loading.value = true
@@ -149,14 +164,18 @@ async function save(): Promise<void> {
       type: form.type,
       propagate: Boolean(form.propagate),
       config: pruneMonitorConfig(form.type, form.config),
-      defaults: {
+      // The switches of the selected type only: the dialog keeps the values of
+      // the type the operator experimented with hidden (like the monitor form
+      // does), a certificate watch on a tcp template would be stored here and
+      // then rejected by the API, and every monitor created from it too.
+      defaults: sanitizeTemplateDefaults(form.type, {
         ...form.defaults,
         interval_seconds: Number(form.defaults.interval_seconds) || 60,
         timeout_seconds: Number(form.defaults.timeout_seconds) || 10,
         retries: Number(form.defaults.retries) || 0,
         retries_interval_seconds: Number(form.defaults.retries_interval_seconds) || 60,
         resend_interval_seconds: Number(form.defaults.resend_interval_seconds) || 0,
-      },
+      }),
     }
     // The probe options come from native number inputs too (they emit strings).
     if (payload.config) {
@@ -259,6 +278,12 @@ onMounted(load)
             <Badge variant="outline">{{ t('common.interval') }}: {{ template.defaults?.interval_seconds }}s</Badge>
             <Badge variant="outline">{{ t('common.timeout') }}: {{ template.defaults?.timeout_seconds }}s</Badge>
             <Badge variant="outline">{{ t('monitor.runOn') }}: {{ template.defaults?.run_on }}</Badge>
+            <Badge v-if="typeSupportsCertificate(template.type) && template.defaults?.cert_watch" variant="outline">
+              {{ t('monitor.certWatch') }}
+            </Badge>
+            <Badge v-if="typeSupportsDomainWatch(template.type) && template.defaults?.domain_watch" variant="outline">
+              {{ t('monitor.domainWatch') }}
+            </Badge>
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-1">
@@ -349,7 +374,7 @@ onMounted(load)
           </div>
         </section>
 
-        <section class="grid gap-2 border-t border-border pt-4">
+        <section v-if="supportsCertificate" class="grid gap-2 border-t border-border pt-4">
           <Label :help="t('templates.certHelp')">{{ t('monitor.certSection') }}</Label>
           <div class="flex flex-wrap items-center gap-4">
             <Switch v-model="form.defaults.cert_watch as boolean">{{ t('monitor.certWatch') }}</Switch>
@@ -361,7 +386,7 @@ onMounted(load)
           </div>
         </section>
 
-        <section class="grid gap-2 border-t border-border pt-4">
+        <section v-if="supportsDomain" class="grid gap-2 border-t border-border pt-4">
           <Label :help="t('templates.domainHelp')">{{ t('monitor.domainSection') }}</Label>
           <div class="flex flex-wrap items-center gap-4">
             <Switch v-model="form.defaults.domain_watch as boolean">{{ t('monitor.domainWatch') }}</Switch>

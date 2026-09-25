@@ -154,18 +154,30 @@ func addChange(changes *[]FieldChange, field, from, to string) {
 
 // configChanges reports the probe options that differ. The target is never part
 // of it: a template does not carry a target.
+//
+// Every option of every type is compared (and only the non-secret ones: the
+// basic password and the bearer token must never travel into a preview), so a
+// dry run cannot report "no change" for a monitor the real apply would write.
 func configChanges(monitor *models.Monitor, template *models.MonitorTemplate) []FieldChange {
 	changes := []FieldChange{}
 	from, to := monitor.Config, template.Config
 	addChange(&changes, "config.method", from.Method, to.Method)
 	addChange(&changes, "config.encoding", from.Encoding, to.Encoding)
+	addChange(&changes, "config.auth_type", from.AuthType, to.AuthType)
 	addChange(&changes, "config.accepted_status_codes", from.AcceptedStatusCodes, to.AcceptedStatusCodes)
 	addChange(&changes, "config.ignore_tls", strconv.FormatBool(from.IgnoreTLS), strconv.FormatBool(to.IgnoreTLS))
 	addChange(&changes, "config.max_redirects", strconv.Itoa(from.MaxRedirects), strconv.Itoa(to.MaxRedirects))
 	addChange(&changes, "config.cache_buster", strconv.FormatBool(from.CacheBuster), strconv.FormatBool(to.CacheBuster))
 	addChange(&changes, "config.keyword", from.Keyword, to.Keyword)
+	addChange(&changes, "config.invert_keyword", strconv.FormatBool(from.InvertKeyword), strconv.FormatBool(to.InvertKeyword))
+	addChange(&changes, "config.case_sensitive", strconv.FormatBool(from.CaseSensitive), strconv.FormatBool(to.CaseSensitive))
+	addChange(&changes, "config.send", from.Send, to.Send)
+	addChange(&changes, "config.expect", from.Expect, to.Expect)
 	addChange(&changes, "config.record_type", from.RecordType, to.RecordType)
 	addChange(&changes, "config.resolver_server", from.ResolverServer, to.ResolverServer)
+	addChange(&changes, "config.expected_value", from.ExpectedValue, to.ExpectedValue)
+	addChange(&changes, "config.invert_check", strconv.FormatBool(from.InvertCheck), strconv.FormatBool(to.InvertCheck))
+	addChange(&changes, "config.server_name", from.ServerName, to.ServerName)
 	if len(from.Headers) != len(to.Headers) {
 		addChange(&changes, "config.headers", strconv.Itoa(len(from.Headers)), strconv.Itoa(len(to.Headers)))
 	}
@@ -232,11 +244,17 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 // withProbeTarget copies the template configuration but keeps the target fields
 // of the monitor (url, host, port, hostname), so a bulk apply never repoints a
 // monitor at another address.
+//
+// A stored monitor always has them (it went through MonitorService.Validate), which
+// is why the copy is unconditional here; the form applies the same rule but falls
+// back to the template when a field is still empty (a new monitor has no address
+// yet, and the port of a tcp/ssl template is the fallback the bulk importer
+// documents as well).
 func withProbeTarget(config models.MonitorConfig, target models.MonitorConfig, monitorType models.MonitorType) models.MonitorConfig {
 	switch monitorType {
 	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
 		config.URL = target.URL
-	case models.MonitorTypeTCP:
+	case models.MonitorTypeTCP, models.MonitorTypeSSL:
 		config.Host = target.Host
 		config.Port = target.Port
 	case models.MonitorTypeDNS:
