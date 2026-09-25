@@ -143,7 +143,10 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 >
 > The driver lives in `web/scripts/browser.mjs`: it talks to Chrome through the
 > DevTools Protocol over the `WebSocket` client built into Node 24, so there is no
-> dependency to install. `web/scripts/smoke.mjs` is the small client of it.
+> dependency to install. Every launch picks its own debugging port, so a Chrome
+> left over from a crashed run is never attached to (and its profile, with the
+> `localStorage` of the previous run, never reused). `web/scripts/smoke.mjs` is
+> the small client of it.
 >
 > Two more checks use the same driver. `npm run check:i18n` compiles every message
 > of every locale with vue-i18n (a `{{.Event}}` placeholder in a translated string
@@ -156,18 +159,32 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > http://localhost:3000`).
 >
 > `npm run e2e:groups` does the same for the monitor groups: it creates a group
-> with members, clones it shallow and deep, renames it, deletes it through the UI
-> and clones a monitor from the monitor list, cleaning up everything it created
-> (it also writes to the database).
+> with members, clones it shallow and deep, renames it, deletes it through the
+> rows of the sortable groups table and clones a monitor from the monitor list,
+> cleaning up everything it created (it also writes to the database).
 >
 > `npm run e2e:status-page-groups` proves the membership promise: a public page
 > that includes a group shows a monitor added to the group **without editing the
-> page**, and the admin dialog shows the group ticked.
+> page**, and the row of the admin status pages table opens the dialog with the
+> group already ticked.
 >
 > `npm run e2e:templates` drives the templates page and both bulk flows: create a
 > template, add two monitors by pasting `name,url` in the bulk dialog (with a row
 > interval override), preview the bulk edit and apply it, checking that the
-> targets survive. It also cleans up after itself.
+> targets survive. It reads the *Monitors* column of the table and compares it
+> with the `monitor_count` the API reports for the template (the monitors that
+> follow its `template_uuid`), so the column cannot drift from the rows. It also
+> cleans up after itself.
+>
+> `npm run e2e:table-sort` covers the widget the three admin tables share
+> (`SortHeader.vue` plus `lib/table-sort.ts`) instead of a single page: it seeds
+> three rows per table (monitor groups, monitor templates and status pages)
+> through the API, clicks a header in both directions and compares the order of
+> the rows, reloads to prove the choice is remembered **per table**, and types a
+> filter term to check the *shown of total* counter and the message of the empty
+> state. The expected column labels come from `web/src/locales`, so a renamed
+> column fails here instead of passing silently. It writes to the database and
+> cleans up after itself.
 >
 > `npm run e2e:certificates` starts the local helper `go run ./tools/tls-lab`
 > (a valid and an expired certificate), creates a `ssl` monitor through the real

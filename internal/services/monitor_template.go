@@ -70,13 +70,52 @@ func (s *MonitorTemplateService) publish(event string, payload any) {
 	}
 }
 
-// List returns every template (newest name order = alphabetical).
+// List returns every template, with how many monitors follow each one.
 func (s *MonitorTemplateService) List(ctx context.Context) ([]*models.MonitorTemplate, error) {
 	var templates []*models.MonitorTemplate
 	if err := s.db.WithContext(ctx).Order("name ASC").Find(&templates).Error; err != nil {
 		return nil, ErrInternal(fmt.Errorf("listing monitor templates: %w", err))
 	}
+	if err := s.attachMonitorCounts(ctx, templates); err != nil {
+		return nil, err
+	}
 	return templates, nil
+}
+
+// attachMonitorCounts fills MonitorCount for the given templates.
+//
+// The link lives on the monitor side (`template_uuid`), so the follower of a
+// template is not a foreign key but a value: the count is ONE grouped query for
+// the whole page, never one query per row.
+func (s *MonitorTemplateService) attachMonitorCounts(ctx context.Context, templates []*models.MonitorTemplate) error {
+	uuids := make([]string, 0, len(templates))
+	for _, template := range templates {
+		if template.UUID != "" {
+			uuids = append(uuids, template.UUID)
+		}
+	}
+	if len(uuids) == 0 {
+		return nil
+	}
+	var rows []struct {
+		TemplateUUID string
+		Monitors     int64
+	}
+	if err := s.db.WithContext(ctx).Model(&models.Monitor{}).
+		Select("template_uuid, COUNT(*) AS monitors").
+		Where("template_uuid IN ?", uuids).
+		Group("template_uuid").
+		Scan(&rows).Error; err != nil {
+		return ErrInternal(fmt.Errorf("counting the monitors of the templates: %w", err))
+	}
+	counts := make(map[string]int, len(rows))
+	for _, row := range rows {
+		counts[row.TemplateUUID] = int(row.Monitors)
+	}
+	for _, template := range templates {
+		template.MonitorCount = counts[template.UUID]
+	}
+	return nil
 }
 
 // Get loads one template.

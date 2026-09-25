@@ -58,7 +58,17 @@ async function waitForEndpoint(port, timeoutMs = 15000) {
   throw new Error(`Chrome did not expose a debugging endpoint on port ${port}`)
 }
 
-export async function launch({ chrome, width = 1440, height = 900, port = 9222 }) {
+/**
+ * launch starts a headless Chrome and returns the browser handle.
+ *
+ * The debugging port derives from the process id instead of using the fixed
+ * 9222: a Chrome left over from a crashed run keeps owning the default port,
+ * starting a new one still succeeds by attaching to that instance, and the run
+ * then inherits its `localStorage` and its history - a remembered table sort made
+ * a check read the state of an earlier run and report the wrong default column.
+ * Pass `port` to pin a specific one.
+ */
+export async function launch({ chrome, width = 1440, height = 900, port = 9223 + (process.pid % 400) }) {
   const profile = mkdtempSync(join(tmpdir(), 'up-browser-'))
   const child = spawn(
     chrome,

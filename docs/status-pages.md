@@ -52,7 +52,11 @@ Example API response:
 
 ## 3. Managing pages
 
-Admin UI: **Admin > Status pages**.
+Admin UI: **Admin > Status pages**. The table filters by title, slug and
+description and sorts by any column (title, slug, visibility, displayed monitors,
+displayed groups); the two counts come from the API (`monitors_count`,
+`groups_count`). The sort widget and its remembered state are shared with the
+other admin tables — see [monitors.md](monitors.md) §13.
 
 | Action | Endpoint |
 |---|---|

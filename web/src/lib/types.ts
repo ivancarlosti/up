@@ -246,6 +246,12 @@ export interface MonitorTemplate {
   defaults: TemplateDefaults
   /** Push the defaults to the linked monitors whenever the template is edited. */
   propagate: boolean
+  /**
+   * How many monitors follow this template (the link is the `template_uuid` of a
+   * monitor). The list endpoint fills it with one grouped count, so the admin
+   * table can show and sort by it.
+   */
+  monitor_count: number
   created_at: string
   updated_at: string
 }

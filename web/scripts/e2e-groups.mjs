@@ -52,11 +52,11 @@ function clickButton(page, pattern) {
 }
 
 /**
- * clickInCard clicks a button inside the card that carries the given heading.
- * The action buttons of a card are icon only, so the accessible name (title or
- * aria-label) counts as text too.
+ * clickInRow clicks a button of the table row whose first cell holds the given
+ * name. The action buttons of a row are icon only, so the accessible name (title
+ * or aria-label) counts as text too.
  */
-function clickInCard(page, heading, pattern) {
+function clickInRow(page, name, pattern) {
   return page.evaluate(`(() => {
     const matches = (button) => {
       const text = (button.textContent ?? '').trim()
@@ -64,11 +64,10 @@ function clickInCard(page, heading, pattern) {
         ${pattern}.test(button.getAttribute('title') ?? '') ||
         ${pattern}.test(button.getAttribute('aria-label') ?? '')
     }
-    const title = [...document.querySelectorAll('h2')].find((el) => el.textContent.trim() === ${JSON.stringify(heading)})
-    if (!title) return false
-    let card = title
-    while (card && ![...card.querySelectorAll('button')].some(matches)) card = card.parentElement
-    const button = card && [...card.querySelectorAll('button')].find(matches)
+    const row = [...document.querySelectorAll('table tbody tr')].find(
+      (tr) => ((tr.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim() === ${JSON.stringify(name)},
+    )
+    const button = row && [...row.querySelectorAll('button')].find(matches)
     if (!button) return false
     button.click()
     return true
@@ -116,13 +115,12 @@ function toggleControl(page, role, label) {
   })()`)
 }
 
-/** groupCards returns the heading and the text of every group card. */
-function groupCards(page) {
-  return page.evaluate(`(() => [...document.querySelectorAll('h2')].map((title) => {
-    let card = title
-    while (card && !(card.querySelector('table, button'))) card = card.parentElement
-    return { name: title.textContent.trim(), text: (title.parentElement?.innerText ?? '').replace(/\\s+/g, ' ') }
-  }))()`)
+/** groupRows returns the name and the text of every row of the groups table. */
+function groupRows(page) {
+  return page.evaluate(`(() => [...document.querySelectorAll('table tbody tr')].map((row) => ({
+    name: ((row.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim(),
+    text: row.innerText.replace(/\\s+/g, ' '),
+  })))()`)
 }
 
 /**
@@ -165,18 +163,18 @@ try {
   for (const name of monitorNames) check(`monitor checkbox "${name}"`, await toggleCheckbox(page, name))
   check('save the group', await clickButton(page, LABELS.save))
   await sleep(1500)
-  const afterCreate = await groupCards(page)
-  check('group created in the UI', afterCreate.some((card) => card.name === groupName))
+  const afterCreate = await groupRows(page)
+  check('group created in the UI', afterCreate.some((row) => row.name === groupName))
   check(
     'group shows both monitors',
-    (afterCreate.find((card) => card.name === groupName)?.text ?? '').includes(monitorNames[0]),
+    (afterCreate.find((row) => row.name === groupName)?.text ?? '').includes(monitorNames[0]),
   )
   const group = await groupById(page, groupName)
   check('group persisted through the API', Boolean(group))
   if (group) created.groups.push(group.id)
 
   // --- shallow clone (default name) ----------------------------------------
-  check('clone button in the group card', await clickInCard(page, groupName, LABELS.clone))
+  check('clone button in the group row', await clickInRow(page, groupName, LABELS.clone))
   await sleep(500)
   check('shallow clone submitted', await clickButton(page, LABELS.clone))
   await sleep(1500)
@@ -186,7 +184,7 @@ try {
   if (shallow) created.groups.push(shallow.id)
 
   // --- deep clone (with the monitors) --------------------------------------
-  check('clone button again', await clickInCard(page, groupName, LABELS.clone))
+  check('clone button again', await clickInRow(page, groupName, LABELS.clone))
   await sleep(500)
   await setValue(page, '#group-clone-name', deepName)
   check('deep switch toggled', await toggleFirstSwitch(page))
@@ -205,19 +203,19 @@ try {
     check('the copies carry the (copy) suffix', copied.every((name) => name.includes('(copy)')), copied.join(', '))
   }
   // --- rename --------------------------------------------------------------
-  check('edit dialog opens', await clickInCard(page, groupName, LABELS.edit))
+  check('edit dialog opens', await clickInRow(page, groupName, LABELS.edit))
   await sleep(500)
   await setValue(page, '#group-name', renamed)
   check('new name saved', await clickButton(page, LABELS.save))
   await sleep(1500)
-  check('group renamed', (await groupCards(page)).some((card) => card.name === renamed))
+  check('group renamed', (await groupRows(page)).some((row) => row.name === renamed))
 
   // --- delete through the UI ----------------------------------------------
-  check('delete button in the card', await clickInCard(page, renamed, LABELS.remove))
+  check('delete button in the row', await clickInRow(page, renamed, LABELS.remove))
   await sleep(400)
   check('deletion confirmed', await clickButton(page, LABELS.remove))
   await sleep(1500)
-  check('group deleted', !(await groupCards(page)).some((card) => card.name === renamed))
+  check('group deleted', !(await groupRows(page)).some((row) => row.name === renamed))
 
   // --- clone a monitor from the monitors page ------------------------------
   await page.goto(`${url}/admin/monitors`, { settle: 1500 })

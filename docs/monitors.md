@@ -541,8 +541,9 @@ exist.
 | Heartbeat bars | `web/src/components/monitors/HeartbeatBar.vue` (series) and `HeartbeatSparkline.vue` (bucketed column) |
 | Detail page (stats + events + votes + expiry badges) | `web/src/views/MonitorDetailView.vue` |
 | Table listing (sortable, expiry columns) | `web/src/views/admin/AdminMonitorsView.vue` |
+| Other sortable admin tables | `web/src/views/admin/AdminMonitorGroupsView.vue`, `AdminMonitorTemplatesView.vue`, `AdminStatusPagesView.vue` |
 | Sortable header widget | `web/src/components/ui/SortHeader.vue` |
-| Table sorting rules | `web/src/lib/sort.ts` (`lib/monitor-sort.ts` for the remembered state) |
+| Table sorting rules | `web/src/lib/sort.ts` (`lib/monitor-sort.ts` and `lib/table-sort.ts` for the remembered state) |
 | Expiry badge colour/tooltip | `web/src/lib/expiry.ts` |
 | Daily job + TLD rules + target list | `web/src/views/admin/AdminExpiryView.vue` |
 | Public status page | `web/src/views/StatusPagePublicView.vue` |
@@ -576,6 +577,31 @@ ascending, clicking it again reverses the direction; the choice is remembered pe
 browser (`localStorage`, key `up.admin.monitors.sort`) and announced to screen
 readers through `aria-sort`. The persistence lives in `web/src/lib/monitor-sort.ts`,
 the comparators in `web/src/lib/sort.ts`.
+
+### Sorting and filtering the other admin tables
+
+The same header widget (`web/src/components/ui/SortHeader.vue`), the same rules
+and the same remembered state (`web/src/lib/table-sort.ts`) are used by the other
+three admin tables, with **one storage key per table**, so sorting the groups
+never changes how the templates are listed:
+
+| Table | Filter looks at | Sortable columns | Default | `localStorage` key |
+|---|---|---|---|---|
+| Monitor groups (`AdminMonitorGroupsView.vue`) | name, description | name, monitors, order | `order` ascending (the position given to each group, which is the order the API returns) | `up.admin.monitor-groups.sort` |
+| Monitor templates (`AdminMonitorTemplatesView.vue`) | name, description, probe type | name, type, monitors, interval | `name` ascending | `up.admin.monitor-templates.sort` |
+| Status pages (`AdminStatusPagesView.vue`) | title, slug, description | title, slug, visibility, monitors, groups | `title` ascending | `up.admin.status-pages.sort` |
+
+The counts a column sorts by come from the API, never from a loop in the view:
+the templates list counts the monitors that follow each template (the
+`template_uuid` link) in **one** grouped query (`MonitorTemplateService`), a group
+is counted from the members the service already had to read, and a status page
+publishes `monitors_count` and `groups_count` (the explicit list plus the groups).
+Every table also reports *shown of total* (`common.shownOfTotal`) next to the
+filter and says so when nothing matches (`common.noMatch`) instead of rendering an
+empty body. The behaviour itself is covered by `npm run e2e:table-sort`
+(`web/scripts/e2e-table-sort.mjs`), which drives the three tables in a real
+browser and asserts the columns, the storage keys and the two messages listed
+here.
 
 ### Uptime period and the heartbeat column
 

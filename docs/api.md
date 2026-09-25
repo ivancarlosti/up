@@ -221,7 +221,7 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/monitor-templates` | list |
+| GET | `/api/monitor-templates` | list with `monitor_count` (how many monitors follow the template) |
 | POST | `/api/monitor-templates` | create (`{name, type, config, defaults}`) |
 | GET | `/api/monitor-templates/:id` | single template |
 | PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
@@ -302,7 +302,7 @@ shows that detail next to the translated sentence.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/status-pages` | list with monitor counts (explicit + group members) |
+| GET | `/api/status-pages` | list with `monitors_count` (explicit + group members) and `groups_count` |
 | POST | `/api/status-pages` | create (`monitor_ids` optional) |
 | GET | `/api/status-pages/:id` | `{"page": {...}, "monitors": [links], "groups": [links]}` |
 | PUT | `/api/status-pages/:id` | update |

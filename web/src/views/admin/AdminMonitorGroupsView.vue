@@ -13,12 +13,16 @@ import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
+import SortHeader from '@/components/ui/SortHeader.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { monitorGroupSortKeys, sortMonitorGroups } from '@/lib/sort'
+import type { MonitorGroupSortKey } from '@/lib/sort'
+import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { useToastStore } from '@/stores/toast'
 import type { Monitor, MonitorGroup, MonitorGroupCloneOptions, MonitorGroupPayload } from '@/lib/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toasts = useToastStore()
 
 const groups = ref<MonitorGroup[]>([])
@@ -26,6 +30,25 @@ const monitors = ref<Monitor[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const search = ref('')
+
+// Filter and sort of the groups table: the text filter narrows the rows, the
+// sort choice is remembered per browser (lib/table-sort.ts, the same helper the
+// monitors and the expiry tables use). The default is the position the operator
+// gave each group, which is the order the API returns them in.
+const groupSearch = ref('')
+const GROUP_SORT_STORAGE_KEY = 'up.admin.monitor-groups.sort'
+const sort = ref(
+  loadTableSort({
+    storageKey: GROUP_SORT_STORAGE_KEY,
+    keys: monitorGroupSortKeys,
+    defaultKey: 'order',
+  }),
+)
+
+/** toggleSort switches the column, or flips the direction of the current one. */
+function toggleSort(key: MonitorGroupSortKey): void {
+  sort.value = toggleTableSort(sort.value, key, GROUP_SORT_STORAGE_KEY)
+}
 
 const dialogOpen = ref(false)
 const editing = ref<MonitorGroup | null>(null)
@@ -48,6 +71,20 @@ const filteredMonitors = computed(() => {
   if (!term) return monitors.value
   return monitors.value.filter((monitor) => monitor.name.toLowerCase().includes(term))
 })
+
+/** filteredGroups applies the text filter of the table (name and description). */
+const filteredGroups = computed(() => {
+  const term = groupSearch.value.trim().toLowerCase()
+  if (!term) return groups.value
+  return groups.value.filter((group) =>
+    [group.name, group.description].some((value) => (value ?? '').toLowerCase().includes(term)),
+  )
+})
+
+/** sortedGroups applies the chosen column to the filtered rows (see lib/sort.ts). */
+const sortedGroups = computed(() =>
+  sortMonitorGroups(filteredGroups.value, sort.value.key, sort.value.direction, { locale: locale.value }),
+)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -177,42 +214,101 @@ onMounted(load)
 
     <EmptyState v-if="!groups.length" :title="t('groups.empty')" :description="t('groups.emptyHint')" />
 
-    <Card v-for="group in groups" v-else :key="group.id">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="min-w-0">
-          <h2 class="flex items-center gap-2 text-sm font-semibold">
-            <Boxes class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            {{ group.name }}
-          </h2>
-          <p v-if="group.description" class="mt-1 text-[11px] text-muted-foreground">{{ group.description }}</p>
-          <div class="mt-2 flex flex-wrap gap-1">
-            <Badge v-for="id in group.monitor_ids" :key="id" variant="outline">{{ monitorName(id) }}</Badge>
-            <span v-if="!group.monitor_ids.length" class="text-[11px] text-muted-foreground">
-              {{ t('groups.noMonitors') }}
-            </span>
-          </div>
-        </div>
-        <div class="flex shrink-0 flex-col items-end gap-1">
-          <Badge variant="secondary">{{ group.monitor_count }}</Badge>
-          <div class="flex items-center gap-1">
-            <Button variant="ghost" size="sm" :title="t('common.edit')" :aria-label="t('common.edit')" @click="openEdit(group)">
-              <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-            <Button variant="ghost" size="sm" :title="t('common.clone')" :aria-label="t('common.clone')" @click="openClone(group)">
-              <Copy class="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              class="text-status-down"
-              :title="t('common.delete')"
-              :aria-label="t('common.delete')"
-              @click="(pendingRemoval = group), (confirmOpen = true)"
-            >
-              <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
+    <Card v-else :padded="false">
+      <div class="flex flex-wrap items-center gap-2 border-b border-border px-5 py-4">
+        <Input v-model="groupSearch" class="max-w-xs" :placeholder="t('groups.filterPlaceholder')" />
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('common.shownOfTotal', { shown: filteredGroups.length, total: groups.length }) }}
+        </span>
+      </div>
+
+      <p v-if="!filteredGroups.length" class="p-5 text-xs text-muted-foreground">
+        {{ t('common.noMatch') }}
+      </p>
+
+      <div v-else class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <SortHeader
+                :label="t('common.name')"
+                column="name"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('name')"
+              />
+              <SortHeader
+                :label="t('groups.monitors')"
+                column="monitors"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('monitors')"
+              />
+              <SortHeader
+                :label="t('groups.sortOrder')"
+                column="order"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('order')"
+              />
+              <th class="text-end">{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="group in sortedGroups" :key="group.id">
+              <td>
+                <span class="flex items-center gap-2 text-sm font-medium">
+                  <Boxes class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  {{ group.name }}
+                </span>
+                <span v-if="group.description" class="block text-[11px] text-muted-foreground">
+                  {{ group.description }}
+                </span>
+              </td>
+              <td>
+                <div class="flex flex-wrap items-center gap-1">
+                  <Badge v-for="id in group.monitor_ids" :key="id" variant="outline">{{ monitorName(id) }}</Badge>
+                  <span v-if="!group.monitor_ids.length" class="text-[11px] text-muted-foreground">
+                    {{ t('groups.noMonitors') }}
+                  </span>
+                </div>
+              </td>
+              <td class="whitespace-nowrap tabular-nums">{{ group.sort_order }}</td>
+              <td class="text-end">
+                <div class="flex items-center justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('common.edit')"
+                    :aria-label="t('common.edit')"
+                    @click="openEdit(group)"
+                  >
+                    <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('common.clone')"
+                    :aria-label="t('common.clone')"
+                    @click="openClone(group)"
+                  >
+                    <Copy class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="text-status-down"
+                    :title="t('common.delete')"
+                    :aria-label="t('common.delete')"
+                    @click="(pendingRemoval = group), (confirmOpen = true)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </Card>
 

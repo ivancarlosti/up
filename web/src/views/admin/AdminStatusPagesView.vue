@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { ExternalLink, Pencil, Plus, Tag, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -12,16 +12,20 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
+import SortHeader from '@/components/ui/SortHeader.vue'
 import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { sortStatusPages, statusPageSortKeys } from '@/lib/sort'
+import type { StatusPageSortKey } from '@/lib/sort'
+import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { uptimeWindowOptionsWithInherit } from '@/lib/uptime-window'
 import { copyToClipboard } from '@/lib/utils'
 import { useToastStore } from '@/stores/toast'
 import type { Monitor, MonitorGroup, StatusPage } from '@/lib/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toasts = useToastStore()
 
 const pages = ref<StatusPage[]>([])
@@ -35,6 +39,38 @@ const editing = ref<StatusPage | null>(null)
 const selectedMonitors = ref<number[]>([])
 const selectedGroups = ref<number[]>([])
 const form = ref<Partial<StatusPage>>(blank())
+
+// Filter and sort of the pages table: the text filter looks at the title, the
+// slug and the description, and the sort choice is remembered per browser
+// (lib/table-sort.ts).
+const pageSearch = ref('')
+const PAGE_SORT_STORAGE_KEY = 'up.admin.status-pages.sort'
+const sort = ref(
+  loadTableSort({
+    storageKey: PAGE_SORT_STORAGE_KEY,
+    keys: statusPageSortKeys,
+    defaultKey: 'title',
+  }),
+)
+
+/** toggleSort switches the column, or flips the direction of the current one. */
+function toggleSort(key: StatusPageSortKey): void {
+  sort.value = toggleTableSort(sort.value, key, PAGE_SORT_STORAGE_KEY)
+}
+
+/** filteredPages applies the text filter of the table. */
+const filteredPages = computed(() => {
+  const term = pageSearch.value.trim().toLowerCase()
+  if (!term) return pages.value
+  return pages.value.filter((page) =>
+    [page.title, page.slug, page.description].some((value) => (value ?? '').toLowerCase().includes(term)),
+  )
+})
+
+/** sortedPages applies the chosen column to the filtered rows (see lib/sort.ts). */
+const sortedPages = computed(() =>
+  sortStatusPages(filteredPages.value, sort.value.key, sort.value.direction, { locale: locale.value }),
+)
 
 const themeOptions = computed(() => [
   { value: 'system', label: t('settings.themeSystem') },
@@ -182,47 +218,120 @@ onMounted(load)
 
     <EmptyState v-if="!pages.length" :title="t('statusPages.empty')" :description="t('statusPages.emptyHint')" />
 
-    <div v-else class="grid gap-3 lg:grid-cols-2">
-      <Card v-for="page in pages" :key="page.id" :title="page.title" :description="page.description">
-        <div class="flex flex-wrap items-center gap-2 text-[11px]">
-          <Badge :variant="page.is_public ? 'success' : 'secondary'">
-            {{ page.is_public ? t('statusPages.isPublic') : t('common.disabled') }}
-          </Badge>
-          <Badge variant="outline">{{ t('statusPages.selectMonitors') }}: {{ page.monitors_count }}</Badge>
-          <Badge v-if="page.groups_count" variant="outline">
-            {{ t('statusPages.selectGroups') }}: {{ page.groups_count }}
-          </Badge>
-          <code class="rounded bg-muted px-1.5 py-0.5">/status/{{ page.slug }}</code>
-        </div>
+    <Card v-else :padded="false">
+      <div class="flex flex-wrap items-center gap-2 border-b border-border px-5 py-4">
+        <Input v-model="pageSearch" class="max-w-xs" :placeholder="t('statusPages.filterPlaceholder')" />
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('common.shownOfTotal', { shown: filteredPages.length, total: pages.length }) }}
+        </span>
+      </div>
 
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" @click="copy(publicURL(page.slug))">
-            <ExternalLink class="h-3.5 w-3.5" aria-hidden="true" />
-            {{ t('statusPages.publicUrl') }}
-          </Button>
-          <Button variant="outline" size="sm" @click="copy(badgeURL(page.slug))">{{ t('statusPages.badge') }}</Button>
-        </div>
+      <p v-if="!filteredPages.length" class="p-5 text-xs text-muted-foreground">
+        {{ t('common.noMatch') }}
+      </p>
 
-        <template #footer>
-          <RouterLink :to="{ name: 'status-page', params: { slug: page.slug } }" target="_blank">
-            <Button variant="ghost" size="sm">{{ t('statusPages.publicUrl') }}</Button>
-          </RouterLink>
-          <Button variant="ghost" size="sm" @click="openEdit(page)">
-            <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
-            {{ t('common.edit') }}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="text-status-down"
-            @click="(pendingRemoval = page), (confirmOpen = true)"
-          >
-            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-            {{ t('common.delete') }}
-          </Button>
-        </template>
-      </Card>
-    </div>
+      <div v-else class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <SortHeader
+                :label="t('common.name')"
+                column="title"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('title')"
+              />
+              <SortHeader
+                :label="t('statusPages.slug')"
+                column="slug"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('slug')"
+              />
+              <SortHeader
+                :label="t('statusPages.visibility')"
+                column="visibility"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('visibility')"
+              />
+              <SortHeader
+                :label="t('statusPages.monitors')"
+                column="monitors"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('monitors')"
+              />
+              <SortHeader
+                :label="t('statusPages.groups')"
+                column="groups"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('groups')"
+              />
+              <th class="text-end">{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="page in sortedPages" :key="page.id">
+              <td>
+                <span class="block text-sm font-medium">{{ page.title }}</span>
+                <span v-if="page.description" class="block text-[11px] text-muted-foreground">
+                  {{ page.description }}
+                </span>
+              </td>
+              <td class="whitespace-nowrap">
+                <code class="rounded bg-muted px-1.5 py-0.5 text-[11px]">/status/{{ page.slug }}</code>
+              </td>
+              <td>
+                <Badge :variant="page.is_public ? 'success' : 'secondary'">
+                  {{ page.is_public ? t('statusPages.isPublic') : t('common.disabled') }}
+                </Badge>
+              </td>
+              <td class="whitespace-nowrap tabular-nums">{{ page.monitors_count }}</td>
+              <td class="whitespace-nowrap tabular-nums">{{ page.groups_count ?? 0 }}</td>
+              <td class="text-end">
+                <div class="flex items-center justify-end gap-1">
+                  <RouterLink :to="{ name: 'status-page', params: { slug: page.slug } }" target="_blank">
+                    <Button variant="ghost" size="sm" :title="t('statusPages.publicUrl')" :aria-label="t('statusPages.publicUrl')">
+                      <ExternalLink class="h-3.5 w-3.5" aria-hidden="true" />
+                    </Button>
+                  </RouterLink>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('statusPages.badge')"
+                    :aria-label="t('statusPages.badge')"
+                    @click="copy(badgeURL(page.slug))"
+                  >
+                    <Tag class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('common.edit')"
+                    :aria-label="t('common.edit')"
+                    @click="openEdit(page)"
+                  >
+                    <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="text-status-down"
+                    :title="t('common.delete')"
+                    :aria-label="t('common.delete')"
+                    @click="(pendingRemoval = page), (confirmOpen = true)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Card>
 
     <Dialog v-model="dialogOpen" :title="editing ? t('statusPages.edit') : t('statusPages.new')" wide>
       <div class="grid gap-3 sm:grid-cols-2">

@@ -37,6 +37,10 @@ type MonitorTemplate struct {
 	// Propagate pushes the defaults to every monitor that follows this template
 	// each time it is edited (see MonitorTemplateService.Propagate).
 	Propagate bool `gorm:"not null;default:true" json:"propagate"`
+	// MonitorCount is how many monitors follow this template (the link is the
+	// template_uuid of a monitor). It is not a column: the list fills it with one
+	// grouped count, so the admin table can show and sort by it.
+	MonitorCount int `gorm:"-" json:"monitor_count"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

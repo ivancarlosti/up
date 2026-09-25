@@ -123,7 +123,12 @@ try {
   // --- the admin dialog shows the selection --------------------------------
   await page.goto(`${url}/admin/status-pages`, { settle: 1500 })
   const dialog = await api(`(async () => {
-    const button = [...document.querySelectorAll('button')].find((b) => /^(edit|editar)$/i.test(b.textContent.trim()))
+    const row = [...document.querySelectorAll('table tbody tr')].find(
+      (tr) => ((tr.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim() === ${JSON.stringify(pageTitle)},
+    )
+    const button = [...(row?.querySelectorAll('button') ?? [])].find((b) =>
+      /^(edit|editar)$/i.test(b.getAttribute('aria-label') ?? '') || /^(edit|editar)$/i.test(b.textContent.trim()),
+    )
     if (!button) return { opened: false }
     button.click()
     await new Promise((resolve) => setTimeout(resolve, 900))

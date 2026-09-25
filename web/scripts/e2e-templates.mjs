@@ -40,6 +40,42 @@ function clickButton(page, pattern) {
   })()`)
 }
 
+/**
+ * clickInRow clicks a button of the table row whose first cell holds the given
+ * name. The action buttons of a row are icon only, so the accessible name (title
+ * or aria-label) counts as text too.
+ */
+function clickInRow(page, name, pattern) {
+  return page.evaluate(`(() => {
+    const matches = (button) => {
+      const text = (button.textContent ?? '').trim()
+      return ${pattern}.test(text) ||
+        ${pattern}.test(button.getAttribute('title') ?? '') ||
+        ${pattern}.test(button.getAttribute('aria-label') ?? '')
+    }
+    const row = [...document.querySelectorAll('table tbody tr')].find(
+      (tr) => ((tr.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim() === ${JSON.stringify(name)},
+    )
+    const button = row && [...row.querySelectorAll('button')].find(matches)
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+}
+
+/**
+ * rowCount reads the follower count cell of the template row (the third column
+ * of the templates table).
+ */
+function rowCount(page, name) {
+  return page.evaluate(`(() => {
+    const row = [...document.querySelectorAll('table tbody tr')].find(
+      (tr) => ((tr.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim() === ${JSON.stringify(name)},
+    )
+    return row?.querySelectorAll('td')[2]?.innerText?.trim() ?? ''
+  })()`)
+}
+
 function setValue(page, selector, value, event = 'input') {
   return page.evaluate(`(() => {
     const el = document.querySelector(${JSON.stringify(selector)})
@@ -82,25 +118,13 @@ try {
     created.templates.push(template.id)
     check('template interval saved', template.defaults.interval_seconds === 120, String(template.defaults.interval_seconds))
   }
-  check('template card rendered', (await api(`document.body.innerText`)).includes(templateName))
+  check('template row rendered', (await api(`document.body.innerText`)).includes(templateName))
 
   // --- edit the template through the UI ------------------------------------
   // Regression guard: the update marshals the JSON columns by hand, so a raw
   // struct used to reach the driver and every single save answered 500.
   const editedName = `${templateName} edited`
-  const editOpened = await api(`(() => {
-    const name = ${JSON.stringify(templateName)}
-    const card = [...document.querySelectorAll('*')].find(
-      (el) => el.innerText?.includes(name) && el.querySelector('button[aria-label]'),
-    )
-    const button = [...(card?.querySelectorAll('button[aria-label]') ?? [])].find((el) =>
-      /^(edit|editar)$/i.test(el.getAttribute('aria-label') ?? ''),
-    )
-    if (!button) return false
-    button.click()
-    return true
-  })()`)
-  check('edit dialog opens', editOpened)
+  check('edit dialog opens', await clickInRow(page, templateName, /^(edit|editar)$/i))
   await sleep(600)
   await setValue(page, '#template-name', editedName)
   await setValue(page, '#template-interval', '240')
@@ -132,19 +156,7 @@ try {
   // The template dialog offers no auth control at all: reopen the edit dialog and
   // look for the id the monitor form uses.
   await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
-  const reopened = await api(`(() => {
-    const name = ${JSON.stringify(editedName)}
-    const card = [...document.querySelectorAll('*')].find(
-      (el) => el.innerText?.includes(name) && el.querySelector('button[aria-label]'),
-    )
-    const button = [...(card?.querySelectorAll('button[aria-label]') ?? [])].find((el) =>
-      /^(edit|editar)$/i.test(el.getAttribute('aria-label') ?? ''),
-    )
-    if (!button) return false
-    button.click()
-    return true
-  })()`)
-  check('the template dialog reopens', reopened)
+  check('the template dialog reopens', await clickInRow(page, editedName, /^(edit|editar)$/i))
   await sleep(600)
   check(
     'the template dialog hides the authentication',
@@ -218,6 +230,13 @@ try {
     JSON.stringify(authMonitors),
   )
   created.monitors.push(...authMonitors.map((monitor) => monitor.id).filter(Boolean))
+
+  // The listing counts the followers of every template (the monitors whose
+  // `template_uuid` is the template uuid) in one grouped query.
+  const followerCount = await api(`fetch('/api/monitor-templates')
+    .then((r) => r.json())
+    .then((list) => list.find((t) => t.id === ${template.id}) ?? null)`)
+  check('the template reports its followers', followerCount?.monitor_count === 2, String(followerCount?.monitor_count))
 
   const propagated = await api(putTemplate(600))
   check('the second template write is accepted', propagated?.id === template?.id, JSON.stringify(propagated))
@@ -310,6 +329,17 @@ try {
   const overrideName = `e2e override ${stamp}`
 
   await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
+  // The follower count column must render exactly what the API reports (the
+  // monitors linked above still follow this template).
+  const expectedCount = await api(`fetch('/api/monitor-templates')
+    .then((r) => r.json())
+    .then((list) => list.find((t) => t.name === ${JSON.stringify(editedName)})?.monitor_count ?? -1)`)
+  check('the linked template counts its followers', expectedCount >= 2, String(expectedCount))
+  check(
+    'the monitors column shows the follower count',
+    String(expectedCount) === (await rowCount(page, editedName)),
+    `${expectedCount} vs ${await rowCount(page, editedName)}`,
+  )
   check('new template dialog opens for ssl', await clickButton(page, /new template|novo template|nueva plantilla/i))
   await sleep(500)
   await setValue(page, '#template-name', sslTemplateName)

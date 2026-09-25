@@ -1,4 +1,4 @@
-import type { ExpiryTarget, Monitor } from './types'
+import type { ExpiryTarget, Monitor, MonitorGroup, MonitorTemplate, StatusPage } from './types'
 
 /**
  * Sorting of the admin tables.
@@ -23,10 +23,18 @@ export type MonitorSortKey =
 /** The two directions of a sortable column. */
 export type SortDirection = 'asc' | 'desc'
 
-/** What the comparator needs from the view (passed in to keep it pure). */
-export interface MonitorSortContext {
-  groupNames: Map<number, string>
+/**
+ * What every comparator needs from the view: the active locale, so the
+ * comparison follows the language the operator reads (accented and CJK names do
+ * not sort like byte strings). It is passed in to keep the comparators pure.
+ */
+export interface LocaleSortContext {
   locale: string
+}
+
+/** What the monitor comparator needs from the view (passed in to keep it pure). */
+export interface MonitorSortContext extends LocaleSortContext {
+  groupNames: Map<number, string>
 }
 
 /** The columns accepted by loadSort (guards a hand edited localStorage value). */
@@ -146,9 +154,7 @@ export type ExpiryTargetSortKey = 'kind' | 'label' | 'monitors' | 'status' | 'ch
 export const expiryTargetSortKeys: ExpiryTargetSortKey[] = ['kind', 'label', 'monitors', 'status', 'checked']
 
 /** What the expiry comparator needs from the view (passed in to keep it pure). */
-export interface ExpirySortContext {
-  locale: string
-}
+export type ExpirySortContext = LocaleSortContext
 
 /**
  * expiryStatusRank orders the statuses by the attention they deserve: sorting
@@ -232,4 +238,144 @@ export function sortExpiryTargets(
   context: ExpirySortContext,
 ): ExpiryTarget[] {
   return [...targets].sort((a, b) => compareExpiryTargets(a, b, key, direction, context))
+}
+
+/**
+ * The columns of the monitor groups table an operator can sort by.
+ *
+ * "order" is the position the operator gave the group (the order the API
+ * returns them in); "monitors" is how many monitors belong to it.
+ */
+export type MonitorGroupSortKey = 'name' | 'monitors' | 'order'
+
+/** The columns accepted by the groups table (guards a stale localStorage value). */
+export const monitorGroupSortKeys: MonitorGroupSortKey[] = ['name', 'monitors', 'order']
+
+/**
+ * compareMonitorGroups orders two rows for a column.
+ *
+ * A group always has a name and a count (0 is a value), so nothing has to sink
+ * to the bottom here: the sole rule is the stable fallback to the name, which
+ * keeps two rows with the same count or order from swapping places between
+ * renders.
+ */
+export function compareMonitorGroups(
+  a: MonitorGroup,
+  b: MonitorGroup,
+  key: MonitorGroupSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): number {
+  const sign = direction === 'asc' ? 1 : -1
+  const byName = () => sign * a.name.localeCompare(b.name, context.locale) || a.id - b.id
+
+  switch (key) {
+    case 'monitors':
+      return sign * ((a.monitor_count ?? 0) - (b.monitor_count ?? 0)) || byName()
+    case 'order':
+      return sign * ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || byName()
+    default:
+      return byName()
+  }
+}
+
+/** sortMonitorGroups returns a sorted copy (the list a view holds is not mutated). */
+export function sortMonitorGroups(
+  groups: MonitorGroup[],
+  key: MonitorGroupSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): MonitorGroup[] {
+  return [...groups].sort((a, b) => compareMonitorGroups(a, b, key, direction, context))
+}
+
+/**
+ * The columns of the monitor templates table an operator can sort by.
+ *
+ * "monitors" is how many monitors follow the template (the link is the
+ * `template_uuid` of a monitor, counted by the API); "interval" is the interval
+ * the template applies to the monitors it creates.
+ */
+export type MonitorTemplateSortKey = 'name' | 'type' | 'monitors' | 'interval'
+
+/** The columns accepted by the templates table (guards a stale localStorage value). */
+export const monitorTemplateSortKeys: MonitorTemplateSortKey[] = ['name', 'type', 'monitors', 'interval']
+
+/** compareMonitorTemplates orders two rows for a column. */
+export function compareMonitorTemplates(
+  a: MonitorTemplate,
+  b: MonitorTemplate,
+  key: MonitorTemplateSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): number {
+  const sign = direction === 'asc' ? 1 : -1
+  const byName = () => sign * a.name.localeCompare(b.name, context.locale) || a.id - b.id
+
+  switch (key) {
+    case 'type':
+      return sign * a.type.localeCompare(b.type, context.locale) || byName()
+    case 'monitors':
+      return sign * ((a.monitor_count ?? 0) - (b.monitor_count ?? 0)) || byName()
+    case 'interval':
+      return sign * ((a.defaults?.interval_seconds ?? 0) - (b.defaults?.interval_seconds ?? 0)) || byName()
+    default:
+      return byName()
+  }
+}
+
+/** sortMonitorTemplates returns a sorted copy (the list a view holds is not mutated). */
+export function sortMonitorTemplates(
+  templates: MonitorTemplate[],
+  key: MonitorTemplateSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): MonitorTemplate[] {
+  return [...templates].sort((a, b) => compareMonitorTemplates(a, b, key, direction, context))
+}
+
+/** The columns of the status pages table an operator can sort by. */
+export type StatusPageSortKey = 'title' | 'slug' | 'visibility' | 'monitors' | 'groups'
+
+/** The columns accepted by the status pages table (guards a stale localStorage value). */
+export const statusPageSortKeys: StatusPageSortKey[] = ['title', 'slug', 'visibility', 'monitors', 'groups']
+
+/**
+ * compareStatusPages orders two rows for a column.
+ *
+ * "visibility" sorted ascending puts the public pages first (that is the state
+ * the column shows), and the two counts are the ones the page publishes today.
+ */
+export function compareStatusPages(
+  a: StatusPage,
+  b: StatusPage,
+  key: StatusPageSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): number {
+  const sign = direction === 'asc' ? 1 : -1
+  const byTitle = () => sign * a.title.localeCompare(b.title, context.locale) || a.id - b.id
+
+  switch (key) {
+    case 'slug':
+      return sign * a.slug.localeCompare(b.slug, context.locale) || byTitle()
+    case 'visibility':
+      return sign * ((a.is_public ? 0 : 1) - (b.is_public ? 0 : 1)) || byTitle()
+    case 'monitors':
+      return sign * ((a.monitors_count ?? 0) - (b.monitors_count ?? 0)) || byTitle()
+    case 'groups':
+      return sign * ((a.groups_count ?? 0) - (b.groups_count ?? 0)) || byTitle()
+    default:
+      return byTitle()
+  }
+}
+
+/** sortStatusPages returns a sorted copy (the list a view holds is not mutated). */
+export function sortStatusPages(
+  pages: StatusPage[],
+  key: StatusPageSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): StatusPage[] {
+  return [...pages].sort((a, b) => compareStatusPages(a, b, key, direction, context))
 }

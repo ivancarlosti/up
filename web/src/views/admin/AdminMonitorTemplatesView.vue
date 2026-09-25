@@ -12,6 +12,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
+import SortHeader from '@/components/ui/SortHeader.vue'
 import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
@@ -24,6 +25,9 @@ import {
   supportsCertificate as typeSupportsCertificate,
   supportsDomainWatch as typeSupportsDomainWatch,
 } from '@/lib/monitor-config'
+import { monitorTemplateSortKeys, sortMonitorTemplates } from '@/lib/sort'
+import type { MonitorTemplateSortKey } from '@/lib/sort'
+import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { useToastStore } from '@/stores/toast'
 import type { MonitorConfig, MonitorGroup, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
 
@@ -42,7 +46,7 @@ type TemplateForm = {
  * is a monitor without a target: the probe options plus the defaults that the
  * bulk importer and the bulk edit apply.
  */
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toasts = useToastStore()
 
 const templates = ref<MonitorTemplate[]>([])
@@ -50,6 +54,40 @@ const notifications = ref<Notification[]>([])
 const groups = ref<MonitorGroup[]>([])
 const loading = ref(false)
 const saving = ref(false)
+
+// Filter and sort of the templates table: the text filter looks at the name and
+// the description, the type filter at the probe type, and the sort choice is
+// remembered per browser (lib/table-sort.ts).
+const templateSearch = ref('')
+const templateType = ref<'' | MonitorType>('')
+const TEMPLATE_SORT_STORAGE_KEY = 'up.admin.monitor-templates.sort'
+const sort = ref(
+  loadTableSort({
+    storageKey: TEMPLATE_SORT_STORAGE_KEY,
+    keys: monitorTemplateSortKeys,
+    defaultKey: 'name',
+  }),
+)
+
+/** toggleSort switches the column, or flips the direction of the current one. */
+function toggleSort(key: MonitorTemplateSortKey): void {
+  sort.value = toggleTableSort(sort.value, key, TEMPLATE_SORT_STORAGE_KEY)
+}
+
+/** filteredTemplates applies both filters of the table. */
+const filteredTemplates = computed(() => {
+  const term = templateSearch.value.trim().toLowerCase()
+  return templates.value.filter((template) => {
+    if (templateType.value && template.type !== templateType.value) return false
+    if (!term) return true
+    return [template.name, template.description].some((value) => (value ?? '').toLowerCase().includes(term))
+  })
+})
+
+/** sortedTemplates applies the chosen column to the filtered rows (see lib/sort.ts). */
+const sortedTemplates = computed(() =>
+  sortMonitorTemplates(filteredTemplates.value, sort.value.key, sort.value.direction, { locale: locale.value }),
+)
 
 const dialogOpen = ref(false)
 const editing = ref<MonitorTemplate | null>(null)
@@ -106,6 +144,9 @@ const typeOptions = computed(() => [
   { value: 'dns', label: t('monitor.typeDns') },
   { value: 'ssl', label: t('monitor.typeSsl') },
 ])
+
+/** typeFilterOptions is the type selector of the table (the dialog has one per type). */
+const typeFilterOptions = computed(() => [{ value: '', label: t('templates.allTypes') }, ...typeOptions.value])
 const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
   { value: 'primary', label: t('monitor.runOnPrimary') },
@@ -324,51 +365,119 @@ onMounted(load)
 
     <EmptyState v-if="!templates.length" :title="t('templates.empty')" :description="t('templates.emptyHint')" />
 
-    <Card v-for="template in templates" v-else :key="template.id">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="min-w-0">
-          <h2 class="flex items-center gap-2 text-sm font-semibold">
-            <FileCog class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            {{ template.name }}
-            <Badge variant="secondary">{{ template.type }}</Badge>
-          </h2>
-          <p v-if="template.description" class="mt-1 text-[11px] text-muted-foreground">{{ template.description }}</p>
-          <div class="mt-2 flex flex-wrap gap-1 text-[11px] text-muted-foreground">
-            <Badge variant="outline">{{ t('common.interval') }}: {{ template.defaults?.interval_seconds }}s</Badge>
-            <Badge variant="outline">{{ t('common.timeout') }}: {{ template.defaults?.timeout_seconds }}s</Badge>
-            <Badge variant="outline">{{ t('monitor.runOn') }}: {{ template.defaults?.run_on }}</Badge>
-            <Badge v-if="typeSupportsCertificate(template.type) && template.defaults?.cert_watch" variant="outline">
-              {{ t('monitor.certWatch') }}
-            </Badge>
-            <Badge v-if="typeSupportsDomainWatch(template.type) && template.defaults?.domain_watch" variant="outline">
-              {{ t('monitor.domainWatch') }}
-            </Badge>
-          </div>
-        </div>
-        <div class="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            :title="t('templates.linkAll')"
-            :aria-label="t('templates.linkAll')"
-            @click="openLink(template)"
-          >
-            <Link2 class="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="sm" :title="t('common.edit')" :aria-label="t('common.edit')" @click="openEdit(template)">
-            <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="text-status-down"
-            :title="t('common.delete')"
-            :aria-label="t('common.delete')"
-            @click="(pendingRemoval = template), (confirmOpen = true)"
-          >
-            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-        </div>
+    <Card v-else :padded="false">
+      <div class="flex flex-wrap items-center gap-2 border-b border-border px-5 py-4">
+        <Input v-model="templateSearch" class="max-w-xs" :placeholder="t('templates.filterPlaceholder')" />
+        <Select v-model="templateType" class="w-40" :options="typeFilterOptions" />
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('common.shownOfTotal', { shown: filteredTemplates.length, total: templates.length }) }}
+        </span>
+      </div>
+
+      <p v-if="!filteredTemplates.length" class="p-5 text-xs text-muted-foreground">
+        {{ t('common.noMatch') }}
+      </p>
+
+      <div v-else class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <SortHeader
+                :label="t('common.name')"
+                column="name"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('name')"
+              />
+              <SortHeader
+                :label="t('common.type')"
+                column="type"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('type')"
+              />
+              <SortHeader
+                :label="t('templates.monitors')"
+                column="monitors"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('monitors')"
+              />
+              <SortHeader
+                :label="t('common.interval')"
+                column="interval"
+                :active="sort.key"
+                :direction="sort.direction"
+                @toggle="toggleSort('interval')"
+              />
+              <th class="text-end">{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="template in sortedTemplates" :key="template.id">
+              <td>
+                <span class="flex items-center gap-2 text-sm font-medium">
+                  <FileCog class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  {{ template.name }}
+                </span>
+                <span v-if="template.description" class="block text-[11px] text-muted-foreground">
+                  {{ template.description }}
+                </span>
+                <span class="mt-1 flex flex-wrap gap-1">
+                  <Badge v-if="typeSupportsCertificate(template.type) && template.defaults?.cert_watch" variant="outline">
+                    {{ t('monitor.certWatch') }}
+                  </Badge>
+                  <Badge v-if="typeSupportsDomainWatch(template.type) && template.defaults?.domain_watch" variant="outline">
+                    {{ t('monitor.domainWatch') }}
+                  </Badge>
+                </span>
+              </td>
+              <td>
+                <Badge variant="secondary">{{ template.type }}</Badge>
+              </td>
+              <td class="whitespace-nowrap tabular-nums">{{ template.monitor_count }}</td>
+              <td class="whitespace-nowrap">
+                <span class="tabular-nums">{{ template.defaults?.interval_seconds }}s</span>
+                <span class="block text-[11px] text-muted-foreground">
+                  {{ t('common.timeout') }} {{ template.defaults?.timeout_seconds }}s ·
+                  {{ t('monitor.runOn') }} {{ template.defaults?.run_on }}
+                </span>
+              </td>
+              <td class="text-end">
+                <div class="flex items-center justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('templates.linkAll')"
+                    :aria-label="t('templates.linkAll')"
+                    @click="openLink(template)"
+                  >
+                    <Link2 class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('common.edit')"
+                    :aria-label="t('common.edit')"
+                    @click="openEdit(template)"
+                  >
+                    <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="text-status-down"
+                    :title="t('common.delete')"
+                    :aria-label="t('common.delete')"
+                    @click="(pendingRemoval = template), (confirmOpen = true)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </Card>
 
