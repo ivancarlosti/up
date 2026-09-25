@@ -17,6 +17,7 @@ import Textarea from '@/components/ui/Textarea.vue'
 import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { pruneMonitorConfig } from '@/lib/monitor-config'
 import { useToastStore } from '@/stores/toast'
 import type { MonitorConfig, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
 
@@ -147,7 +148,7 @@ async function save(): Promise<void> {
       description: form.description,
       type: form.type,
       propagate: Boolean(form.propagate),
-      config: { ...form.config },
+      config: pruneMonitorConfig(form.type, form.config),
       defaults: {
         ...form.defaults,
         interval_seconds: Number(form.defaults.interval_seconds) || 60,

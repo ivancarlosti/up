@@ -235,7 +235,7 @@ Every failure answers with a stable code that the frontend translates:
 | Goal | File(s) |
 |---|---|
 | Add an environment variable | `internal/config/config.go`, `internal/config/validate.go`, `docker/.env.example`, this document |
-| Add a monitor type | `internal/models/enums.go`, `internal/models/monitor_config.go`, `internal/checkers/*`, `internal/models/monitor_validate.go`, `web/src/components/monitors/MonitorForm.vue` |
+| Add a monitor type | `internal/models/enums.go`, `internal/models/monitor_config.go`, `internal/checkers/*`, `internal/models/monitor_validate.go`, `web/src/components/monitors/MonitorForm.vue`, `web/src/lib/monitor-config.ts` (type aware payload pruning) |
 | Change the aggregation rules | `internal/services/cluster_evaluate.go` (`AggregateVotes`) |
 | Change who sends notifications | `internal/services/cluster_notify.go` (`claimNotification`) |
 | Add an API endpoint | `internal/handlers/router*.go` (+ handler), `docs/api.md` |

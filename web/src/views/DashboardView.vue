@@ -16,7 +16,7 @@ import { translateError } from '@/lib/errors'
 import { formatRelative } from '@/lib/format'
 import { useMonitorStore } from '@/stores/monitors'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorPayload, Notification } from '@/lib/types'
+import type { Monitor, MonitorPayload, MonitorTemplate, Notification } from '@/lib/types'
 
 const monitors = useMonitorStore()
 const toasts = useToastStore()
@@ -24,6 +24,7 @@ const router = useRouter()
 const { t, locale } = useI18n()
 
 const notifications = ref<Notification[]>([])
+const templates = ref<MonitorTemplate[]>([])
 const formOpen = ref(false)
 const editing = ref<Monitor | null>(null)
 const saving = ref(false)
@@ -69,6 +70,19 @@ async function loadNotifications(): Promise<void> {
     notifications.value = await api.notifications()
   } catch {
     notifications.value = []
+  }
+}
+
+/**
+ * The monitor form resolves the type of the template a monitor follows to drop
+ * a link the selected type cannot follow; without the list the dashboard dialog
+ * could not do it.
+ */
+async function loadTemplates(): Promise<void> {
+  try {
+    templates.value = await api.monitorTemplates()
+  } catch {
+    templates.value = []
   }
 }
 
@@ -141,7 +155,7 @@ function openDetail(monitor: Monitor): void {
 }
 
 onMounted(async () => {
-  await Promise.all([load(), loadNotifications()])
+  await Promise.all([load(), loadNotifications(), loadTemplates()])
 })
 </script>
 
@@ -235,6 +249,7 @@ onMounted(async () => {
       v-model="formOpen"
       :monitor="editing"
       :notifications="notifications"
+      :templates="templates"
       :saving="saving"
       @submit="submit"
     />

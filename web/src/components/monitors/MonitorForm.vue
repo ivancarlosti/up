@@ -9,6 +9,11 @@ import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
+import {
+  sanitizeMonitorPayload,
+  supportsCertificate as typeSupportsCertificate,
+  supportsDomainWatch as typeSupportsDomainWatch,
+} from '@/lib/monitor-config'
 import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, MonitorGroup, MonitorTemplate, Notification } from '@/lib/types'
 
 const props = defineProps<{
@@ -81,11 +86,22 @@ const typeOptions = computed(() => [
   { value: 'ssl', label: t('monitor.typeSsl') },
 ])
 
-/** Only the types that speak TLS can watch a certificate. */
-const supportsCertificate = computed(() => ['http', 'keyword', 'ssl'].includes(type.value))
+/**
+ * The capability predicates live in `@/lib/monitor-config` so the form and the
+ * payload sanitizer can never disagree about what a type supports.
+ */
+const supportsCertificate = computed(() => typeSupportsCertificate(type.value))
 
 /** Every type has a target a registrable domain can be derived from. */
-const supportsDomain = computed(() => ['http', 'keyword', 'tcp', 'dns', 'ssl'].includes(type.value))
+const supportsDomain = computed(() => typeSupportsDomainWatch(type.value))
+
+/**
+ * Type of the template the monitor follows, when the template list is available:
+ * the sanitizer uses it to drop a link the selected type cannot follow.
+ */
+const linkedTemplateType = computed<MonitorType | null>(
+  () => (props.templates ?? []).find((template) => template.uuid === form.template_uuid)?.type ?? null,
+)
 
 const runOnOptions = computed(() => [
   { value: 'all', label: t('monitor.runOnAll') },
@@ -93,8 +109,6 @@ const runOnOptions = computed(() => [
   { value: 'node', label: t('monitor.runOnSpecific') },
   { value: 'some', label: t('monitor.runOnSome') },
 ])
-
-const isHttpLike = computed(() => type.value === 'http' || type.value === 'keyword')
 
 /** Template options: a monitor can follow a reusable blueprint. */
 const templateOptions = computed(() => [
@@ -184,9 +198,6 @@ function toDateInput(value: unknown): string {
 function submit(): void {
   const payload: MonitorPayload = JSON.parse(JSON.stringify(form))
   payload.config = payload.config ?? {}
-  if (!isHttpLike.value) {
-    payload.config.headers = []
-  }
   // Native `type="number"` inputs emit strings and the API decodes into ints:
   // without this coercion saving a monitor was rejected with
   // "cannot unmarshal string into ... of type int".
@@ -211,7 +222,11 @@ function submit(): void {
   // The API stores a timestamp (or null); the input yields a plain date.
   const manualDate = String(form.domain_expires_at ?? '').trim()
   payload.domain_expires_at = manualDate ? `${manualDate.slice(0, 10)}T00:00:00Z` : null
-  emit('submit', payload)
+  // Switching the type hides the sections of the old one but keeps their values:
+  // sending them back is what the API rejects ("cert_watch is only available for
+  // http, keyword and ssl monitors"), so the payload only carries what the
+  // selected type actually reads.
+  emit('submit', sanitizeMonitorPayload(payload, { templateType: linkedTemplateType.value }))
 }
 </script>
 

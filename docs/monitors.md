@@ -480,6 +480,7 @@ exist.
 |---|---|
 | Form (all five types) | `web/src/components/monitors/MonitorForm.vue` |
 | Target fields per type | `web/src/components/monitors/MonitorConfigFields.vue` |
+| Type aware payload pruning | `web/src/lib/monitor-config.ts` |
 | Card with status/uptime/bars | `web/src/components/monitors/MonitorCard.vue` |
 | Status badge | `web/src/components/monitors/StatusBadge.vue` |
 | Heartbeat bars | `web/src/components/monitors/HeartbeatBars.vue` (`HeartbeatBar.vue`) |
@@ -490,6 +491,16 @@ exist.
 | Expiry badge colour/tooltip | `web/src/lib/expiry.ts` |
 | Daily job + TLD rules + target list | `web/src/views/admin/AdminExpiryView.vue` |
 | Public status page | `web/src/views/StatusPagePublicView.vue` |
+
+Changing the type of a monitor clears the fields that do not belong to the
+selected one: the probe options of the previous type (`config`), the certificate
+switches when the new type cannot read a certificate, the domain switches and the
+manual date when the watch is off, and a template link that points at a template
+of another type. `web/src/lib/monitor-config.ts` owns that map (it mirrors the
+`Validate` of every type on the Go side): the form may keep a hidden value while
+the operator experiments with the type, it is dropped when the dialog is saved
+and never reaches the API (which keeps rejecting an incoherent payload built by
+another client).
 
 All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
 `certificate.*`, `domain.*`, `expiry.*`).
