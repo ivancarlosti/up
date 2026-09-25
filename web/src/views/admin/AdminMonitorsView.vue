@@ -44,6 +44,8 @@ const groups = ref<MonitorGroup[]>([])
 const templates = ref<MonitorTemplate[]>([])
 const search = ref('')
 const groupFilter = ref('')
+const typeFilter = ref('')
+const statusFilter = ref('')
 const formOpen = ref(false)
 const bulkOpen = ref(false)
 const applyOpen = ref(false)
@@ -128,11 +130,45 @@ const groupFilterOptions = computed(() => [
   ...groups.value.map((group) => ({ value: String(group.id), label: `${group.name} (${group.monitor_count})` })),
 ])
 
+/** typeFilterOptions adds the "all types" entry to the probe types. */
+const typeFilterOptions = computed(() => [
+  { value: '', label: t('dashboard.allTypes') },
+  { value: 'http', label: t('monitor.typeHttp') },
+  { value: 'keyword', label: t('monitor.typeKeyword') },
+  { value: 'tcp', label: t('monitor.typeTcp') },
+  { value: 'dns', label: t('monitor.typeDns') },
+  { value: 'ssl', label: t('monitor.typeSsl') },
+])
+
+/**
+ * statusFilterOptions adds the "all statuses" entry. "Paused" is the effective
+ * status of an inactive monitor, so it is a filter of its own (the same rule the
+ * header counters use: a paused monitor is never counted as up or down).
+ */
+const statusFilterOptions = computed(() => [
+  { value: '', label: t('dashboard.allStatus') },
+  { value: 'up', label: t('status.up') },
+  { value: 'down', label: t('status.down') },
+  { value: 'degraded', label: t('status.degraded') },
+  { value: 'pending', label: t('status.pending') },
+  { value: 'maintenance', label: t('status.maintenance') },
+  { value: 'unknown', label: t('status.unknown') },
+  { value: 'paused', label: t('common.paused') },
+])
+
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase()
   const groupID = Number(groupFilter.value) || 0
   return monitors.value.filter((monitor) => {
     if (groupID > 0 && !(monitor.group_ids ?? []).includes(groupID)) return false
+    if (typeFilter.value && monitor.type !== typeFilter.value) return false
+    if (statusFilter.value) {
+      if (statusFilter.value === 'paused') {
+        if (monitor.active) return false
+      } else if (!monitor.active || monitor.status !== statusFilter.value) {
+        return false
+      }
+    }
     if (!term) return true
     return monitor.name.toLowerCase().includes(term) || monitor.type.includes(term)
   })
@@ -240,8 +276,10 @@ onMounted(load)
           {{ t('dashboard.subtitle', { up: counts.up, down: counts.down, paused: counts.paused }) }}
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Select v-if="groups.length" v-model="groupFilter" class="w-44" :options="groupFilterOptions" />
+        <Select v-model="typeFilter" class="w-40" :options="typeFilterOptions" />
+        <Select v-model="statusFilter" class="w-40" :options="statusFilterOptions" />
         <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
         <Button variant="outline" size="sm" @click="load">
           <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />

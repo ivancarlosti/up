@@ -272,10 +272,13 @@ the template a monitor follows.
   channel never clears the channels of its monitors.
 - Deleting a template clears the links: the monitors keep working, they simply stop
   following it.
-- **Link every monitor of this type** (the link icon on the templates page) attaches
-  every monitor of the template type in one action and applies the defaults, after a
-  dry-run preview. That is how an existing installation is gathered under a newly
-  created template.
+- **Link monitors to this template** (the link icon on the templates page) attaches
+  the monitors in one action and applies the defaults, after a dry-run preview. The
+  scope is either **every monitor of the template type** or the monitors of one or
+  more **selected groups** (`group_ids` in the request): that is how an existing
+  installation is gathered under a newly created template, or only the part of it
+  that belongs to a team. A group with no member is an empty scope, never
+  "everything".
 
 ### The bulk text format
 
@@ -419,12 +422,14 @@ down one strict registry without slowing down the others.
 
 *Admin > TLD/SSL expiration* shows the **deduplicated worklist** of the job: one
 row per unique target, with the monitors that share it, the last observation and
-the days left, plus a per-row *check now*. `GET /api/admin/expiry/targets`
-returns exactly what `POST /api/admin/expiry/run` would iterate (both are built
-from the same planner), and `POST /api/admin/expiry/targets/refresh` with
-`{kind, target}` refreshes one row through the same resolver, rate limit and
-reminder evaluation as the daily job — so a manual check cannot produce a
-different observation than the scheduled one.
+the days left, plus a per-row *check now*. The table is filterable (by target
+type and by target/monitor name) and sortable on every column (type, target,
+monitors, status, last check), like the monitors table. `GET
+/api/admin/expiry/targets` returns exactly what `POST /api/admin/expiry/run`
+would iterate (both are built from the same planner), and
+`POST /api/admin/expiry/targets/refresh` with `{kind, target}` refreshes one row
+through the same resolver, rate limit and reminder evaluation as the daily job —
+so a manual check cannot produce a different observation than the scheduled one.
 
 A row whose only source is the date typed in the monitor form is marked
 `manual date`: it is still listed (the operator must see it) but no network

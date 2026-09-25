@@ -141,16 +141,18 @@ func (h *Container) applyMonitorTemplate(c *gin.Context) {
 	api.OK(c, gin.H{"dry_run": payload.DryRun, "results": results})
 }
 
-// linkAllMonitorTemplate attaches every monitor of the template type to the
-// template and applies its defaults to them. dry_run returns the same counts
-// without writing, which is what the confirmation dialog shows.
+// linkAllMonitorTemplate attaches the monitors of the template type (or of the
+// selected groups) to the template and applies its defaults to them. dry_run
+// returns the same counts without writing, which is what the confirmation
+// dialog shows.
 func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
 		return
 	}
 	var payload struct {
-		DryRun bool `json:"dry_run"`
+		GroupIDs []uint `json:"group_ids"`
+		DryRun   bool   `json:"dry_run"`
 	}
 	// A wet run may be sent with an empty body.
 	if c.Request.ContentLength > 0 {
@@ -158,7 +160,11 @@ func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.MonitorTemplates.LinkAll(c.Request.Context(), id, payload.DryRun)
+	result, err := h.MonitorTemplates.LinkAll(c.Request.Context(), services.LinkOptions{
+		TemplateID: id,
+		GroupIDs:   payload.GroupIDs,
+		DryRun:     payload.DryRun,
+	})
 	if err != nil {
 		api.WriteServiceError(c, err)
 		return

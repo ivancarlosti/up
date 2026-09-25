@@ -242,7 +242,7 @@ Every failure answers with a stable code that the frontend translates:
 | Add a WHOIS parser / a new expiry source | `internal/expiry/` (engine + `targets.go`), `internal/models/domain.go` (`WhoisParser`), `internal/services/expiry_run.go` / `expiry_targets.go` (worklist), `web/src/views/admin/AdminExpiryView.vue` |
 | Change the expiry schedule | `internal/models/domain.go` (`ExpirySettings`, `RunInstant`), `internal/services/expiry_run.go` (`RunDue`) |
 | Change notification payloads | `internal/notify/message.go`, `internal/notify/urls.go` |
-| Add a UI string | `web/src/locales/*.json` (three files) |
+| Add a UI string | `web/src/locales/*.json` (seven files, one per language) |
 | Change monitor validation | `internal/models/monitor_validate.go`, `internal/services/monitor_validate.go` |
 
 ## 11. Performance notes

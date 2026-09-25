@@ -219,7 +219,7 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
-| POST | `/api/monitor-templates/:id/link-all` | attach every monitor of the template type: `{dry_run?}` -> `{monitors, linked, updated, dry_run}` |
+| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{group_ids?, dry_run?}` -> `{monitors, linked, updated, dry_run}` |
 | POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_ids?, active?, dry_run?}` |
 
 A **template** is a monitor without a target: `type`, `config` and `defaults`

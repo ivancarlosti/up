@@ -36,7 +36,10 @@ func Connect(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 	dbLogger := gormlogger.New(
 		stdlog.New(os.Stdout, "", stdlog.LstdFlags),
 		gormlogger.Config{
-			SlowThreshold:             200 * time.Millisecond,
+			// 500 ms keeps a busy cluster quiet: with the periodic reconciliation
+			// fanning out, a 200 ms threshold warns about queries that are merely
+			// unlucky, not slow.
+			SlowThreshold:             500 * time.Millisecond,
 			LogLevel:                  logLevel,
 			IgnoreRecordNotFoundError: true,
 			Colorful:                  false, // docker logs have no TTY colours

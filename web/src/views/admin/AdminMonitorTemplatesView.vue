@@ -24,7 +24,7 @@ import {
   supportsDomainWatch as typeSupportsDomainWatch,
 } from '@/lib/monitor-config'
 import { useToastStore } from '@/stores/toast'
-import type { MonitorConfig, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
+import type { MonitorConfig, MonitorGroup, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
 
 /** TemplateForm mirrors a template without optional fields (the form always has them). */
 type TemplateForm = {
@@ -46,6 +46,7 @@ const toasts = useToastStore()
 
 const templates = ref<MonitorTemplate[]>([])
 const notifications = ref<Notification[]>([])
+const groups = ref<MonitorGroup[]>([])
 const loading = ref(false)
 const saving = ref(false)
 
@@ -54,12 +55,17 @@ const editing = ref<MonitorTemplate | null>(null)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<MonitorTemplate | null>(null)
 
-// "Link every monitor of this type": a dry run fills the preview the
-// confirmation dialog shows, the real run writes the link and the defaults.
+// "Link monitors to this template": a dry run fills the preview the
+// confirmation dialog shows, the real run writes the link and the defaults. The
+// scope is either every monitor of the template type or the monitors of the
+// groups the operator picks.
 const linkOpen = ref(false)
 const linking = ref(false)
+const linkPreviewing = ref(false)
 const linkTarget = ref<MonitorTemplate | null>(null)
 const linkPreview = ref<TemplateLinkResult | null>(null)
+const linkScope = ref<'all' | 'groups'>('all')
+const linkGroupIDs = ref<number[]>([])
 
 const form = reactive<TemplateForm>(blank())
 
@@ -106,6 +112,15 @@ const runOnOptions = computed(() => [
   { value: 'some', label: t('monitor.runOnSome') },
 ])
 
+/** linkScopeOptions is the scope selector of the link dialog. */
+const linkScopeOptions = computed(() => [
+  { value: 'all', label: t('templates.linkScopeAll') },
+  { value: 'groups', label: t('templates.linkScopeGroups') },
+])
+
+/** linkScopeNeedsGroups is true when the operator must pick at least one group. */
+const linkScopeNeedsGroups = computed(() => linkScope.value === 'groups' && linkGroupIDs.value.length === 0)
+
 const type = computed(() => (form.type ?? 'http') as MonitorType)
 const config = computed(() => form.config ?? {})
 
@@ -120,12 +135,14 @@ const supportsDomain = computed(() => typeSupportsDomainWatch(type.value))
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [templateList, channelList] = await Promise.all([
+    const [templateList, channelList, groupList] = await Promise.all([
       api.monitorTemplates(),
       api.notifications(),
+      api.monitorGroups(),
     ])
     templates.value = templateList
     notifications.value = channelList
+    groups.value = groupList
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   } finally {
@@ -205,20 +222,61 @@ async function save(): Promise<void> {
 async function openLink(template: MonitorTemplate): Promise<void> {
   linkTarget.value = template
   linkPreview.value = null
+  linkScope.value = 'all'
+  linkGroupIDs.value = []
   linkOpen.value = true
+  await refreshLinkPreview()
+}
+
+/**
+ * refreshLinkPreview re-runs the dry run for the selected scope. With the
+ * "specific groups" scope and nothing selected there is nothing to preview: the
+ * dialog asks for a group instead of showing a misleading count.
+ */
+async function refreshLinkPreview(): Promise<void> {
+  if (!linkTarget.value) return
+  if (linkScopeNeedsGroups.value) {
+    linkPreview.value = null
+    return
+  }
+  linkPreviewing.value = true
+  linkPreview.value = null
   try {
-    linkPreview.value = await api.linkAllMonitorTemplate(template.id, true)
+    linkPreview.value = await api.linkAllMonitorTemplate(
+      linkTarget.value.id,
+      true,
+      linkScope.value === 'groups' ? linkGroupIDs.value : [],
+    )
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
     linkOpen.value = false
+  } finally {
+    linkPreviewing.value = false
   }
 }
 
+function setLinkScope(value: string): void {
+  linkScope.value = value === 'groups' ? 'groups' : 'all'
+  void refreshLinkPreview()
+}
+
+function toggleLinkGroup(id: number, value: boolean): void {
+  const set = new Set(linkGroupIDs.value)
+  if (value) set.add(id)
+  else set.delete(id)
+  linkGroupIDs.value = [...set]
+  void refreshLinkPreview()
+}
+
 async function confirmLink(): Promise<void> {
-  if (!linkTarget.value) return
+  if (!linkTarget.value || linkScopeNeedsGroups.value) return
   linking.value = true
   try {
-    const result = await api.linkAllMonitorTemplate(linkTarget.value.id)
+    const result = await api.linkAllMonitorTemplate(
+      linkTarget.value.id,
+      false,
+      linkScope.value === 'groups' ? linkGroupIDs.value : [],
+    )
     toasts.success(t('templates.linkAllDone', { linked: result.linked, updated: result.updated }))
     linkOpen.value = false
     await load()
@@ -429,7 +487,36 @@ onMounted(load)
     <Dialog v-model="linkOpen" :title="t('templates.linkAllTitle')" :description="t('templates.linkAllWarning')">
       <div class="grid gap-3 text-xs">
         <p v-if="linkTarget" class="font-mono">{{ linkTarget.name }} · {{ linkTarget.type }}</p>
-        <p v-if="linkPreview">
+
+        <div class="grid gap-1">
+          <Label for="link-scope" :help="t('templates.linkScopeHelp')">{{ t('templates.linkScope') }}</Label>
+          <Select
+            id="link-scope"
+            :model-value="linkScope"
+            :options="linkScopeOptions"
+            @update:model-value="setLinkScope($event as string)"
+          />
+        </div>
+
+        <div v-if="linkScope === 'groups'" class="grid gap-2 rounded-md border border-border p-3">
+          <p class="text-[11px] text-muted-foreground">
+            {{ groups.length ? t('templates.linkScopeGroupsHelp') : t('templates.linkNoGroups') }}
+          </p>
+          <div class="flex max-h-48 flex-wrap gap-4 overflow-y-auto">
+            <Checkbox
+              v-for="group in groups"
+              :key="group.id"
+              :model-value="linkGroupIDs.includes(group.id)"
+              @update:model-value="toggleLinkGroup(group.id, $event)"
+            >
+              {{ group.name }} ({{ group.monitor_count }})
+            </Checkbox>
+          </div>
+        </div>
+
+        <p v-if="linkPreviewing" class="text-muted-foreground">{{ t('common.loading') }}</p>
+        <p v-else-if="linkScopeNeedsGroups" class="text-muted-foreground">{{ t('templates.linkScopePick') }}</p>
+        <p v-else-if="linkPreview">
           {{
             t('templates.linkAllPreview', {
               monitors: linkPreview.monitors,
@@ -438,11 +525,12 @@ onMounted(load)
             })
           }}
         </p>
-        <p v-else class="text-muted-foreground">{{ t('common.loading') }}</p>
       </div>
       <template #footer>
         <Button variant="outline" @click="linkOpen = false">{{ t('common.cancel') }}</Button>
-        <Button :loading="linking" @click="confirmLink">{{ t('templates.linkAllConfirm') }}</Button>
+        <Button :loading="linking" :disabled="linkScopeNeedsGroups" @click="confirmLink">
+          {{ t('templates.linkAllConfirm') }}
+        </Button>
       </template>
     </Dialog>
 

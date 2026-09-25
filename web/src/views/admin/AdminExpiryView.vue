@@ -12,12 +12,15 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
+import SortHeader from '@/components/ui/SortHeader.vue'
 import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { expiryStateVariant } from '@/lib/expiry'
 import { formatDateTime } from '@/lib/format'
+import { expiryTargetSortKeys, sortExpiryTargets } from '@/lib/sort'
+import type { ExpiryTargetSortKey, SortDirection } from '@/lib/sort'
 import { useToastStore } from '@/stores/toast'
 import type { ExpirySettings, ExpiryTarget, WhoisParser, WhoisParserPayload, WhoisTestResult } from '@/lib/types'
 
@@ -37,6 +40,73 @@ const nextRun = ref<string | null>(null)
 const targets = ref<ExpiryTarget[]>([])
 const targetsLoading = ref(false)
 const refreshingTarget = ref('')
+
+// Filters and sort of the worklist table. The sort choice is remembered per
+// browser (the same pattern as the monitors table) so an operator who always
+// sorts by "status" finds the table that way after a reload.
+const targetTypeFilter = ref('')
+const targetSearch = ref('')
+const TARGET_SORT_STORAGE_KEY = 'up.admin.expiry.targets.sort'
+
+function loadTargetSort(): { key: ExpiryTargetSortKey; direction: SortDirection } {
+  const fallback: { key: ExpiryTargetSortKey; direction: SortDirection } = { key: 'kind', direction: 'asc' }
+  try {
+    const raw = localStorage.getItem(TARGET_SORT_STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as { key?: ExpiryTargetSortKey; direction?: SortDirection }
+    if (!parsed.key || !expiryTargetSortKeys.includes(parsed.key)) return fallback
+    return { key: parsed.key, direction: parsed.direction === 'desc' ? 'desc' : 'asc' }
+  } catch {
+    return fallback
+  }
+}
+
+const targetSort = ref(loadTargetSort())
+
+/** toggleTargetSort switches the column, or flips the direction of the current one. */
+function toggleTargetSort(key: ExpiryTargetSortKey): void {
+  targetSort.value =
+    targetSort.value.key === key
+      ? { key, direction: targetSort.value.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: 'asc' }
+  try {
+    localStorage.setItem(TARGET_SORT_STORAGE_KEY, JSON.stringify(targetSort.value))
+  } catch {
+    // A browser that refuses to persist (private mode) still sorts, it just
+    // forgets the preference after a reload.
+  }
+}
+
+/** targetTypeOptions adds the "all targets" entry to the two target kinds. */
+const targetTypeOptions = computed(() => [
+  { value: '', label: t('expiry.targetAllTypes') },
+  { value: 'certificate', label: t('expiry.targetKindCertificate') },
+  { value: 'domain', label: t('expiry.targetKindDomain') },
+])
+
+/** filteredTargets applies the type and text filters of the worklist. */
+const filteredTargets = computed(() => {
+  const term = targetSearch.value.trim().toLowerCase()
+  return targets.value.filter((target) => {
+    if (targetTypeFilter.value && target.kind !== targetTypeFilter.value) return false
+    if (!term) return true
+    const haystack = [
+      target.label,
+      target.server_name ?? '',
+      target.address ?? '',
+      target.domain ?? '',
+      ...target.monitors.map((monitor) => monitor.name),
+    ]
+    return haystack.some((value) => value.toLowerCase().includes(term))
+  })
+})
+
+/** sortedTargets applies the chosen column to the filtered rows (see lib/sort.ts). */
+const sortedTargets = computed(() =>
+  sortExpiryTargets(filteredTargets.value, targetSort.value.key, targetSort.value.direction, {
+    locale: locale.value,
+  }),
+)
 
 const settingsForm = reactive<ExpirySettings>(blankSettings())
 const parserForm = reactive<WhoisParserPayload>(blankParser())
@@ -366,87 +436,6 @@ onMounted(load)
       </template>
     </Card>
 
-    <Card :title="t('expiry.targetsTitle')" :description="t('expiry.targetsHelp')">
-      <template #actions>
-        <Button variant="outline" size="sm" :loading="targetsLoading" @click="loadTargets">
-          <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
-          {{ t('common.refresh') }}
-        </Button>
-      </template>
-
-      <EmptyState
-        v-if="!targets.length && !targetsLoading"
-        :title="t('expiry.noTargets')"
-        :description="t('expiry.noTargetsHelp')"
-      />
-
-      <div v-else class="overflow-x-auto">
-        <table class="w-full text-xs">
-          <thead class="text-start text-muted-foreground">
-            <tr class="border-b border-border">
-              <th class="py-2 pe-3 font-medium">{{ t('common.type') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('expiry.targetLabel') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('expiry.targetMonitorsLabel') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('common.status') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('expiry.targetLastCheck') }}</th>
-              <th class="py-2 text-end font-medium">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="target in targets"
-              :key="`${target.kind}:${target.key}`"
-              class="border-b border-border/60 last:border-0"
-            >
-              <td class="py-2 pe-3">
-                <Badge variant="secondary">
-                  {{ target.kind === 'domain' ? t('expiry.targetKindDomain') : t('expiry.targetKindCertificate') }}
-                </Badge>
-                <Badge v-if="target.manual" variant="outline" class="ms-1">{{ t('expiry.targetManual') }}</Badge>
-              </td>
-              <td class="py-2 pe-3">
-                <span class="font-mono">{{ target.label }}</span>
-                <span
-                  v-if="target.server_name && target.server_name !== target.address"
-                  class="ms-1 text-muted-foreground"
-                >
-                  ({{ target.server_name }})
-                </span>
-                <div class="text-[11px] text-muted-foreground">
-                  {{ target.monitors.map((monitor) => monitor.name).join(', ') }}
-                </div>
-              </td>
-              <td class="py-2 pe-3">{{ target.monitors.length }}</td>
-              <td class="py-2 pe-3">
-                <Badge
-                  v-if="targetBadge(target)"
-                  :variant="expiryStateVariant(target.status, target.days_left)"
-                >
-                  {{ targetBadge(target) }}
-                </Badge>
-                <span v-else class="text-muted-foreground">{{ t('expiry.targetPending') }}</span>
-              </td>
-              <td class="py-2 pe-3 text-muted-foreground">
-                {{ target.checked_at ? formatDateTime(target.checked_at, locale) : '—' }}
-              </td>
-              <td class="py-2 text-end">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  :loading="refreshingTarget === target.key"
-                  :title="t('expiry.targetRefresh')"
-                  :aria-label="t('expiry.targetRefresh')"
-                  @click="refreshTarget(target)"
-                >
-                  <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </Card>
-
     <Card :title="t('expiry.parsersTitle')" :description="t('expiry.parsersHelp')">
       <template #actions>
         <Button size="sm" @click="openCreate">
@@ -462,29 +451,29 @@ onMounted(load)
       />
 
       <div v-else class="overflow-x-auto">
-        <table class="w-full text-xs">
-          <thead class="text-start text-muted-foreground">
-            <tr class="border-b border-border">
-              <th class="py-2 pe-3 font-medium">{{ t('expiry.tld') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('expiry.server') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('expiry.rateOverride') }}</th>
-              <th class="py-2 pe-3 font-medium">{{ t('common.status') }}</th>
-              <th class="py-2 text-end font-medium">{{ t('common.actions') }}</th>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ t('expiry.tld') }}</th>
+              <th>{{ t('expiry.server') }}</th>
+              <th>{{ t('expiry.rateOverride') }}</th>
+              <th>{{ t('common.status') }}</th>
+              <th class="text-end">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="parser in parsers" :key="parser.id" class="border-b border-border/60 last:border-0">
-              <td class="py-2 pe-3 font-mono">.{{ parser.tld }}</td>
-              <td class="py-2 pe-3 font-mono">{{ parser.server || t('expiry.serverAuto') }}</td>
-              <td class="py-2 pe-3">
+            <tr v-for="parser in parsers" :key="parser.id">
+              <td class="font-mono">.{{ parser.tld }}</td>
+              <td class="font-mono">{{ parser.server || t('expiry.serverAuto') }}</td>
+              <td>
                 {{ parser.min_interval_ms ? `${parser.min_interval_ms} ms` : t('expiry.rateGlobal') }}
               </td>
-              <td class="py-2 pe-3">
+              <td>
                 <Badge :variant="parser.enabled ? 'success' : 'secondary'">
                   {{ parser.enabled ? t('common.enabled') : t('common.disabled') }}
                 </Badge>
               </td>
-              <td class="py-2 text-end">
+              <td class="text-end">
                 <div class="flex items-center justify-end gap-1">
                   <Button variant="ghost" size="sm" :title="t('common.edit')" @click="openEdit(parser)">
                     <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
@@ -499,6 +488,124 @@ onMounted(load)
                     <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Card>
+
+    <Card :title="t('expiry.targetsTitle')" :description="t('expiry.targetsHelp')">
+      <template #actions>
+        <Button variant="outline" size="sm" :loading="targetsLoading" @click="loadTargets">
+          <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('common.refresh') }}
+        </Button>
+      </template>
+
+      <div v-if="targets.length" class="mb-3 flex flex-wrap items-center gap-2">
+        <Select v-model="targetTypeFilter" class="w-44" :options="targetTypeOptions" />
+        <Input v-model="targetSearch" class="max-w-xs" :placeholder="t('expiry.targetSearchPlaceholder')" />
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('expiry.targetCount', { shown: filteredTargets.length, total: targets.length }) }}
+        </span>
+      </div>
+
+      <EmptyState
+        v-if="!targets.length && !targetsLoading"
+        :title="t('expiry.noTargets')"
+        :description="t('expiry.noTargetsHelp')"
+      />
+      <p v-else-if="!filteredTargets.length" class="text-xs text-muted-foreground">
+        {{ t('expiry.noTargetsMatch') }}
+      </p>
+
+      <div v-else class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <SortHeader
+                :label="t('common.type')"
+                column="kind"
+                :active="targetSort.key"
+                :direction="targetSort.direction"
+                @toggle="toggleTargetSort('kind')"
+              />
+              <SortHeader
+                :label="t('expiry.targetLabel')"
+                column="label"
+                :active="targetSort.key"
+                :direction="targetSort.direction"
+                @toggle="toggleTargetSort('label')"
+              />
+              <SortHeader
+                :label="t('expiry.targetMonitorsLabel')"
+                column="monitors"
+                :active="targetSort.key"
+                :direction="targetSort.direction"
+                @toggle="toggleTargetSort('monitors')"
+              />
+              <SortHeader
+                :label="t('common.status')"
+                column="status"
+                :active="targetSort.key"
+                :direction="targetSort.direction"
+                @toggle="toggleTargetSort('status')"
+              />
+              <SortHeader
+                :label="t('expiry.targetLastCheck')"
+                column="checked"
+                :active="targetSort.key"
+                :direction="targetSort.direction"
+                @toggle="toggleTargetSort('checked')"
+              />
+              <th class="text-end">{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="target in sortedTargets" :key="`${target.kind}:${target.key}`">
+              <td class="whitespace-nowrap">
+                <Badge variant="secondary">
+                  {{ target.kind === 'domain' ? t('expiry.targetKindDomain') : t('expiry.targetKindCertificate') }}
+                </Badge>
+                <Badge v-if="target.manual" variant="outline" class="ms-1">{{ t('expiry.targetManual') }}</Badge>
+              </td>
+              <td class="min-w-[16rem]">
+                <span class="block break-all font-mono">{{ target.label }}</span>
+                <span
+                  v-if="target.server_name && target.server_name !== target.address"
+                  class="block text-[11px] text-muted-foreground"
+                >
+                  {{ target.server_name }}
+                </span>
+                <span class="block text-[11px] text-muted-foreground">
+                  {{ target.monitors.map((monitor) => monitor.name).join(', ') }}
+                </span>
+              </td>
+              <td class="whitespace-nowrap tabular-nums">{{ target.monitors.length }}</td>
+              <td class="whitespace-nowrap">
+                <Badge
+                  v-if="targetBadge(target)"
+                  :variant="expiryStateVariant(target.status, target.days_left)"
+                >
+                  {{ targetBadge(target) }}
+                </Badge>
+                <span v-else class="text-muted-foreground">{{ t('expiry.targetPending') }}</span>
+              </td>
+              <td class="whitespace-nowrap text-muted-foreground">
+                {{ target.checked_at ? formatDateTime(target.checked_at, locale) : '—' }}
+              </td>
+              <td class="text-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :loading="refreshingTarget === target.key"
+                  :title="t('expiry.targetRefresh')"
+                  :aria-label="t('expiry.targetRefresh')"
+                  @click="refreshTarget(target)"
+                >
+                  <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
               </td>
             </tr>
           </tbody>
