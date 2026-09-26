@@ -66,7 +66,7 @@ Everything the cluster does today is built on rows that only exist once:
 | Node registry and liveness | `nodes.last_heartbeat`, written by every node into the shared table | local `nodes` table fed by HTTP pings (the `NodeOfflineSeconds` / `NodeHeartbeatSeconds` constants stay as they are) |
 | Primary role | `nodes.is_primary` column | **derived** from the local online view (lowest `node_id` by default), never stored |
 | `run_on=primary` | `ClusterService.IsPrimary` reads the column | same method, mode-aware implementation |
-| Cross-node votes | `StatsService.LatestPerNode` over the shared `heartbeats` table | new `peer_votes` table filled from a peer endpoint |
+| Cross-node votes | `StatsService.LatestPerNode` (bounded by the vote window) over the shared `heartbeats` table | new `peer_votes` table filled from a peer endpoint |
 | Transition detection | one `monitor_states` row read by every node | local per node (the inputs are the votes and the strategy, so the verdicts agree) |
 | Notification election | `INSERT … ON CONFLICT DO NOTHING` into `notification_locks` | **deterministic election** over the online ring; local locks kept for per-node de-duplication |
 | Identity of monitors / status pages | auto-increment `id`, meaningful inside one database only | global `uuid` + `origin_node_id` + `revision` (groups and templates already carry a `uuid`) |
@@ -197,7 +197,8 @@ a batch is not relied upon).
 
 ## 6. Voting without a shared database
 
-Today `EvaluateAll` reads `stats.LatestPerNode(ids)` from the shared table. In
+Today `EvaluateAll` reads `stats.LatestPerNode(ids, since)` from the shared table,
+bounded by the widest vote window of the batch. In
 federated mode each node publishes its own verdicts and reads the peers':
 
 | Piece | Design |

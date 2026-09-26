@@ -661,22 +661,29 @@ WHERE created_at >= ? AND monitor_id IN (?)
 GROUP BY monitor_id;
 ```
 
-**Latest heartbeat per monitor** (`internal/services/stats_series.go`):
+**Current status and last check** (`internal/services/monitor.go`): the newest
+heartbeat of a monitor is *not* looked up any more: `heartbeats` is indexed on
+`(monitor_id, created_at)`, so a grouped `MAX(id)` could not seek the newest row
+of each group and walked the whole retained history to keep one row per monitor.
+The listing reads the aggregated row the evaluator already upserts on every check
+(`internal/services/cluster_notify.go`):
 
 ```sql
-SELECT h.* FROM heartbeats h
-JOIN (SELECT monitor_id, MAX(id) AS max_id
-      FROM heartbeats WHERE monitor_id IN (?) GROUP BY monitor_id) latest
-  ON latest.max_id = h.id;
+SELECT * FROM monitor_states WHERE monitor_id IN (?);
 ```
 
 **Latest heartbeat per monitor and node** (cluster voting and the per-node
-breakdown in the UI):
+breakdown in the UI; `internal/services/stats_series.go`). The `created_at` bound
+is what keeps the statement cheap: only a heartbeat inside the vote window can
+produce a valid verdict, so the scan covers the widest window of the batch
+(`max(2 x interval, 120 s)`) instead of the whole retention:
 
 ```sql
 SELECT h.* FROM heartbeats h
 JOIN (SELECT monitor_id, node_id, MAX(id) AS max_id
-      FROM heartbeats WHERE monitor_id IN (?) GROUP BY monitor_id, node_id) latest
+      FROM heartbeats
+      WHERE monitor_id IN (?) AND created_at >= ?
+      GROUP BY monitor_id, node_id) latest
   ON latest.max_id = h.id
 ORDER BY h.monitor_id, h.node_id;
 ```

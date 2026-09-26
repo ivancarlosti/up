@@ -61,34 +61,17 @@ func (s *StatsService) Series(ctx context.Context, monitorID uint, limit int) ([
 	return out, nil
 }
 
-// LatestPerMonitor returns the newest heartbeat of every monitor.
-func (s *StatsService) LatestPerMonitor(ctx context.Context, monitorIDs []uint) (map[uint]*models.Heartbeat, error) {
-	out := map[uint]*models.Heartbeat{}
-	if len(monitorIDs) == 0 {
-		return out, nil
-	}
-	var heartbeats []models.Heartbeat
-	query := `
-		SELECT h.* FROM heartbeats h
-		JOIN (
-			SELECT monitor_id, MAX(id) AS max_id
-			FROM heartbeats
-			WHERE monitor_id IN ?
-			GROUP BY monitor_id
-		) latest ON latest.max_id = h.id`
-	if err := s.db.WithContext(ctx).Raw(query, monitorIDs).Scan(&heartbeats).Error; err != nil {
-		return nil, fmt.Errorf("loading the latest heartbeats: %w", err)
-	}
-	for i := range heartbeats {
-		hb := heartbeats[i]
-		out[hb.MonitorID] = &hb
-	}
-	return out, nil
-}
-
-// LatestPerNode returns the newest heartbeat of every (monitor, node) pair. It
-// feeds the cluster voting logic and the per-node breakdown in the UI.
-func (s *StatsService) LatestPerNode(ctx context.Context, monitorIDs []uint) ([]models.Heartbeat, error) {
+// LatestPerNode returns the newest heartbeat of every (monitor, node) pair
+// written since the given instant. It feeds the cluster voting logic and the
+// per-node breakdown in the UI.
+//
+// The bound is what keeps the statement cheap. `heartbeats` is indexed on
+// (monitor_id, created_at), so a grouped `MAX(id)` cannot seek the newest row of
+// each group: without a window it walks the whole retained history (180 days by
+// default) to keep one row per node. Only a heartbeat inside the vote window can
+// produce a valid verdict (see voteWindow), so the caller passes the widest
+// window of the batch and the scan covers the last few minutes instead.
+func (s *StatsService) LatestPerNode(ctx context.Context, monitorIDs []uint, since time.Time) ([]models.Heartbeat, error) {
 	if len(monitorIDs) == 0 {
 		return nil, nil
 	}
@@ -98,11 +81,11 @@ func (s *StatsService) LatestPerNode(ctx context.Context, monitorIDs []uint) ([]
 		JOIN (
 			SELECT monitor_id, node_id, MAX(id) AS max_id
 			FROM heartbeats
-			WHERE monitor_id IN ?
+			WHERE monitor_id IN ? AND created_at >= ?
 			GROUP BY monitor_id, node_id
 		) latest ON latest.max_id = h.id
 		ORDER BY h.monitor_id, h.node_id`
-	if err := s.db.WithContext(ctx).Raw(query, monitorIDs).Scan(&heartbeats).Error; err != nil {
+	if err := s.db.WithContext(ctx).Raw(query, monitorIDs, since).Scan(&heartbeats).Error; err != nil {
 		return nil, fmt.Errorf("loading per node heartbeats: %w", err)
 	}
 	return heartbeats, nil

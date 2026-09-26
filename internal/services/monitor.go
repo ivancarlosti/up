@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 
 	"github.com/ivancarlosti/up/internal/config"
@@ -177,12 +178,43 @@ func (s *MonitorService) Get(ctx context.Context, id uint) (*models.Monitor, err
 // uptime over the configured window, latency of the last check, per node votes
 // and notification ids.
 func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monitor) error {
-	return s.DecorateWithWindow(ctx, monitors, s.uptimeWindowHours())
+	return s.decorate(ctx, monitors, s.uptimeWindowHours(), true)
 }
 
 // DecorateWithWindow is Decorate with an explicit uptime window: the public
 // status pages override the global one per page.
 func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*models.Monitor, windowHours int) error {
+	return s.decorate(ctx, monitors, windowHours, true)
+}
+
+// DecorateList decorates a whole listing without the per node votes.
+//
+// The votes are the bulk of the payload and the monitor detail is the only view
+// that renders them, so the listing endpoints (the dashboard, the monitors table
+// and the public API) ask for the aggregated status only. Everything else is
+// identical to Decorate, which keeps a row of the table and a card of the
+// dashboard showing the same values.
+func (s *MonitorService) DecorateList(ctx context.Context, monitors []*models.Monitor) error {
+	return s.decorate(ctx, monitors, s.uptimeWindowHours(), false)
+}
+
+// decorateSources is the runtime data a listing needs. Every field is read with a
+// single query for the whole listing, never one per monitor.
+type decorateSources struct {
+	histories    map[uint]MonitorHistory
+	bars         map[uint][]string
+	states       map[uint]models.MonitorState
+	votes        map[uint][]models.NodeVote
+	aggregates   map[uint]models.AggregateStatus
+	links        []models.MonitorNotification
+	groups       map[uint][]uint
+	certificates map[uint]*models.CertificateInfo
+	domains      map[uint]*models.DomainInfo
+	templates    map[string]string
+}
+
+// decorate fills the runtime fields of a listing.
+func (s *MonitorService) decorate(ctx context.Context, monitors []*models.Monitor, windowHours int, withVotes bool) error {
 	if len(monitors) == 0 {
 		return nil
 	}
@@ -190,107 +222,171 @@ func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*mod
 	for _, m := range monitors {
 		ids = append(ids, m.ID)
 	}
-
 	windowHours = models.NormalizeUptimeWindowHours(windowHours)
-	histories, err := s.stats.History(ctx, ids, windowHours)
-	if err != nil {
-		return ErrInternal(err)
-	}
-	bars, err := s.stats.RecentBars(ctx, ids, windowHours, HeartbeatBarSlots)
-	if err != nil {
-		return ErrInternal(err)
-	}
-	latest, err := s.stats.LatestPerMonitor(ctx, ids)
-	if err != nil {
-		return ErrInternal(err)
-	}
 
-	var (
-		votes      map[uint][]models.NodeVote
-		aggregates map[uint]models.AggregateStatus
+	started := time.Now()
+	sources, err := s.gatherSources(ctx, monitors, ids, windowHours, withVotes)
+	if err != nil {
+		return err
+	}
+	s.applySources(monitors, windowHours, sources)
+
+	// The decoration is the part of a listing that grows with the stored history,
+	// so its cost is logged: with LOG_LEVEL=debug it is the first thing an operator
+	// looks at when the monitors table slows down.
+	s.log.Debug("monitors decorated",
+		"monitors", len(monitors),
+		"window_hours", windowHours,
+		"votes", withVotes,
+		"duration_ms", time.Since(started).Milliseconds(),
 	)
+	return nil
+}
+
+// gatherSources runs the reads of the decoration concurrently.
+//
+// Each read is already a grouped query over the whole listing, but their costs add
+// up: running them in parallel keeps a request close to its slowest query instead
+// of the sum of all of them. The connection pool (internal/database) bounds the
+// fan out, so a burst of listings back pressures instead of flooding the server.
+func (s *MonitorService) gatherSources(ctx context.Context, monitors []*models.Monitor, ids []uint, windowHours int, withVotes bool) (*decorateSources, error) {
+	sources := &decorateSources{}
+	group, gctx := errgroup.WithContext(ctx)
+
+	group.Go(func() error {
+		histories, err := s.stats.History(gctx, ids, windowHours)
+		sources.histories = histories
+		return err
+	})
+	group.Go(func() error {
+		bars, err := s.stats.RecentBars(gctx, ids, windowHours, HeartbeatBarSlots)
+		sources.bars = bars
+		return err
+	})
+	// The last check and its latency come from monitor_states: one row per monitor,
+	// upserted on every check by the evaluator. It replaces the "newest heartbeat
+	// per monitor" query, which had to walk the whole retained history because the
+	// index on (monitor_id, created_at) cannot seek a grouped MAX(id).
+	group.Go(func() error {
+		states, err := s.monitorStatesFor(gctx, ids)
+		sources.states = states
+		return err
+	})
 	if s.votes != nil {
-		votes, aggregates, err = s.votes.EvaluateAll(ctx, monitors)
-		if err != nil {
-			return ErrInternal(err)
-		}
+		// EvaluateAll merges the latest heartbeat of every node - itself bounded by
+		// the widest vote window - into the aggregated status of each monitor.
+		group.Go(func() error {
+			votes, aggregates, err := s.votes.EvaluateAll(gctx, monitors)
+			sources.aggregates = aggregates
+			if withVotes {
+				sources.votes = votes
+			}
+			return err
+		})
 	}
-
-	links, err := s.AllLinks(ctx)
-	if err != nil {
+	group.Go(func() error {
+		links, err := s.AllLinks(gctx)
+		sources.links = links
 		return err
+	})
+	group.Go(func() error {
+		groups, err := s.AllGroupMembers(gctx)
+		sources.groups = groups
+		return err
+	})
+	group.Go(func() error {
+		certificates, err := s.certificatesFor(gctx, ids)
+		sources.certificates = certificates
+		return err
+	})
+	group.Go(func() error {
+		domains, err := s.domainsFor(gctx, ids)
+		sources.domains = domains
+		return err
+	})
+	group.Go(func() error {
+		templates, err := s.templateNamesFor(gctx, monitors)
+		sources.templates = templates
+		return err
+	})
+
+	if err := group.Wait(); err != nil {
+		return nil, ErrInternal(err)
 	}
+	return sources, nil
+}
+
+// monitorStatesFor reads the aggregated state of the given monitors: the current
+// status, the time of the last check and its latency. The table holds one row per
+// monitor, so it is the cheap source of the "latest check" columns of a listing.
+func (s *MonitorService) monitorStatesFor(ctx context.Context, monitorIDs []uint) (map[uint]models.MonitorState, error) {
+	out := make(map[uint]models.MonitorState, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var states []models.MonitorState
+	if err := s.db.WithContext(ctx).Where("monitor_id IN ?", monitorIDs).Find(&states).Error; err != nil {
+		return nil, fmt.Errorf("loading the monitor states: %w", err)
+	}
+	for _, state := range states {
+		out[state.MonitorID] = state
+	}
+	return out, nil
+}
+
+// applySources copies the gathered data onto the monitors.
+func (s *MonitorService) applySources(monitors []*models.Monitor, windowHours int, sources *decorateSources) {
 	linksByMonitor := map[uint][]uint{}
-	for _, link := range links {
+	for _, link := range sources.links {
 		linksByMonitor[link.MonitorID] = append(linksByMonitor[link.MonitorID], link.NotificationID)
-	}
-
-	groups, err := s.AllGroupMembers(ctx)
-	if err != nil {
-		return err
-	}
-
-	certificates, err := s.certificatesFor(ctx, ids)
-	if err != nil {
-		return err
-	}
-
-	domains, err := s.domainsFor(ctx, ids)
-	if err != nil {
-		return err
-	}
-
-	templates, err := s.templateNamesFor(ctx, monitors)
-	if err != nil {
-		return err
 	}
 
 	for _, m := range monitors {
 		// The window is reported even without a heartbeat in it: the UI labels
 		// the period it is showing instead of pretending it is 24 h.
 		m.UptimeHours = windowHours
-		if history, ok := histories[m.ID]; ok {
+		if history, ok := sources.histories[m.ID]; ok {
 			m.Uptime = history.Window.Uptime
 			m.Uptime24h = history.Uptime24h
 			m.Uptime7d = history.Uptime7d
 			m.Uptime30d = history.Uptime30d
 		}
-		if len(bars[m.ID]) > 0 {
-			m.HeartbeatBars = bars[m.ID]
+		if len(sources.bars[m.ID]) > 0 {
+			m.HeartbeatBars = sources.bars[m.ID]
 		}
-		if hb, ok := latest[m.ID]; ok {
-			created := hb.CreatedAt
-			m.LastCheckAt = &created
-			m.LastLatencyMS = hb.LatencyMS
-		}
-		if aggregates != nil {
-			if status, ok := aggregates[m.ID]; ok {
-				m.Status = status
+		if state, ok := sources.states[m.ID]; ok {
+			if state.LastCheckAt != nil {
+				checked := *state.LastCheckAt
+				m.LastCheckAt = &checked
 			}
+			m.LastLatencyMS = state.LastLatency
+		}
+		if status, ok := sources.aggregates[m.ID]; ok {
+			m.Status = status
 		}
 		if m.Status == "" {
 			m.Status = models.AggregateUnknown
 		}
-		if votes != nil {
-			m.Votes = votes[m.ID]
+		if sources.votes != nil {
+			m.Votes = sources.votes[m.ID]
 		}
 		if ids, ok := linksByMonitor[m.ID]; ok {
 			m.NotificationIDs = ids
 		} else {
 			m.NotificationIDs = []uint{}
 		}
-		if ids, ok := groups[m.ID]; ok {
+		if ids, ok := sources.groups[m.ID]; ok {
 			m.GroupIDs = ids
 		} else {
 			m.GroupIDs = []uint{}
 		}
 		if m.CertWatch {
-			if info, ok := certificates[m.ID]; ok {
+			if info, ok := sources.certificates[m.ID]; ok {
 				m.Certificate = info
 			}
 		}
 		if m.DomainWatch {
-			if info, ok := domains[m.ID]; ok {
+			if info, ok := sources.domains[m.ID]; ok {
 				m.Domain = info
 			}
 		}
@@ -300,11 +396,10 @@ func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*mod
 		if manual := manualDomainInfo(m, m.Domain); manual != nil {
 			m.Domain = manual
 		}
-		if name, ok := templates[m.TemplateUUID]; ok {
+		if name, ok := sources.templates[m.TemplateUUID]; ok {
 			m.TemplateName = name
 		}
 	}
-	return nil
 }
 
 // templateNamesFor maps the template uuid of a monitor to its name (one query for

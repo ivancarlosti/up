@@ -46,7 +46,7 @@ func (h *Container) listMonitors(c *gin.Context) {
 		return
 	}
 	if queryBool(c, "decorate", true) {
-		if err := h.Monitors.Decorate(ctx, monitors); err != nil {
+		if err := h.Monitors.DecorateList(ctx, monitors); err != nil {
 			api.WriteServiceError(c, err)
 			return
 		}

@@ -252,14 +252,18 @@ Every failure answers with a stable code that the frontend translates:
   (`settings.heartbeat_retention_days`, **180 days by default**, `0` = never) bounds
   growth (purge at boot and every 6 h). `HEARTBEAT_RETENTION_DAYS` is only the
   fallback of a deployment that never opened Admin > Settings.
-- The dashboard uses four grouped queries (`History`, `RecentBars`,
-  `LatestPerMonitor`, `LatestPerNode`) and never a query per heartbeat: the
-  bucketed heartbeat column of the table is bounded by monitors x slots, and the
-  uptime window (including 14 d) is computed by the same scan as the fixed
-  24 h/7 d/30 d figures.
-- The dashboard uses three grouped queries (`Windows`, `LatestPerMonitor`,
-  `LatestPerNode`) plus one query per monitor for the bars (`Series`) - never a
-  query per heartbeat.
+- The decoration of a listing runs its grouped queries concurrently
+  (`errgroup`): `History`, `RecentBars` and `LatestPerNode` (bounded by the vote
+  window), plus one read of `monitor_states` for the current status and the last
+  check. It never runs a query per heartbeat: the bucketed heartbeat column is
+  bounded by monitors x slots, and the uptime window (including 14 d) is computed
+  by the same scan as the fixed 24 h/7 d/30 d figures.
+- The "latest heartbeat per monitor" query is gone: `MAX(id) GROUP BY
+  monitor_id` cannot use the `(monitor_id, created_at)` index and walked the whole
+  retention to keep one row per monitor, which is what made the monitors table
+  slow once the history grew. The listing reads the `monitor_states` row the
+  evaluator upserts on every check, and the list endpoints ask for the aggregated
+  status without the per-node votes (`DecorateList`).
 - The 24 h/7 d/30 d uptime figures come from a single aggregate query using
   conditional `SUM(CASE ...)` expressions.
 - IP rules are cached in memory for 10 s; writes invalidate the cache.

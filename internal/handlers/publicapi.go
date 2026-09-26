@@ -35,7 +35,7 @@ func (h *Container) apiStatus(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	if err := h.Monitors.Decorate(ctx, monitors); err != nil {
+	if err := h.Monitors.DecorateList(ctx, monitors); err != nil {
 		api.WriteServiceError(c, err)
 		return
 	}
@@ -87,7 +87,7 @@ func (h *Container) apiListMonitors(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	if err := h.Monitors.Decorate(ctx, monitors); err != nil {
+	if err := h.Monitors.DecorateList(ctx, monitors); err != nil {
 		api.WriteServiceError(c, err)
 		return
 	}

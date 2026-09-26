@@ -64,7 +64,16 @@ func (s *ClusterService) EvaluateAll(ctx context.Context, monitors []*models.Mon
 	for _, m := range monitors {
 		ids = append(ids, m.ID)
 	}
-	heartbeats, err := s.stats.LatestPerNode(ctx, ids)
+	// Only a heartbeat inside the monitor's vote window can produce a valid verdict,
+	// so the lookup is bounded by the widest window of the batch instead of scanning
+	// the whole history: everything older is dropped right below anyway.
+	maxWindow := 2 * time.Minute
+	for _, monitor := range monitors {
+		if window := voteWindow(monitor); window > maxWindow {
+			maxWindow = window
+		}
+	}
+	heartbeats, err := s.stats.LatestPerNode(ctx, ids, time.Now().UTC().Add(-maxWindow))
 	if err != nil {
 		return nil, nil, err
 	}
