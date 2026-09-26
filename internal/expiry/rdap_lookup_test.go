@@ -60,7 +60,7 @@ func TestRDAPLookupRequestsTheResourcePath(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newRDAPClient(5 * time.Second)
+	client := newRDAPClient(5*time.Second, models.ExpiryIPVersionAuto)
 	client.loaded = true
 	client.services = map[string]string{"br": server.URL + "/"}
 
@@ -87,7 +87,7 @@ func TestRDAPLookupStatusMapping(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newRDAPClient(5 * time.Second)
+	client := newRDAPClient(5*time.Second, models.ExpiryIPVersionAuto)
 	client.loaded = true
 	client.services = map[string]string{"test": server.URL + "/"}
 
@@ -104,7 +104,7 @@ func TestRDAPLookupStatusMapping(t *testing.T) {
 // TestRDAPLookupWithoutService falls through to WHOIS: a TLD with no RDAP entry
 // must answer nil so the resolver can try the per-TLD parser.
 func TestRDAPLookupWithoutService(t *testing.T) {
-	client := newRDAPClient(time.Second)
+	client := newRDAPClient(time.Second, models.ExpiryIPVersionAuto)
 	client.loaded = true
 	client.services = map[string]string{"com": "https://rdap.example/"}
 	if info := client.lookup(context.Background(), "example.io"); info != nil {

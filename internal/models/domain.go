@@ -308,6 +308,55 @@ const DefaultExpiryRateLimitMS = 100
 // DefaultExpiryTimeoutSeconds bounds a single RDAP/WHOIS lookup.
 const DefaultExpiryTimeoutSeconds = 10
 
+// The address family a registry lookup may use.
+//
+// A registry host is usually dual stack and the two paths are not equivalent:
+// whois.nic.io answers on port 43 over IPv6, so a container whose network has no
+// IPv6 route (the Docker default) has no working path at all even though the
+// host that runs Docker does. "auto" leaves the choice to the Go dialer (happy
+// eyeballs), "ipv4"/"ipv6" pin it with tcp4/tcp6 so the operator gets an
+// immediate "network is unreachable" instead of a timeout on the other family.
+const (
+	ExpiryIPVersionAuto = "auto"
+	ExpiryIPVersion4    = "ipv4"
+	ExpiryIPVersion6    = "ipv6"
+)
+
+// DefaultExpiryIPVersion is the family used when nothing is stored.
+const DefaultExpiryIPVersion = ExpiryIPVersionAuto
+
+// ExpiryIPVersions lists the accepted values in the order the admin page shows
+// them.
+var ExpiryIPVersions = []string{ExpiryIPVersionAuto, ExpiryIPVersion4, ExpiryIPVersion6}
+
+// NormalizeExpiryIPVersion maps whatever is stored (or sent by an older client)
+// to an accepted value; anything unknown means "auto".
+func NormalizeExpiryIPVersion(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case ExpiryIPVersion4, "4", "v4", "tcp4":
+		return ExpiryIPVersion4
+	case ExpiryIPVersion6, "6", "v6", "tcp6":
+		return ExpiryIPVersion6
+	default:
+		return ExpiryIPVersionAuto
+	}
+}
+
+// ValidExpiryIPVersion reports whether raw is one of ExpiryIPVersions. An empty
+// value is valid on purpose: a payload that omits the field keeps "auto".
+func ValidExpiryIPVersion(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return true
+	}
+	for _, candidate := range ExpiryIPVersions {
+		if trimmed == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 // ExpirySettings is the admin managed configuration of the daily expiry job.
 type ExpirySettings struct {
 	// CheckTime is "HH:MM" (24h) in CheckTimezone.
@@ -321,6 +370,9 @@ type ExpirySettings struct {
 	RateLimitMS int `json:"rate_limit_ms"`
 	// TimeoutSeconds bounds a single lookup.
 	TimeoutSeconds int `json:"timeout_seconds"`
+	// IPVersion is the address family used to reach a registry ("auto",
+	// "ipv4" or "ipv6" - see NormalizeExpiryIPVersion).
+	IPVersion string `json:"ip_version"`
 }
 
 // DefaultExpirySettings returns the configuration used when nothing is stored.
@@ -332,6 +384,7 @@ func DefaultExpirySettings() ExpirySettings {
 		WHOISEnabled:   true,
 		RateLimitMS:    DefaultExpiryRateLimitMS,
 		TimeoutSeconds: DefaultExpiryTimeoutSeconds,
+		IPVersion:      DefaultExpiryIPVersion,
 	}
 }
 
@@ -353,6 +406,7 @@ func (e *ExpirySettings) Normalize() {
 	if e.TimeoutSeconds < 1 || e.TimeoutSeconds > 60 {
 		e.TimeoutSeconds = DefaultExpiryTimeoutSeconds
 	}
+	e.IPVersion = NormalizeExpiryIPVersion(e.IPVersion)
 }
 
 // Validate checks the operator input (empty string means "valid").
@@ -368,6 +422,9 @@ func (e *ExpirySettings) Validate() string {
 	}
 	if e.TimeoutSeconds < 1 || e.TimeoutSeconds > 60 {
 		return "timeout_seconds must be between 1 and 60"
+	}
+	if !ValidExpiryIPVersion(e.IPVersion) {
+		return "ip_version must be auto, ipv4 or ipv6"
 	}
 	return ""
 }

@@ -3,6 +3,7 @@ package expiry
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,4 +73,66 @@ func TestLiveWhoisDefaults(t *testing.T) {
 			t.Logf(".%s %s -> %s", parser.TLD, domain, expires.Format(time.RFC3339))
 		})
 	}
+}
+
+// TestLiveWhoisPinnedFamily is the live form of the IP family setting: it queries
+// one dual stack registry with the family the operator pinned and reports what
+// that family does. The SAME binary proves both sides of the setting, which is
+// the point:
+//
+//	# a machine whose network speaks IPv6 (the host that runs Docker)
+//	UP_LIVE_WHOIS=1 UP_LIVE_WHOIS_PIN=ipv6 go test ./internal/expiry/ -run TestLiveWhoisPinnedFamily -v
+//	# a container whose network has no IPv6 route (the Docker default)
+//	UP_LIVE_WHOIS=1 UP_LIVE_WHOIS_PIN=ipv6 ...
+//
+// A pinned family that cannot reach the registry is not a failure: pinning is a
+// diagnostic, and the contract under test is that the error NAMES the family that
+// was pinned (tcp4/tcp6) instead of hiding it behind the other one.
+func TestLiveWhoisPinnedFamily(t *testing.T) {
+	if os.Getenv("UP_LIVE_WHOIS") != "1" {
+		t.Skip("set UP_LIVE_WHOIS=1 to query the real registry")
+	}
+	pin := models.NormalizeExpiryIPVersion(os.Getenv("UP_LIVE_WHOIS_PIN"))
+	if pin == models.ExpiryIPVersionAuto {
+		t.Skip("set UP_LIVE_WHOIS_PIN=ipv4 or ipv6 to pin the family")
+	}
+	client := &WhoisClient{Timeout: 10 * time.Second, IPVersion: pin}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	raw, err := client.Query(ctx, "whois.nic.io:43", "nic.io")
+	if err != nil {
+		if family := registryNetwork(pin); !strings.Contains(err.Error(), family) {
+			t.Fatalf("the failure must name the pinned family %s: %v", family, err)
+		}
+		t.Logf("%s cannot reach whois.nic.io from this network: %v", pin, err)
+		return
+	}
+	if !strings.Contains(strings.ToLower(raw), "nic.io") {
+		t.Fatalf("unexpected answer from whois.nic.io: %.200s", raw)
+	}
+	t.Logf("%s reached whois.nic.io:43 (%d bytes)", pin, len(raw))
+}
+
+// TestLiveWhoisAutoDiagnostics checks the message of a failed lookup in "auto"
+// mode where it fails: every resolved address must be reported, not only the
+// family Go dialed first. On a network that reaches the registry the test skips
+// (there is no failure to describe).
+func TestLiveWhoisAutoDiagnostics(t *testing.T) {
+	if os.Getenv("UP_LIVE_WHOIS") != "1" {
+		t.Skip("set UP_LIVE_WHOIS=1 to query the real registry")
+	}
+	client := &WhoisClient{Timeout: 10 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	raw, err := client.Query(ctx, "whois.nic.io:43", "nic.io")
+	if err == nil {
+		t.Skipf("this network reaches the registry (%d bytes): run this inside the affected container", len(raw))
+	}
+	if !strings.Contains(err.Error(), "failed:") {
+		t.Fatalf("an auto failure must carry the per-address report: %v", err)
+	}
+	if addresses := strings.Count(err.Error(), ":43"); addresses < 2 {
+		t.Fatalf("only %d address reported, want every resolved one: %v", addresses, err)
+	}
+	t.Logf("diagnostics: %v", err)
 }

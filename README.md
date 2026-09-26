@@ -158,6 +158,52 @@ CLUSTER_PRIVATE_KEY=                   # generated on the first boot
 # NOTIFICATION_LOG_RETENTION_DAYS=90   # prune the delivery history (environment only, disabled by default)
 ```
 
+### Network egress (WHOIS, RDAP, DNS)
+
+The expiry job talks to the registries directly, so the container needs:
+
+| Port | Used for |
+|---|---|
+| **TCP 43** | WHOIS: `whois.iana.org` and the per-TLD registry servers |
+| **TCP 443** | RDAP (`data.iana.org`, `rdap.org`, the registry bases) and your HTTPS monitors |
+| **UDP/TCP 53** | DNS |
+
+Two traps are worth knowing before debugging a failed look-up:
+
+* A Docker network is IPv4-only by default, so the container has **no IPv6 route
+  at all** even when the machine running Docker has one: every registry — or CDN
+  or firewall — the host can only reach over IPv6 becomes unreachable, and the
+  only symptom is the IPv4 dial of the other family timing out after the whole
+  `timeout_seconds` (`dial tcp 52.37.99.5:43: i/o timeout`). Admin > TLD/SSL
+  expiration has an **IP family** setting (`auto`, `ipv4`, `ipv6`): a pinned
+  family fails immediately with `connect: network is unreachable` instead of
+  hiding the other one, and `auto` now reports every resolved address with its
+  own error.
+* An egress firewall that only allows 80/443 breaks WHOIS (port 43) while RDAP
+  keeps working, which looks like "the rule for this TLD is wrong".
+
+To give the containers an IPv6 path, enable IPv6 in the engine
+(`/etc/docker/daemon.json`: `{"ipv6": true, "fixed-cidr-v6": "fd00::/80",
+"experimental": true}`, then restart Docker), attach them to an IPv6-enabled
+compose network, or run the app with `network_mode: host` (Linux engines only; the
+database is then reached on `127.0.0.1` and `APP_PORT`/`HOST_PORT` are ignored).
+Docker Desktop: Settings > Resources > Network > Enable IPv6.
+
+The image ships no network tools of its own, so test from the namespace of the
+running container with a throwaway one (`busybox nc` wants `-w5`, not `-w 5`):
+
+```bash
+# The hostname first: the resolver decides the family, like the app does.
+docker run --rm --network container:up alpine:3.24 \
+  sh -c 'nc -zv -w5 whois.nic.io 43'
+
+# Then one literal address per family - 52.37.99.5 and
+# 2600:1f13:101:c200:9b9b:7011:8bd8:a4af are whois.nic.io. On an IPv4-only
+# network the second one answers "Network unreachable" in milliseconds.
+docker run --rm --network container:up alpine:3.24 sh -c \
+  'nc -zv -w5 "52.37.99.5:43"; nc -zv -w5 "[2600:1f13:101:c200:9b9b:7011:8bd8:a4af]:43"'
+```
+
 ## Public API and status pages
 
 ```bash

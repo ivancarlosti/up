@@ -156,6 +156,7 @@ function blankSettings(): ExpirySettings {
     whois_enabled: true,
     rate_limit_ms: 100,
     timeout_seconds: 10,
+    ip_version: 'auto',
   }
 }
 
@@ -223,6 +224,22 @@ function setCheckHour(value: string): void {
 }
 function setCheckMinute(value: string): void {
   settingsForm.check_time = `${checkHour.value}:${value}`
+}
+
+/**
+ * Address family offered for registry lookups (mirrors
+ * models.ExpiryIPVersions): "auto" keeps the dialer's happy eyeballs, the other
+ * two pin IPv4 or IPv6 - the fix for a container whose network has no IPv6 route
+ * while the registry only answers over IPv6.
+ */
+const ipVersionOptions = computed(() => [
+  { value: 'auto', label: t('expiry.ipVersionAuto') },
+  { value: 'ipv4', label: t('expiry.ipVersionIPV4') },
+  { value: 'ipv6', label: t('expiry.ipVersionIPV6') },
+])
+
+function setIPVersion(value: string): void {
+  settingsForm.ip_version = value
 }
 
 async function load(): Promise<void> {
@@ -464,6 +481,15 @@ onMounted(load)
         <div class="grid gap-1">
           <Label for="expiry-timeout" :help="t('expiry.timeoutHelp')">{{ t('expiry.timeout') }}</Label>
           <Input id="expiry-timeout" v-model.number="settingsForm.timeout_seconds" type="number" min="1" max="60" />
+        </div>
+        <div class="grid gap-1">
+          <Label for="expiry-ip-version" :help="t('expiry.ipVersionHelp')">{{ t('expiry.ipVersion') }}</Label>
+          <Select
+            id="expiry-ip-version"
+            :model-value="settingsForm.ip_version"
+            :options="ipVersionOptions"
+            @update:model-value="setIPVersion($event as string)"
+          />
         </div>
         <div class="flex flex-col gap-2 sm:col-span-2">
           <Switch v-model="settingsForm.rdap_enabled as boolean">{{ t('expiry.rdapEnabled') }}</Switch>

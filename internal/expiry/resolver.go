@@ -55,11 +55,12 @@ func (r *Resolver) Settings() models.ExpirySettings {
 	return r.settings
 }
 
-// rebuildLocked (re)creates the clients from the current timeout.
+// rebuildLocked (re)creates the clients from the current timeout and address
+// family.
 func (r *Resolver) rebuildLocked() {
 	timeout := time.Duration(r.settings.TimeoutSeconds) * time.Second
-	r.rdap = newRDAPClient(timeout)
-	r.whois = &WhoisClient{Timeout: timeout}
+	r.rdap = newRDAPClient(timeout, r.settings.IPVersion)
+	r.whois = &WhoisClient{Timeout: timeout, IPVersion: r.settings.IPVersion}
 }
 
 // Resolve returns the expiration of a domain, never nil.
@@ -199,7 +200,7 @@ func (r *Resolver) WHOISTest(ctx context.Context, domain string, parser *models.
 	timeout := time.Duration(settings.TimeoutSeconds) * time.Second
 	client := r.whois
 	if client == nil {
-		client = &WhoisClient{Timeout: timeout}
+		client = &WhoisClient{Timeout: timeout, IPVersion: settings.IPVersion}
 	}
 	r.mu.Unlock()
 

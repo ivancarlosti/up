@@ -361,6 +361,8 @@ export interface ExpirySettings {
   whois_enabled: boolean
   rate_limit_ms: number
   timeout_seconds: number
+  /** Address family of a registry lookup: 'auto' | 'ipv4' | 'ipv6'. */
+  ip_version: string
 }
 
 /** WhoisParser is an operator provided rule for one TLD. */

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -59,9 +60,19 @@ type rdapClient struct {
 	loaded   bool
 }
 
-func newRDAPClient(timeout time.Duration) *rdapClient {
+// newRDAPClient builds the RDAP client of a run.
+//
+// The transport is a clone of http.DefaultTransport (proxy settings and the
+// other defaults are kept) whose dial goes through dialRegistry, so RDAP honors
+// the same address family setting as WHOIS: pinning "ipv6" makes an IPv4-only
+// container fail immediately on the bootstrap fetch instead of timing out.
+func newRDAPClient(timeout time.Duration, ipVersion string) *rdapClient {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, _, address string) (net.Conn, error) {
+		return dialRegistry(ctx, ipVersion, address, timeout)
+	}
 	return &rdapClient{
-		client:       &http.Client{Timeout: timeout},
+		client:       &http.Client{Timeout: timeout, Transport: transport},
 		bootstrapURL: RDAPBootstrapURL,
 		fallbackBase: RDAPFallbackBase,
 	}

@@ -365,7 +365,7 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/admin/expiry` | `{settings, parsers, defaults, last_run_day, next_run}` |
-| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds` |
+| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds`, `ip_version` (`auto` \| `ipv4` \| `ipv6`) |
 | POST | `/api/admin/expiry/run` | runs the daily check now (deduplicated targets) -> `{ran: true, at}` |
 | GET | `/api/admin/expiry/targets` | the deduplicated worklist: `{targets, count}` (no lookup is performed) |
 | POST | `/api/admin/expiry/targets/refresh` | refreshes ONE target: `{kind, target}` -> `{ran: true, kind, target, monitors, at}` |
@@ -379,7 +379,21 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 `settings` is the whole configuration in one object; `defaults` is what an empty
 install uses, so the UI can offer a "restore defaults" action. Incoherent values
 answer `400 ERR_VALIDATION` (bad time, unknown timezone, out of range rate limit
-or timeout, an uncompilable regex, a regex without a capture group).
+or timeout, an uncompilable regex, a regex without a capture group). An omitted
+`ip_version` is valid: it keeps `auto`, so a client that does not know the field
+cannot break the endpoint.
+
+`ip_version` selects the address family of every registry lookup (`auto` lets the
+Go dialer pick the family of the first resolved address and use the other one as a
+fallback, `ipv4`/`ipv6` pin it with `tcp4`/`tcp6`). It exists because the two
+paths of a registry host are not equivalent: a Docker network is IPv4-only by
+default, so a container has no IPv6 route even when the machine that runs it does,
+and anything the host reaches only over IPv6 is then unreachable — which surfaces
+as `dial tcp <ipv4>:43: i/o timeout` after the whole `timeout_seconds`. Pin the
+family and the same lookup answers immediately with
+`connect: network is unreachable`, and in `auto` a failed lookup now lists
+**every** resolved address with its own error instead of only the family Go tried
+first (see the "Network egress" section of the README).
 
 `GET /api/admin/expiry/whois-parsers` answers the stored rules. A fresh install
 starts with the built-in table of `models.DefaultWhoisParsers()` (the TLDs

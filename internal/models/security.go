@@ -26,6 +26,9 @@ const (
 	SettingExpiryWHOISEnabled   = "expiry_whois_enabled"
 	SettingExpiryRateLimitMS    = "expiry_rate_limit_ms"
 	SettingExpiryTimeoutSeconds = "expiry_timeout_seconds"
+	// SettingExpiryIPVersion is the address family a registry lookup may use
+	// ("auto", "ipv4" or "ipv6"); see models.NormalizeExpiryIPVersion.
+	SettingExpiryIPVersion = "expiry_ip_version"
 	// SettingExpiryLastRunDay is the day bucket (unix/86400) of the last daily
 	// run, kept so a restart does not repeat the work and a process that was
 	// down at the scheduled time catches up on the next tick.

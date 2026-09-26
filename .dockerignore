@@ -25,3 +25,7 @@ web/.vite
 # Local tooling / scratch
 tools/node_modules
 *.log
+
+# Local plans / scratch notes (documentation only, never shipped)
+plan
+plans
