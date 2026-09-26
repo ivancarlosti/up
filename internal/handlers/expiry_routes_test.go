@@ -36,6 +36,7 @@ func TestExpiryRoutesRegistered(t *testing.T) {
 		"POST /api/admin/expiry/whois-parsers/test":  false,
 		"PUT /api/admin/expiry/whois-parsers/:id":    false,
 		"DELETE /api/admin/expiry/whois-parsers/:id": false,
+		"POST /api/admin/expiry/whois-parsers/reset": false,
 	}
 	for _, route := range engine.Routes() {
 		key := route.Method + " " + route.Path

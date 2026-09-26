@@ -126,6 +126,34 @@ func (s *WhoisParserService) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
+// Reset restores the built-in rules: every row is erased (the operator's edits,
+// additions and deletions included) and models.DefaultWhoisParsers is installed
+// again.
+//
+// It exists because the boot seed only fills an *empty* table: without this
+// action a rule that was edited into something wrong would stay wrong forever.
+// It is the "start over" of Admin > TLD/SSL expiration, in one transaction so
+// the table is never left empty by a failure.
+func (s *WhoisParserService) Reset(ctx context.Context) ([]models.WhoisParser, error) {
+	defaults := models.DefaultWhoisParsers()
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// "1 = 1" is the explicit "every row": gorm refuses a delete without a
+		// condition (ErrMissingWhereClause) unless the session allows it.
+		if err := tx.Where("1 = 1").Delete(&models.WhoisParser{}).Error; err != nil {
+			return err
+		}
+		if len(defaults) == 0 {
+			return nil
+		}
+		return tx.Create(&defaults).Error
+	})
+	if err != nil {
+		return nil, ErrInternal(fmt.Errorf("resetting the whois parsers: %w", err))
+	}
+	s.log.Info("whois parsers reset to the built-in defaults", "count", len(defaults))
+	return s.All(ctx)
+}
+
 // ValidateWhoisParser validates a rule without touching the database (used by
 // the "test" endpoint, where the operator pastes a draft).
 func ValidateWhoisParser(parser *models.WhoisParser) error {

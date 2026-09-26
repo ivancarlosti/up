@@ -168,6 +168,21 @@ func (h *Container) deleteWhoisParser(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// resetWhoisParsers restores the built-in TLD rules, erasing every edit the
+// operator made (the confirmation alert of the admin page is what asks for it).
+func (h *Container) resetWhoisParsers(c *gin.Context) {
+	if h.WhoisParsers == nil {
+		api.WriteError(c, http.StatusServiceUnavailable, i18n.CodeInternal, "the whois parser service is not wired")
+		return
+	}
+	parsers, err := h.WhoisParsers.Reset(c.Request.Context())
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, gin.H{"parsers": parsers, "count": len(parsers)})
+}
+
 // testWhoisParser runs a candidate rule against a pasted response (offline, the
 // "raw" field) or against a live domain lookup.
 func (h *Container) testWhoisParser(c *gin.Context) {

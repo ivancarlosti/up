@@ -428,10 +428,22 @@ smallest one the reminder repeats **once a day**. The events are
 3. **WHOIS** — a port 43 query, parsed by the **per-TLD rule** configured in
    *Admin > TLD/SSL expiration* (`whois_parsers`): a regular expression whose
    first capture group holds the date, plus the date layouts the registry uses.
+   Up ships a built-in table of the TLDs without RDAP whose registry does publish
+   the expiration (`.io`, `.co`, `.me`, `.it`, `.se`, `.ru`, `.mx`, `.tr`, …:
+   every row was verified against the live registry), so those monitors work
+   without any configuration. The query goes to the registry of the TLD first —
+   the built-in table, then the rule's `server` field — and only asks
+   `whois.iana.org` for the TLDs nothing else covers.
 
-TLDs such as `.io`, `.pt` or `.mx` have no RDAP at all: they stay
-`unsupported` until a WHOIS parser for their registry is added or the manual date
-is set.
+`date_layouts` is a `;` separated list of Go reference layouts and its
+recommended value is **ISO 8601** (`2006-01-02T15:04:05Z07:00;2006-01-02`),
+which is what a new rule starts with; the common registry shapes
+(`2006-01-02 15:04:05`, `02/01/2006`, `02.01.2006`, `2006-Jan-02`, …) are tried
+automatically after the configured ones.
+
+Every rule can be created, edited and deleted in the admin page, which also
+offers *reset parsers*: a confirmed action that erases the customizations and
+restores the built-in table.
 
 The status stored with the monitor tells the operator what happened:
 `ok` (a date was found), `not_found` (the registry says the domain is free),

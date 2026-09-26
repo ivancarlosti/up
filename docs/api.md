@@ -374,11 +374,26 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | PUT | `/api/admin/expiry/whois-parsers/:id` | update |
 | DELETE | `/api/admin/expiry/whois-parsers/:id` | `204` |
 | POST | `/api/admin/expiry/whois-parsers/test` | runs a candidate rule against a live `domain` or a pasted `raw` response -> `{ok, raw, not_found, expires_at?, days_left?, error?}` |
+| POST | `/api/admin/expiry/whois-parsers/reset` | **destructive**: deletes every rule (custom ones included) and installs the built-in table again -> `{parsers, count}` |
 
 `settings` is the whole configuration in one object; `defaults` is what an empty
 install uses, so the UI can offer a "restore defaults" action. Incoherent values
 answer `400 ERR_VALIDATION` (bad time, unknown timezone, out of range rate limit
 or timeout, an uncompilable regex, a regex without a capture group).
+
+`GET /api/admin/expiry/whois-parsers` answers the stored rules. A fresh install
+starts with the built-in table of `models.DefaultWhoisParsers()` (the TLDs
+without RDAP whose registry publishes the expiration over WHOIS), which the boot
+seed installs **only when the table is empty**: an edit or a deletion survives
+every restart, and the reset endpoint above is the explicit way back.
+
+The `server` field of a rule takes precedence, and the built-in table answers the
+same question for the TLDs it knows before the lookup falls back to the
+`whois.iana.org` referral — so a seeded TLD never queries IANA.
+
+`date_layouts` holds Go reference layouts separated by `;`; the recommended value
+is ISO 8601 (`2006-01-02T15:04:05Z07:00;2006-01-02`) and the common registry
+shapes are tried automatically after the configured ones.
 
 Every target of `/api/admin/expiry/targets` looks like:
 

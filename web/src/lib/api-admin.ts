@@ -19,6 +19,7 @@ import type {
   StatusPageGroupLink,
   WhoisParser,
   WhoisParserPayload,
+  WhoisParsersResetResult,
   WhoisTestResult,
 } from './types'
 
@@ -83,6 +84,8 @@ export const adminApi = {
   updateWhoisParser: (id: number, payload: WhoisParserPayload) =>
     put<WhoisParser>(`/api/admin/expiry/whois-parsers/${id}`, payload),
   deleteWhoisParser: (id: number) => del<void>(`/api/admin/expiry/whois-parsers/${id}`),
+  /** Restores the built-in TLD rules, erasing every customization. */
+  resetWhoisParsers: () => post<WhoisParsersResetResult>('/api/admin/expiry/whois-parsers/reset'),
   testWhoisParser: (payload: WhoisParserPayload & { domain?: string; raw?: string }) =>
     post<WhoisTestResult>('/api/admin/expiry/whois-parsers/test', payload),
 

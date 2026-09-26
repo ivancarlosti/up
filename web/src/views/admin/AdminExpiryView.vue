@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FlaskConical, Pencil, Play, Plus, RefreshCw, Save, Trash2 } from 'lucide-vue-next'
+import { FlaskConical, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-vue-next'
 import Alert from '@/components/ui/Alert.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
@@ -34,6 +34,15 @@ const testing = ref(false)
 
 const parsers = ref<WhoisParser[]>([])
 const nextRun = ref<string | null>(null)
+
+/**
+ * The value a new rule starts with: ISO 8601, the layout most registries emit
+ * (mirrors models.DefaultWhoisDateLayouts on the backend).
+ */
+const DEFAULT_DATE_LAYOUTS = '2006-01-02T15:04:05Z07:00;2006-01-02'
+
+/** Text filter of the rules table (TLD or server). */
+const parserSearch = ref('')
 
 // The deduplicated worklist of the job: what a run would look up, with the last
 // observation of each target.
@@ -116,6 +125,11 @@ const dialogOpen = ref(false)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<WhoisParser | null>(null)
 
+// "Reset WHOIS parsers": the destructive action that reinstalls the built-in
+// rules, so it has its own confirmation (see confirmReset).
+const resetOpen = ref(false)
+const resetBusy = ref(false)
+
 const testDomain = ref('')
 const testRaw = ref('')
 const testResult = ref<WhoisTestResult | null>(null)
@@ -150,13 +164,22 @@ function blankParser(): WhoisParserPayload {
     tld: '',
     server: '',
     expiry_regex: '',
-    date_layouts: '',
+    date_layouts: DEFAULT_DATE_LAYOUTS,
     not_found_pattern: '',
     min_interval_ms: 0,
     enabled: true,
     note: '',
   }
 }
+
+/** filteredParsers applies the text filter of the rules table. */
+const filteredParsers = computed(() => {
+  const term = parserSearch.value.trim().toLowerCase()
+  if (!term) return parsers.value
+  return parsers.value.filter((parser) =>
+    [parser.tld, parser.server, parser.note].some((value) => (value ?? '').toLowerCase().includes(term)),
+  )
+})
 
 /** toNumber converts what a native number input produces (a string). */
 function toNumber(value: unknown, fallback: number): number {
@@ -346,6 +369,25 @@ async function confirmRemove(): Promise<void> {
   }
 }
 
+/**
+ * confirmReset restores the built-in TLD rules: every custom rule (edits,
+ * additions and deletions) is discarded, which is what the confirmation alert
+ * asks for.
+ */
+async function confirmReset(): Promise<void> {
+  resetBusy.value = true
+  try {
+    const result = await api.resetWhoisParsers()
+    parsers.value = result.parsers ?? []
+    toasts.success(t('expiry.resetParsersDone', { count: result.count }))
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    resetBusy.value = false
+    resetOpen.value = false
+  }
+}
+
 async function runTest(): Promise<void> {
   testing.value = true
   testResult.value = null
@@ -438,17 +480,38 @@ onMounted(load)
 
     <Card :title="t('expiry.parsersTitle')" :description="t('expiry.parsersHelp')">
       <template #actions>
+        <Button
+          variant="outline"
+          size="sm"
+          class="text-status-down"
+          :title="t('expiry.resetParsersTitle')"
+          @click="resetOpen = true"
+        >
+          <RotateCcw class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('expiry.resetParsers') }}
+        </Button>
         <Button size="sm" @click="openCreate">
           <Plus class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('expiry.newParser') }}
         </Button>
       </template>
 
+      <div v-if="parsers.length" class="mb-3 flex flex-wrap items-center gap-2">
+        <Input v-model="parserSearch" class="max-w-xs" :placeholder="t('expiry.parserSearchPlaceholder')" />
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('expiry.parsersCount', { shown: filteredParsers.length, total: parsers.length }) }}
+        </span>
+      </div>
+
       <EmptyState
         v-if="!parsers.length && !loading"
         :title="t('expiry.noParsers')"
         :description="t('expiry.noParsersHelp')"
       />
+
+      <p v-else-if="!filteredParsers.length" class="text-sm text-muted-foreground">
+        {{ t('expiry.noParsersMatch') }}
+      </p>
 
       <div v-else class="overflow-x-auto">
         <table class="data-table">
@@ -462,8 +525,11 @@ onMounted(load)
             </tr>
           </thead>
           <tbody>
-            <tr v-for="parser in parsers" :key="parser.id">
-              <td class="font-mono">.{{ parser.tld }}</td>
+            <tr v-for="parser in filteredParsers" :key="parser.id">
+              <td>
+                <span class="font-mono">.{{ parser.tld }}</span>
+                <span v-if="parser.note" class="block text-[11px] text-muted-foreground">{{ parser.note }}</span>
+              </td>
               <td class="font-mono">{{ parser.server || t('expiry.serverAuto') }}</td>
               <td>
                 {{ parser.min_interval_ms ? `${parser.min_interval_ms} ms` : t('expiry.rateGlobal') }}
@@ -629,7 +695,7 @@ onMounted(load)
         </div>
         <div class="grid gap-1 sm:col-span-2">
           <Label for="parser-layouts" :help="t('expiry.layoutsHelp')">{{ t('expiry.layouts') }}</Label>
-          <Input id="parser-layouts" v-model="parserForm.date_layouts" placeholder="2006-01-02" />
+          <Input id="parser-layouts" v-model="parserForm.date_layouts" placeholder="2006-01-02T15:04:05Z07:00" />
         </div>
         <div class="grid gap-1 sm:col-span-2">
           <Label for="parser-notfound" :help="t('expiry.notFoundHelp')">{{ t('expiry.notFound') }}</Label>
@@ -694,6 +760,15 @@ onMounted(load)
       :description="t('expiry.deleteParserWarning')"
       :confirm-label="t('common.delete')"
       @confirm="confirmRemove"
+    />
+
+    <ConfirmDialog
+      v-model="resetOpen"
+      :title="t('expiry.resetParsersTitle')"
+      :description="t('expiry.resetParsersWarning')"
+      :confirm-label="t('expiry.resetParsersConfirm')"
+      :loading="resetBusy"
+      @confirm="confirmReset"
     />
   </div>
 </template>

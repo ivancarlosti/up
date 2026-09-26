@@ -97,6 +97,7 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	expiry.GET("/whois-parsers", h.listWhoisParsers)
 	expiry.POST("/whois-parsers", h.createWhoisParser)
 	expiry.POST("/whois-parsers/test", h.testWhoisParser)
+	expiry.POST("/whois-parsers/reset", h.resetWhoisParsers)
 	expiry.PUT("/whois-parsers/:id", h.updateWhoisParser)
 	expiry.DELETE("/whois-parsers/:id", h.deleteWhoisParser)
 

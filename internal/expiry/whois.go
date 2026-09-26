@@ -53,16 +53,25 @@ func (c *WhoisClient) Query(ctx context.Context, server, query string) (string, 
 	return string(body), nil
 }
 
-// Server discovers the registry whois server of a domain through IANA.
+// Server returns the registry whois server of a domain.
+//
+// The built-in table of the TLD wins (models.WhoisServerFor): asking
+// whois.iana.org for a server we already know costs a round trip per TLD and
+// leaves the lookup without an answer every time IANA is slow or unreachable.
+// The referral is the fallback for every TLD the table does not cover.
 func (c *WhoisClient) Server(ctx context.Context, domain string) (string, error) {
-	answer, err := c.Query(ctx, IANAServer, tldOf(domain))
+	suffix := tldOf(domain)
+	if server, known := models.WhoisServerFor(suffix); known {
+		return server, nil
+	}
+	answer, err := c.Query(ctx, IANAServer, suffix)
 	if err != nil {
 		return "", err
 	}
 	if server := Referral(answer); server != "" {
 		return server, nil
 	}
-	return "", fmt.Errorf("whois.iana.org did not refer a server for %q", tldOf(domain))
+	return "", fmt.Errorf("whois.iana.org did not refer a server for %q", suffix)
 }
 
 // Referral returns the server a whois answer points at ("" when there is none).
@@ -103,16 +112,27 @@ func withPort(server, port string) string {
 // builtinDateLayouts are the shapes tried after the operator provided ones. They
 // cover the common registry formats so an operator only has to write a layout
 // when their registry is unusual.
+//
+// ISO 8601 comes first because it is what models.DefaultWhoisDateLayouts
+// recommends (and what most registries emit); the fractional-second entry uses
+// 999 so both "2026-11-22T01:38:41Z" and "2026-11-22T01:38:41.000Z" parse.
 var builtinDateLayouts = []string{
 	"2006-01-02T15:04:05Z07:00",
+	"2006-01-02T15:04:05.999Z07:00",
 	"2006-01-02T15:04:05Z",
+	"2006-01-02 15:04:05 MST",
 	"2006-01-02 15:04:05",
 	"2006-01-02",
 	"02-Jan-2006",
+	"2006-Jan-02",
+	"02-Jan-2006 15:04:05",
 	"02.01.2006",
+	"02.01.2006 15:04:05",
+	"02/01/2006",
+	"02/01/2006 15:04:05",
+	"02-01-2006",
 	"2006.01.02",
 	"2006/01/02",
-	"02/01/2006",
 	"01/02/2006",
 	"20060102",
 }

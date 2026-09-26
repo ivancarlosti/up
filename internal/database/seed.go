@@ -20,6 +20,7 @@ import (
 //   - the session secret (used to sign session cookies and OIDC state);
 //   - the cluster private key (from CLUSTER_PRIVATE_KEY or a fresh UUID);
 //   - the single cluster_settings row with the behaviour rules;
+//   - the built-in WHOIS parsers (only when the table is empty);
 //   - the row of the node running right now, with the primary flag.
 func Seed(ctx context.Context, db *gorm.DB, cfg *config.Config, log *slog.Logger) error {
 	defaults := map[string]string{
@@ -72,6 +73,24 @@ func Seed(ctx context.Context, db *gorm.DB, cfg *config.Config, log *slog.Logger
 			return err
 		}
 		log.Info("cluster settings initialised", "failure_strategy", models.FailureStrategyAllNodesFail)
+	}
+
+	// Per-TLD WHOIS rules: the built-in table is installed when the operator has
+	// none yet. Only an empty table triggers it, so an edit or a deletion
+	// survives every restart; "Reset WHOIS parsers" in Admin > TLD/SSL
+	// expiration is the explicit way back to the defaults.
+	var parserCount int64
+	if err := db.WithContext(ctx).Model(&models.WhoisParser{}).Count(&parserCount).Error; err != nil {
+		return err
+	}
+	if parserCount == 0 {
+		parsers := models.DefaultWhoisParsers()
+		if len(parsers) > 0 {
+			if err := db.WithContext(ctx).Create(&parsers).Error; err != nil {
+				return err
+			}
+			log.Info("whois parsers seeded", "count", len(parsers))
+		}
 	}
 
 	// Node registration: every installation (even without clustering) has a

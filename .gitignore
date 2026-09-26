@@ -43,3 +43,6 @@ Thumbs.db
 # Logs and local scratch
 *.log
 /tmp/
+
+# Working plan / scratch notes
+/plan

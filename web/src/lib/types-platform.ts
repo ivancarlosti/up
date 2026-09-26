@@ -389,6 +389,12 @@ export interface ExpirySettingsResponse {
   next_run: string
 }
 
+/** Response of POST /api/admin/expiry/whois-parsers/reset. */
+export interface WhoisParsersResetResult {
+  parsers: WhoisParser[]
+  count: number
+}
+
 /** Response of POST /api/admin/expiry/whois-parsers/test. */
 export interface WhoisTestResult {
   raw: string

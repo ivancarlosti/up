@@ -123,6 +123,13 @@ on one policy.
 `date_layouts` (`;` separated Go layouts), `not_found_pattern`, `min_interval_ms`
 (per-registry rate limit override), `enabled` and `note`.
 
+The table is **seeded with `models.DefaultWhoisParsers()` when it is empty** (the
+verified registries of the TLDs without RDAP), so a fresh install can watch those
+domains without configuration. The guard is "empty table", never "missing row":
+an edit or a deletion is respected on every restart, and *reset parsers* in the
+admin page is the explicit way back to the built-ins. The table is local to the
+node (it has no synchronised entity), which is why the seed is written per node.
+
 `status_pages.show_expiry` is the third consumer of the same observations: a
 public page publishes the certificate/domain days-left badges only when the
 operator turned it on (default `false`), and `PublicPayload` strips the
