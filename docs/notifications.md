@@ -334,7 +334,10 @@ FROM notification_logs ORDER BY id DESC LIMIT 20;
 
 The history is kept **forever by default**. Set `NOTIFICATION_LOG_RETENTION_DAYS`
 to a positive number and the maintenance loop deletes the entries older than that
-every six hours (the same opt-in convention as `HEARTBEAT_RETENTION_DAYS`).
+every six hours. The variable is the only place this policy is read from (the
+heartbeat retention works differently: its live value is the shared setting and
+the variable is only the fallback of a deployment that never opened
+Admin > Settings, see `docs/database.md`).
 
 The notification *de-duplication* rows in `notification_locks` are different:
 they are meaningless after their own window (60 s for a status event, the day for

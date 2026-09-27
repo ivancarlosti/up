@@ -257,15 +257,22 @@ Every failure answers with a stable code that the frontend translates:
   (`errgroup`): `History`, `RecentBars` and `LatestPerNode` (bounded by the vote
   window), plus one read of `monitor_states` for the current status and the last
   check. It never runs a query per heartbeat: the bucketed heartbeat column is
-  bounded by monitors x slots, and the uptime window (including 14 d) is computed
-  by the same scan as the fixed 24 h/7 d/30 d figures.
+  bounded by monitors x slots, and the uptime window chosen in Admin > Settings is
+  computed in the same pass as the fixed 24 h/7 d/30 d figures (see the rollup
+  note below).
 - The "latest heartbeat per monitor" query is gone: `MAX(id) GROUP BY
   monitor_id` cannot use the `(monitor_id, created_at)` index and walked the whole
   retention to keep one row per monitor, which is what made the monitors table
   slow once the history grew. The listing reads the `monitor_states` row the
   evaluator upserts on every check, and the list endpoints ask for the aggregated
   status without the per-node votes (`DecorateList`).
-- The 24 h/7 d/30 d uptime figures come from a single aggregate query using
-  conditional `SUM(CASE ...)` expressions.
+- The 24 h/7 d/30 d uptime figures and the window selected in Admin > Settings
+  are computed in one pass over the hourly `heartbeat_rollups` — at most 720 rows
+  per monitor for 30 days — plus the two partial hours of each window (the hour
+  the window starts in and the hour in progress), read from the raw table. The
+  counters, the average of the `up` checks and the min/max are identical to the
+  single `SUM(CASE ...)` aggregate this replaces; the rollups are reconciled at
+  boot (`database.BackfillHeartbeatRollups`) and purged together with the
+  heartbeats they were computed from (`docs/database.md` §5).
 - IP rules are cached in memory for 10 s; writes invalidate the cache.
 - `notification_locks` rows are tiny and only meaningful for a 60 s window.

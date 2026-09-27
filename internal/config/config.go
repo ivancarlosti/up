@@ -198,9 +198,10 @@ type Config struct {
 	SchedulerReconcileSeconds int
 	HeartbeatRetentionDays    int
 	// NotificationLogRetentionDays purges the delivery history
-	// (notification_logs). 0 keeps every entry, the same convention as
-	// HeartbeatRetentionDays: retention is opt-in so nothing is deleted behind
-	// the operator's back.
+	// (notification_logs). 0 keeps every entry, so retention is opt-in and
+	// nothing is deleted behind the operator's back. Unlike the heartbeat
+	// retention, whose live value is the shared setting and whose variable is
+	// only a fallback, this value is read from the environment alone.
 	NotificationLogRetentionDays int
 	SessionTTLHours              int
 	SecurityBypassIPRules        bool
