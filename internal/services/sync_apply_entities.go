@@ -527,9 +527,11 @@ func (s *SyncService) writeStatusPage(ctx context.Context, tx *gorm.DB, payload 
 		"show_uptime":    payload.ShowUptime,
 		"show_charts":    payload.ShowCharts,
 		"show_tags":      payload.ShowTags,
-		"show_expiry":    payload.ShowExpiry,
-		"custom_css":     payload.CustomCSS,
-		"updated_at":     payload.UpdatedAt,
+
+		"show_cert_expiry":   payload.ShowCertExpiry,
+		"show_domain_expiry": payload.ShowDomainExpiry,
+		"custom_css":         payload.CustomCSS,
+		"updated_at":         payload.UpdatedAt,
 	}
 	if err := tx.WithContext(ctx).Model(&models.StatusPage{}).
 		Where("id = ?", localID).Updates(columns).Error; err != nil {

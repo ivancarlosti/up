@@ -115,8 +115,12 @@ type StatusPagePayload struct {
 	ShowUptime  bool   `json:"show_uptime"`
 	ShowCharts  bool   `json:"show_charts"`
 	ShowTags    bool   `json:"show_tags"`
-	ShowExpiry  bool   `json:"show_expiry"`
-	CustomCSS   string `json:"custom_css"`
+	// The two expiry switches travel separately (see models.StatusPage): the
+	// single `show_expiry` of protocol 1-2 had no way to say which badge it
+	// meant, so a peer applying it published a page the origin did not show.
+	ShowCertExpiry   bool   `json:"show_cert_expiry"`
+	ShowDomainExpiry bool   `json:"show_domain_expiry"`
+	CustomCSS        string `json:"custom_css"`
 
 	Monitors []StatusPageItemPayload  `json:"monitors"`
 	Groups   []StatusPageGroupPayload `json:"groups"`

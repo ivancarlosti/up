@@ -163,8 +163,10 @@ func BuildStatusPagePayload(p *models.StatusPage, items []models.StatusPageItemP
 		ShowUptime:  p.ShowUptime,
 		ShowCharts:  p.ShowCharts,
 		ShowTags:    p.ShowTags,
-		ShowExpiry:  p.ShowExpiry,
-		CustomCSS:   p.CustomCSS,
+
+		ShowCertExpiry:   p.ShowCertExpiry,
+		ShowDomainExpiry: p.ShowDomainExpiry,
+		CustomCSS:        p.CustomCSS,
 
 		Monitors: orEmptySlice(items),
 		Groups:   orEmptySlice(groups),

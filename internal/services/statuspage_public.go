@@ -144,11 +144,15 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 		return nil, err
 	}
 
-	// The expiry observation is only published when the page asks for it: the
-	// payload is anonymous, and a domain expiration is not status information.
-	if !page.ShowExpiry {
-		for _, monitor := range ordered {
+	// The expiry observations are published one badge at a time, each behind its
+	// own switch: the payload is anonymous, and the registration date of a domain
+	// is not status information. A page that only asks for the certificate must
+	// not leak the domain with it.
+	for _, monitor := range ordered {
+		if !page.ShowCertExpiry {
 			monitor.Certificate = nil
+		}
+		if !page.ShowDomainExpiry {
 			monitor.Domain = nil
 		}
 	}

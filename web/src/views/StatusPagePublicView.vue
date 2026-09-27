@@ -134,21 +134,24 @@ watch(slug, load)
               <span class="h-2.5 w-2.5 rounded-full" :class="statusColor(monitor.status)" />
               <h2 class="text-sm font-medium">{{ monitor.name }}</h2>
 
-              <!-- Opt-in per page: only the days-left badge is published, never
-                   the internal reason of a failed lookup. -->
+              <!-- Opt-in per page and one switch per badge: only the days-left
+                   value is published, never the internal reason of a failed
+                   lookup. The label in front of the number is what tells a
+                   visitor which of the two dates the badge refers to: the TLS
+                   certificate of the host or the registration of the domain. -->
               <Badge
-                v-if="page.show_expiry && monitor.certificate"
+                v-if="page.show_cert_expiry && monitor.certificate"
                 :variant="expiryStateVariant('ok', monitor.certificate.days_left)"
                 :title="certificateTitle(monitor.certificate, locale)"
               >
-                {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
+                {{ t('certificate.column') }}: {{ t('certificate.daysLeft', { days: monitor.certificate.days_left }) }}
               </Badge>
               <Badge
-                v-if="page.show_expiry && monitor.domain && monitor.domain.status === 'ok'"
+                v-if="page.show_domain_expiry && monitor.domain && monitor.domain.status === 'ok'"
                 :variant="expiryStateVariant(monitor.domain.status, monitor.domain.days_left)"
                 :title="domainTitle(monitor.domain, locale)"
               >
-                {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
+                {{ t('domain.column') }}: {{ t('domain.daysLeft', { days: monitor.domain.days_left }) }}
               </Badge>
 
               <span class="ms-auto text-[11px] text-muted-foreground">{{ t(`status.${monitor.status}`) }}</span>

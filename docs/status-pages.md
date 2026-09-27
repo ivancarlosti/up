@@ -19,7 +19,8 @@ Example API response:
   "id": 1, "slug": "main", "title": "Up Status",
   "description": "Public status of the platform", "footer_text": "Powered by Up",
   "theme": "system", "is_public": true,
-  "show_uptime": true, "show_charts": true, "show_tags": false, "show_expiry": false,
+  "show_uptime": true, "show_charts": true, "show_tags": false,
+  "show_cert_expiry": false, "show_domain_expiry": false,
   "uptime_window_hours": 0,
   "overall_status": "up", "up_monitors": 4, "down_monitors": 0, "monitors_count": 4,
   "monitors": [
@@ -45,7 +46,8 @@ Example API response:
 | `show_uptime` | shows the uptime percentage per monitor over the page period |
 | `show_charts` | shows the heartbeat bars (same period) |
 | `show_tags` | shows the monitor tags |
-| `show_expiry` | publishes the certificate/domain **days left** badges of the monitors (default `false`) |
+| `show_cert_expiry` | publishes the **certificate** days-left badge (`Certificate: 12 days`) of the monitors (default `false`) |
+| `show_domain_expiry` | publishes the **domain registration** days-left badge (`Domain: 91 days`) of the monitors (default `false`); independent from `show_cert_expiry` |
 | `uptime_window_hours` | period the uptime and the bars cover: `0` inherits the global one (Admin > Settings), otherwise `24`, `168`, `336` (14 d) or `720` (30 d) |
 | `custom_css` | injected into the public page (advanced) |
 | `monitor_ids` order | display order (up to any number of monitors) |
@@ -134,7 +136,7 @@ Colours follow the overall status: green (`up`), red (`down`), amber
 | IP rules | scope `public` in Admin > Security (`docs/security.md`) |
 | Hidden page | `is_public=false` (admins can preview) |
 | No secrets | the public payload exposes no credentials, no configuration and no error details |
-| Expiry is opt-in | `show_expiry=false` strips the `certificate`/`domain` objects from the payload entirely, so a page that does not show them does not publish them |
+| Expiry is opt-in, one switch per badge | `show_cert_expiry`/`show_domain_expiry` strip the `certificate`/`domain` object they own from the payload (`PublicPayload`), so a page that only asks for the certificate does not publish the domain with it. Both default to `false` because an anonymous page has no reason to advertise how old the domain is |
 
 ## 7. Limitations and extensions
 

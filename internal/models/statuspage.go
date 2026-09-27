@@ -33,10 +33,18 @@ type StatusPage struct {
 	ShowUptime bool `gorm:"not null;default:true" json:"show_uptime"`
 	ShowCharts bool `gorm:"not null;default:true" json:"show_charts"`
 	ShowTags   bool `gorm:"not null;default:false" json:"show_tags"`
-	// ShowExpiry publishes the certificate and domain badges of the monitors on
-	// the page. It is opt-in on purpose: the expiry of a domain is business
-	// information, not a status everybody who can see the page needs.
-	ShowExpiry bool `gorm:"not null;default:false" json:"show_expiry"`
+	// ShowCertExpiry publishes the TLS certificate days-left badge of the
+	// monitors on the page.
+	//
+	// The two expiry badges are separate opt-ins on purpose: the certificate of a
+	// host and the registration of a domain are different facts, renewed by
+	// different people, and the payload of a public page is anonymous. A page
+	// that watches the availability of a service has no reason to publish how
+	// old its domain is, which is the kind of detail an attacker reads first.
+	ShowCertExpiry bool `gorm:"not null;default:false" json:"show_cert_expiry"`
+	// ShowDomainExpiry publishes the domain registration days-left badge of the
+	// monitors on the page (see ShowCertExpiry).
+	ShowDomainExpiry bool `gorm:"not null;default:false" json:"show_domain_expiry"`
 	// UptimeWindowHours is the period this page shows the uptime percentage and
 	// the heartbeat bars for. 0 means "inherit the global window"
 	// (Admin > Settings), which is what keeps a page in step with the dashboard.

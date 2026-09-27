@@ -65,22 +65,61 @@ const templates = ref<MonitorTemplate[]>([])
 const monitorId = computed(() => Number(route.params.id))
 
 /**
- * Latency sparkline: plain divs, no charting dependency. The scale is capped at
- * the p90 of the window so a single timeout does not flatten every other bar
- * (the tooltip still shows the real value).
+ * Latency sparkline: plain divs, no charting dependency.
+ *
+ * The bars are scaled to the p90 of the plotted samples so a single timeout does
+ * not flatten every other bar, which means the top of the chart is NOT the
+ * maximum. Everything the reader needs to interpret it is therefore written next
+ * to it: the value of the scale, a dashed line at the average, and a min/avg/max
+ * line computed from the very samples that are drawn. A bar taller than the
+ * scale is dimmed on purpose - its real value is in its tooltip.
  */
-const latencyBars = computed(() => {
-  const items = [...heartbeats.value].slice(0, 60).reverse()
-  if (items.length === 0) return []
-  const sorted = items.map((item) => item.latency_ms).sort((a, b) => a - b)
-  const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] ?? 1
-  const max = Math.max(1, p90)
-  return items.map((item) => ({
-    ...item,
-    over: item.latency_ms > max,
-    height: Math.max(6, Math.min(100, Math.round((item.latency_ms / max) * 100))),
-  }))
+const latencySamples = computed(() => [...heartbeats.value].slice(0, 60).reverse())
+
+/** latencyScale is the p90 of the samples, floored at 1 ms so a ratio is always defined. */
+const latencyScale = computed(() => {
+  const values = latencySamples.value.map((item) => item.latency_ms).sort((a, b) => a - b)
+  if (values.length === 0) return 1
+  return Math.max(1, values[Math.min(values.length - 1, Math.floor(values.length * 0.9))] ?? 1)
 })
+
+const latencyBars = computed(() =>
+  latencySamples.value.map((item) => ({
+    ...item,
+    over: item.latency_ms > latencyScale.value,
+    height: Math.max(6, Math.min(100, Math.round((item.latency_ms / latencyScale.value) * 100))),
+  })),
+)
+
+/**
+ * latencyStats describes the plotted samples themselves, not the whole window:
+ * the numbers under the chart have to be the ones the bars are drawn from, or
+ * the chart and its own legend would contradict each other.
+ */
+const latencyStats = computed(() => {
+  const values = latencySamples.value.map((item) => item.latency_ms)
+  if (values.length === 0) {
+    return { count: 0, min: 0, avg: 0, max: 0, avgHeight: 0, overCount: 0, over: false }
+  }
+  const avg = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+  const overCount = values.filter((value) => value > latencyScale.value).length
+  return {
+    count: values.length,
+    min: Math.min(...values),
+    avg,
+    max: Math.max(...values),
+    // The dashed average line shares the scale of the bars, so the two are
+    // directly comparable.
+    avgHeight: Math.max(0, Math.min(100, Math.round((avg / latencyScale.value) * 100))),
+    overCount,
+    over: overCount > 0,
+  }
+})
+
+/** latencyTitle is the per bar tooltip: status, formatted latency and timestamp. */
+function latencyTitle(bar: Heartbeat): string {
+  return `${t(`status.${bar.status}`)} · ${formatLatency(bar.latency_ms)} · ${formatDateTime(bar.created_at, locale.value)}`
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -265,17 +304,70 @@ watch(hours, load)
       </div>
 
       <div class="mt-6 border-t border-border pt-5">
-        <p class="text-xs font-medium text-muted-foreground">{{ t('monitorDetail.latency') }}</p>
-        <div class="mt-3 flex h-28 items-end gap-1">
-          <span
-            v-for="bar in latencyBars"
-            :key="bar.id"
-            class="min-h-[6px] flex-1 rounded-t"
-            :class="[statusColor(bar.status), bar.over && 'opacity-60']"
-            :style="{ height: `${bar.height}%` }"
-            :title="`${bar.latency_ms} ms`"
-          />
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-xs font-medium text-muted-foreground">{{ t('monitorDetail.latency') }}</p>
+          <p v-if="latencyStats.count" class="text-[11px] text-muted-foreground">
+            {{ formatUptimeWindow(hours) }} · {{ t('monitorDetail.samples', { count: latencyStats.count }) }}
+          </p>
         </div>
+
+        <p v-if="!latencyStats.count" class="mt-3 text-xs text-muted-foreground">
+          {{ t('monitorDetail.noEvents') }}
+        </p>
+
+        <template v-else>
+          <div
+            class="relative mt-4 h-28"
+            role="img"
+            :aria-label="`${t('monitorDetail.latency')}: ${t('monitorDetail.min')} ${formatLatency(latencyStats.min)}, ${t('monitorDetail.avg')} ${formatLatency(latencyStats.avg)}, ${t('monitorDetail.max')} ${formatLatency(latencyStats.max)}`"
+          >
+            <span
+              class="absolute end-0 top-0 z-10 rounded bg-card/90 px-1 text-[10px] text-muted-foreground"
+              :title="t('monitorDetail.scaleHint')"
+            >
+              {{ t('monitorDetail.scale', { value: formatLatency(latencyScale) }) }}
+            </span>
+            <div
+              class="pointer-events-none absolute inset-x-0 border-t border-dashed border-muted-foreground/60"
+              :style="{ bottom: `${latencyStats.avgHeight}%` }"
+            >
+              <span
+                class="absolute start-0 -translate-y-1/2 rounded bg-card/90 px-1 text-[10px] text-muted-foreground"
+              >
+                {{ t('monitorDetail.avg') }} {{ formatLatency(latencyStats.avg) }}
+              </span>
+            </div>
+            <div class="flex h-full items-end gap-1">
+              <span
+                v-for="bar in latencyBars"
+                :key="bar.id"
+                class="min-h-[6px] flex-1 rounded-t"
+                :class="[statusColor(bar.status), bar.over && 'opacity-60']"
+                :style="{ height: `${bar.height}%` }"
+                :title="latencyTitle(bar)"
+              />
+            </div>
+          </div>
+
+          <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            <span>
+              {{ t('monitorDetail.min') }}
+              <span class="tabular-nums text-foreground">{{ formatLatency(latencyStats.min) }}</span>
+            </span>
+            <span>
+              {{ t('monitorDetail.avg') }}
+              <span class="tabular-nums text-foreground">{{ formatLatency(latencyStats.avg) }}</span>
+            </span>
+            <span>
+              {{ t('monitorDetail.max') }}
+              <span class="tabular-nums text-foreground">{{ formatLatency(latencyStats.max) }}</span>
+            </span>
+            <span v-if="latencyStats.over" :title="t('monitorDetail.scaleHint')">
+              {{ t('monitorDetail.overScale', { count: latencyStats.overCount }) }}
+            </span>
+            <span class="ms-auto">{{ t('monitorDetail.legend') }}</span>
+          </div>
+        </template>
       </div>
     </Card>
 

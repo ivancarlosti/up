@@ -194,8 +194,10 @@ export interface StatusPage {
   show_uptime: boolean
   show_charts: boolean
   show_tags: boolean
-  /** Publishes the certificate/domain badges of the monitors on the page. */
-  show_expiry: boolean
+  /** Publishes the TLS certificate days-left badge of the monitors on the page. */
+  show_cert_expiry: boolean
+  /** Publishes the domain registration days-left badge of the monitors on the page. */
+  show_domain_expiry: boolean
   /**
    * Period the page shows the uptime and the bars for (24, 168, 336 or 720
    * hours). 0 inherits the global window from Admin > Settings.

@@ -112,6 +112,35 @@ try {
   }).then((r) => r.json())`)
   check('group linked to the page', Array.isArray(linked) && linked.length === 1)
 
+  // --- the two expiry switches are independent -----------------------------
+  // A page carries one switch per badge instead of the single show_expiry of
+  // protocol 1-2: turning the certificate on must leave the domain off, in the
+  // anonymous payload that decides what a visitor is allowed to see.
+  const expiryFlags = await api(`(async () => {
+    const current = await fetch('/api/status-pages/${statusPage.id}').then((r) => r.json())
+    const saved = await fetch('/api/status-pages/${statusPage.id}', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...current, show_cert_expiry: true, show_domain_expiry: false }),
+    })
+    const anonymous = await fetch('/api/public/status/${slug}').then((r) => r.json())
+    return {
+      status: saved.status,
+      cert: anonymous.show_cert_expiry,
+      domain: anonymous.show_domain_expiry,
+      domainBadge: anonymous.monitors?.some((monitor) => Boolean(monitor.domain)) ?? false,
+      certBadge: anonymous.monitors?.every((monitor) => Boolean(monitor.certificate)) ?? false,
+    }
+  })()`)
+  check('the page was saved with the two switches', expiryFlags.status === 200, `status ${expiryFlags.status}`)
+  check('the certificate switch is on', expiryFlags.cert === true, String(expiryFlags.cert))
+  check('the domain switch stayed off', expiryFlags.domain === false, String(expiryFlags.domain))
+  check(
+    'a page that only asks for the certificate publishes no domain',
+    expiryFlags.domainBadge === false,
+    String(expiryFlags.domainBadge),
+  )
+
   // --- the public page renders the group -----------------------------------
   await page.goto(`${url}/status/${slug}`, { settle: 1500 })
   const firstPass = await api(`({

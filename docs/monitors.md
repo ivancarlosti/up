@@ -379,7 +379,8 @@ effect of the handshake). Two switches decide what happens with it:
 
 The validity badge appears on the dashboard card, the monitor detail page and the
 admin monitors table (sortable by days left), and on a public status page only
-when that page has `show_expiry` on (`docs/status-pages.md`).
+when that page has `show_cert_expiry` on — the domain badge of the same monitor
+follows its own `show_domain_expiry` switch (`docs/status-pages.md`).
 
 `cert_warn_days` is a **free form** list of days before expiry, e.g. `7,6,5,30`
 (any numbers, any order; empty means `30,14,7,1`). The cadence is hybrid:

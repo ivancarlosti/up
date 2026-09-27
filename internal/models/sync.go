@@ -21,7 +21,11 @@ import (
 //   - 2: the status page selection travels as records (order and per-item
 //     overrides included) instead of two sorted uuid lists. Version 1 could not
 //     express the display order, so applying a page on a peer silently reset it.
-const ProtocolVersion = 2
+//   - 3: a status page carries one expiry switch per badge
+//     (`show_cert_expiry` and `show_domain_expiry`) instead of a single
+//     `show_expiry`. A version 2 receiver cannot read either of them, so it
+//     would keep its own `show_expiry` and publish a badge the origin hides.
+const ProtocolVersion = 3
 
 // Peer status values stored in SyncPeer.Status.
 const (

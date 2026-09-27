@@ -107,7 +107,8 @@ Require the `write` scope; both return the updated (redacted) monitor.
 
 Same payload as the public status page (useful to render your own frontend).
 The `certificate`/`domain` badges of the monitors are only included when the
-page has `show_expiry` on (see [status-pages.md](status-pages.md)).
+page has the matching switch on, `show_cert_expiry` for the certificate and
+`show_domain_expiry` for the domain (see [status-pages.md](status-pages.md)).
 
 ## 4. Recipes
 

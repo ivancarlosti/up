@@ -185,7 +185,7 @@ what makes the protocol self-healing instead of "eventually maybe".
   "next_since": 4188,
   "has_more": false,
   "latest_revision": 12,
-  "protocol_version": 1
+  "protocol_version": 3
 }
 ```
 
@@ -778,7 +778,12 @@ nodes ran with two databases throughout.
 6. **Protocol version 2.** The status page selection travels as records (uuid, display
    name, group name, sort order, per-item visibility) rather than two sorted uuid
    lists: the order and the per-item overrides live in the join row, so a receiver
-   rebuilding the selection from uuids silently reset both.
+   rebuilding the selection from uuids silently reset both. **Version 3** then split
+   the single `show_expiry` switch of a page into `show_cert_expiry` and
+   `show_domain_expiry`, because one flag could not say which badge it meant: a
+   version 2 receiver cannot read either field, would keep its own `show_expiry` and
+   publish a badge the origin hides. A change that only ADDS a field is compatible and
+   needs no bump — this one removes one, which is why the version moved.
 
 
 7. **A name collision renames the ARRIVING row (§4).** `name` is unique for groups

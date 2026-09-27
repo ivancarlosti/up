@@ -131,11 +131,16 @@ an edit or a deletion is respected on every restart, and *reset parsers* in the
 admin page is the explicit way back to the built-ins. The table is local to the
 node (it has no synchronised entity), which is why the seed is written per node.
 
-`status_pages.show_expiry` is the third consumer of the same observations: a
-public page publishes the certificate/domain days-left badges only when the
-operator turned it on (default `false`), and `PublicPayload` strips the
-`certificate`/`domain` objects from the anonymous payload otherwise
-(`docs/status-pages.md`).
+`status_pages.show_cert_expiry` and `status_pages.show_domain_expiry` are the
+third consumer of the same observations: a public page publishes the certificate
+or the domain days-left badge only when the operator turned that switch on (both
+default to `false`), and `PublicPayload` strips the object of a switch that is off
+from the anonymous payload (`docs/status-pages.md`). The two are separate columns
+because the badges are separate facts — a page about uptime publishes the
+certificate of a host long before it should publish the registration date of its
+domain. The single `show_expiry` column of protocol 1-2 is left in place on an
+existing database: `AutoMigrate` never drops a column, and nothing reads or writes
+it any more.
 
 **Every value that comes from a remote server is clipped before the insert.**
 The columns are dimensioned for the widest realistic answer and the observation
@@ -494,7 +499,8 @@ CREATE TABLE `status_pages` (
   `show_uptime` tinyint(1) NOT NULL DEFAULT 1,
   `show_charts` tinyint(1) NOT NULL DEFAULT 1,
   `show_tags` tinyint(1) NOT NULL DEFAULT 0,
-  `show_expiry` tinyint(1) NOT NULL DEFAULT 0,
+  `show_cert_expiry` tinyint(1) NOT NULL DEFAULT 0,
+  `show_domain_expiry` tinyint(1) NOT NULL DEFAULT 0,
   `uptime_window_hours` bigint(20) NOT NULL DEFAULT 0,
   `custom_css` text DEFAULT NULL,
   `created_at` datetime(3) DEFAULT NULL,
