@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",
     "shots": "node scripts/shots.mjs",
+    "shots:readme": "node scripts/readme-shots.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
     "check:i18n": "node scripts/i18n-check.mjs",
     "e2e:notifications": "node scripts/e2e-notifications.mjs",
     "e2e:groups": "node scripts/e2e-groups.mjs",
