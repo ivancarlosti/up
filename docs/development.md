@@ -260,6 +260,41 @@ page, including the monitor detail. It once said `Reconnecting…` as soon as yo
 left the dashboard, because the socket was opened and closed by `DashboardView`
 while the badge is global (`App.vue` owns it now).
 
+#### The README set (`npm run shots:readme`)
+
+`docs/screenshots/` is produced by a second, opinionated runner. It needs a
+*seeded* instance, because two of the eleven paths only exist once the data does
+(the monitor detail and the public status page), so it seeds, waits for the data
+to settle and then shoots:
+
+```bash
+cd web
+npm run seed:demo      # 16 monitors, 4 groups, 4 templates, 4 channels, 2 status pages
+npm run shots:readme   # -> docs/screenshots/{1-dashboard…11-statuspage}.png
+```
+
+Run `seed:demo` against a **fresh** database: it creates rather than reconciles,
+so it refuses a database that already holds monitors unless you pass `--force`
+("the data of this instance is disposable"). Reset it the way the container
+entrypoint does, as `root`: `mariadb -uroot -proot`. Three things are easy to get
+wrong:
+
+- **`localhost`, not `127.0.0.1`.** Both scripts default to `http://localhost:3000`
+  because that is the `APP_URL` the instance booted with. The hub only accepts the
+  `APP_URL` origin (`ws.NewHub(log, []string{cfg.AppURL})`, `cmd/server/app.go`),
+  so browsing the same instance over `127.0.0.1` leaves the badge stuck at
+  `Reconnecting…` and `shots:readme` fails its badge assertion. For the same
+  reason an IP rule written for `localhost` must hold both `127.0.0.1/32` and
+  `::1/128`: this platform resolves it to the IPv6 loopback.
+- **The fixture is deliberately mixed.** `seed-demo.mjs` keeps two rows off the
+  happy path so the counters read up/down/paused instead of all green:
+  `Cache cluster (Redis)` (a closed port) is `down`, and `Legacy portal` is paused
+  after creation, so it reports `maintenance`.
+- **Statuses lag.** `POST /check` returns before the heartbeat is stored and a
+  failing probe is retried, so `seed-demo.mjs` polls for up to 30 s until no row
+  is `pending` and both non-green statuses hold, printing
+  `! <name> reads X, expected Y` instead of finishing early.
+
 Security checks (see `docs/security.md` §10 for the last audit results):
 
 ```bash

@@ -240,21 +240,54 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 
 ## Screenshots
 
-| ![dashboard.png](docs/screenshots/dashboard.png) | 
-|:--:| 
-| *Main dashboard panel* |
+Every image below comes from a seeded local instance - nothing is mocked up, and
+the `Live` badge is the real WebSocket connection (regenerate them with
+`npm run seed:demo && npm run shots:readme` in `web/`, see
+[docs/development.md](docs/development.md#61-screenshots-and-layout-checks)).
 
-| ![monitor.png](docs/screenshots/monitor.png) | 
+| ![dashboard](docs/screenshots/1-dashboard.png) | 
 |:--:| 
-| *Monitoring panel* |
+| *Main dashboard panel: counters, status, uptime and heartbeat bars* |
 
-| ![singlemonitor.png](docs/screenshots/singlemonitor.png) | 
+| ![monitor groups](docs/screenshots/2-monitorgroups.png) | 
 |:--:| 
-| *Single monitor status details* |
+| *Monitor groups: named collections of monitors, reused by status pages* |
 
-| ![status.png](docs/screenshots/status.png) | 
+| ![monitor templates](docs/screenshots/3-monitortemplates.png) | 
 |:--:| 
-| *Public Status page* |
+| *Monitor templates* |
+
+| ![notifications](docs/screenshots/4-notifications.png) | 
+|:--:| 
+| *Notification channels and delivery history* |
+
+| ![expiration](docs/screenshots/5-tldsslexpiration.png) | 
+|:--:| 
+| *TLD and SSL expiration: the daily job settings and the WHOIS parsers for TLDs without RDAP* |
+
+| ![status pages](docs/screenshots/6-statuspages.png) | 
+|:--:| 
+| *Status pages* |
+
+| ![security](docs/screenshots/7-security.png) | 
+|:--:| 
+| *Security: public API tokens and the IP allow/deny list* |
+
+| ![cluster](docs/screenshots/8-cluster.png) | 
+|:--:| 
+| *Cluster: this node, the join flow and the registered nodes* |
+
+| ![settings](docs/screenshots/9-settings.png) | 
+|:--:| 
+| *Settings* |
+
+| ![monitor detail](docs/screenshots/10-monitordetail.png) | 
+|:--:| 
+| *Monitor detail: uptime, response time, latency chart, cluster votes and recent events* |
+
+| ![public status page](docs/screenshots/11-statuspage.png) | 
+|:--:| 
+| *Public status page* |
 
 ## License
 
