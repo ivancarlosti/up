@@ -19,12 +19,12 @@ func TestPlanFor(t *testing.T) {
 		turn       string
 		want       probePlan
 	}{
-		{"default rotation on the ipv4 turn", models.IPFamilyAlternate, models.IPFamily4, probePlan{family: models.IPFamily4}},
-		{"default rotation on the ipv6 turn", models.IPFamilyAlternate, models.IPFamily6, probePlan{family: models.IPFamily6}},
+		{"rotation on the ipv4 turn", models.IPFamilyAlternate, models.IPFamily4, probePlan{family: models.IPFamily4}},
+		{"rotation on the ipv6 turn", models.IPFamilyAlternate, models.IPFamily6, probePlan{family: models.IPFamily6}},
 		{"rotation without a turn pins nothing", models.IPFamilyAlternate, "", probePlan{}},
 		{"rotation ignores an unreadable turn", models.IPFamilyAlternate, "nope", probePlan{}},
-		{"auto never pins", models.IPFamilyAuto, models.IPFamily6, probePlan{}},
-		{"an empty preference is the default rotation", "", models.IPFamily4, probePlan{family: models.IPFamily4}},
+		{"auto (the default) never pins", models.IPFamilyAuto, models.IPFamily6, probePlan{}},
+		{"an empty preference is the default (auto), which never pins", "", models.IPFamily4, probePlan{}},
 		{"an unreadable preference falls back to the plain dial", "nope", models.IPFamily6, probePlan{}},
 		{"ipv4 is a hard pin and ignores the turn", models.IPFamily4, models.IPFamily6, probePlan{family: models.IPFamily4, hard: true}},
 		{"ipv6 is a hard pin", models.IPFamily6, models.IPFamily4, probePlan{family: models.IPFamily6, hard: true}},

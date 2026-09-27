@@ -52,9 +52,10 @@ type MonitorConfig struct {
 	ServerName string `json:"server_name,omitempty"`
 
 	// --- every type -------------------------------------------------------
-	// IPFamily is the address family the probe prefers: "alternate" (default,
-	// flips between IPv4 and IPv6 on every execution, see models.IPFamily),
-	// "auto" (no preference) or a hard "ipv4"/"ipv6" pin.
+	// IPFamily is the address family the probe prefers: "auto" (default, no
+	// preference at all - the dialer's happy eyeballs decide, see
+	// models.IPFamily), "alternate" (flips between IPv4 and IPv6 on every
+	// execution) or a hard "ipv4"/"ipv6" pin.
 	IPFamily string `json:"ip_family,omitempty"`
 }
 
@@ -75,7 +76,7 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 	}
 	// The address family applies to every type, so it is normalized before the
 	// switch: a stored monitor (or an old client payload) without the field keeps
-	// the default rotation instead of leaving the checkers without a preference.
+	// the default preference (auto) instead of leaving the checkers without one.
 	c.IPFamily = NormalizeIPFamily(c.IPFamily)
 	switch monitorType {
 	case MonitorTypeHTTP, MonitorTypeKeyword:

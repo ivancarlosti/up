@@ -10,13 +10,15 @@ export type MonitorType = 'http' | 'keyword' | 'tcp' | 'dns' | 'ssl'
 /**
  * Address family a probe prefers (mirror of `models.IPFamily`).
  *
- * - `alternate` (default) flips between IPv4 and IPv6 on every execution, so a
- *   dead path of a dual stack host cannot hide behind the working one;
- * - `auto` lets the dialer choose (happy eyeballs) - the classic behavior;
+ * - `auto` (default) lets the dialer choose (happy eyeballs: IPv6 first when the
+ *   name has an AAAA, the other family 300 ms later), so a dead path of a dual
+ *   stack host hides behind the working one;
+ * - `alternate` flips between IPv4 and IPv6 on every execution, so that dead path
+ *   is reported down;
  * - `ipv4`/`ipv6` pin one family for good, and the probe fails when the target
  *   has no address in it.
  */
-export type IPFamily = 'alternate' | 'auto' | 'ipv4' | 'ipv6'
+export type IPFamily = 'auto' | 'alternate' | 'ipv4' | 'ipv6'
 export type AggregateStatus = 'up' | 'down' | 'degraded' | 'pending' | 'maintenance' | 'unknown'
 export type HeartbeatStatus = 'up' | 'down' | 'pending' | 'maintenance'
 export type FailureStrategy = 'ANY_NODE_FAILS' | 'ALL_NODES_FAIL' | 'QUORUM'
@@ -62,7 +64,7 @@ export interface MonitorConfig {
   server_name?: string
   /**
    * Address family the probe prefers. Shared by every type, like `ignore_tls`:
-   * see `IPFamily`. Absent means the backend default (`alternate`).
+   * see `IPFamily`. Absent means the backend default (`auto`).
    */
   ip_family?: IPFamily
 }

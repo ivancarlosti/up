@@ -107,12 +107,14 @@ func (w *worker) executeOnce(ctx context.Context) {
 // probeFamily returns the address family of this execution and advances the
 // rotation.
 //
-// A monitor that is not configured with `alternate` has no rotation at all: it
-// gets an empty turn, so the checkers honor its explicit `ipv4`/`ipv6` (or the
-// plain happy eyeballs of `auto`) on every execution. Only `alternate` consumes
-// the state, and the state flips whether the execution succeeds or fails, so a
-// host with one dead family is reported down on the turns that test it instead of
-// looking healthy because the other family answered.
+// Only a monitor configured with `alternate` rotates: it consumes a turn on every
+// execution and the checkers then insist (softly) on that family. Any other
+// preference gets an empty turn, so the checkers honor its explicit
+// `ipv4`/`ipv6` pin - or the plain happy eyeballs of `auto`, which is the
+// default and the behavior of a monitor stored before the field existed.
+// The state flips whether the execution succeeds or fails, so a host with one
+// dead family is reported down on the turns that test it instead of looking
+// healthy because the other family answered.
 func (w *worker) probeFamily(monitor *models.Monitor) string {
 	if models.NormalizeIPFamily(monitor.Config.IPFamily) != models.IPFamilyAlternate {
 		return ""

@@ -4,13 +4,13 @@ import "testing"
 
 // TestNormalizeIPFamily documents the canonicalization: an empty value (a monitor
 // written before the field existed, or a payload that omits it) means the default
-// rotation and the accepted spellings of the two families are understood, while an
-// unreadable value is only trimmed and lowered so Validate can reject it (a typo
-// must not silently become the default).
+// preference (auto) and the accepted spellings of the families are understood,
+// while an unreadable value is only trimmed and lowered so Validate can reject it
+// (a typo must not silently become the default).
 func TestNormalizeIPFamily(t *testing.T) {
 	cases := map[string]string{
-		"":          IPFamilyAlternate,
-		"  ":        IPFamilyAlternate,
+		"":          IPFamilyAuto,
+		"  ":        IPFamilyAuto,
 		"alternate": IPFamilyAlternate,
 		"ALTERNATE": IPFamilyAlternate,
 		"nope":      "nope",

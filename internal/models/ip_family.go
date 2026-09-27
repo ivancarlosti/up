@@ -6,13 +6,19 @@ import "strings"
 //
 // A monitor that is only checked from one family cannot see a broken path on the
 // other one: a host that answers over IPv4 while its TLS or HTTP service on IPv6
-// is dead looks healthy forever. "alternate" is therefore the default - every
-// execution flips between IPv4 and IPv6 - and the other values are the opt-outs:
+// is dead looks healthy forever. "alternate" answers exactly that - every
+// execution flips between IPv4 and IPv6 - but it changes the verdict of a dual
+// stack target whose second path is dead, so it is the opt-in and "auto" is the
+// default:
 //
-//   - "auto"      no preference at all: net.Dialer picks the family of the first
-//     resolved address and tries the other one after 300 ms (happy
-//     eyeballs), which is the classic behavior and can hide a dead
-//     family behind a working one;
+//   - "auto"      the dialer's own choice, unchanged from before this setting
+//     existed: the name is resolved once and its addresses are tried
+//     with happy eyeballs (IPv6 first when the name has an AAAA and
+//     the host has a usable IPv6 route, the other family 300 ms
+//     later). The probe is up as soon as one family works, so a dead
+//     family is hidden behind the working one - which is why the
+//     default is a deliberate "the dialer knows best" and not a
+//     promise that both paths were tested;
 //   - "ipv4"/"ipv6" an explicit, HARD pin: the request is only ever dialed on
 //     that family and fails when the target has no address in it
 //     (what an operator wants to prove "this name really answers
@@ -22,31 +28,32 @@ import "strings"
 // really has an address in it, and a single stack target keeps working on every
 // turn (it is never reported down for a family it does not have).
 const (
-	IPFamilyAlternate = "alternate"
 	IPFamilyAuto      = "auto"
+	IPFamilyAlternate = "alternate"
 	IPFamily4         = "ipv4"
 	IPFamily6         = "ipv6"
 )
 
 // DefaultIPFamily is the preference of every monitor that does not set one.
-const DefaultIPFamily = IPFamilyAlternate
+const DefaultIPFamily = IPFamilyAuto
 
 // IPFamilies lists the accepted values in the order the UI shows them.
-var IPFamilies = []string{IPFamilyAlternate, IPFamilyAuto, IPFamily4, IPFamily6}
+var IPFamilies = []string{IPFamilyAuto, IPFamilyAlternate, IPFamily4, IPFamily6}
 
 // NormalizeIPFamily canonicalizes a stored or received value: the accepted
 // spellings of a family become their canonical form and an empty value means the
-// default, while anything else is returned trimmed and lowered so that
-// ValidIPFamily can reject it. Normalize must not turn a typo into a silent
-// default - the API answers 400 for it instead (see MonitorConfig.Validate).
+// default (`auto`, the dialer's own choice), while anything else is returned
+// trimmed and lowered so that ValidIPFamily can reject it. Normalize must not turn
+// a typo into a silent default - the API answers 400 for it instead (see
+// MonitorConfig.Validate).
 func NormalizeIPFamily(raw string) string {
 	switch trimmed := strings.ToLower(strings.TrimSpace(raw)); trimmed {
 	case "":
 		return DefaultIPFamily
-	case IPFamilyAlternate:
-		return IPFamilyAlternate
 	case IPFamilyAuto:
 		return IPFamilyAuto
+	case IPFamilyAlternate:
+		return IPFamilyAlternate
 	case IPFamily4, "4", "v4", "tcp4":
 		return IPFamily4
 	case IPFamily6, "6", "v6", "tcp6":

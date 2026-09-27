@@ -44,13 +44,14 @@ const authOptions = computed(() => [
 ])
 /**
  * Address family offered for every type (mirrors `models.IPFamilies`).
- * `alternate` is the default: it rotates IPv4/IPv6 between executions, which is
- * what catches a host whose service on one of the families is broken while the
- * other one keeps answering.
+ * `auto` is the default: the dialer resolves the name and chooses the family
+ * itself (happy eyeballs), so a target whose other family is dead still looks
+ * healthy. `alternate` is the opt-in that rotates IPv4/IPv6 between executions
+ * and therefore reports such a target down.
  */
 const ipFamilyOptions = computed(() => [
-  { value: 'alternate', label: t('monitor.ipFamilyAlternate') },
   { value: 'auto', label: t('monitor.ipFamilyAuto') },
+  { value: 'alternate', label: t('monitor.ipFamilyAlternate') },
   { value: 'ipv4', label: t('monitor.ipFamilyIPV4') },
   { value: 'ipv6', label: t('monitor.ipFamilyIPV6') },
 ])

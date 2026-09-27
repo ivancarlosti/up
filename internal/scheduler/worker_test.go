@@ -36,11 +36,11 @@ func TestWorkerProbeFamily(t *testing.T) {
 		t.Fatalf("a non rotating monitor consumed the rotation: got %q, want %q", third, models.IPFamily4)
 	}
 
-	// A monitor stored before the field existed (empty) rotates too: that is the
-	// default, and the worker decides it from the normalized value.
+	// A monitor stored before the field existed (empty) is `auto` too: the worker
+	// decides it from the normalized value, so it does not rotate either.
 	legacy := &models.Monitor{}
-	if turn := w.probeFamily(legacy); turn == "" {
-		t.Fatal("a monitor without ip_family must rotate (the default is alternate)")
+	if turn := w.probeFamily(legacy); turn != "" {
+		t.Fatalf("a monitor without ip_family must not rotate (the default is auto), got %q", turn)
 	}
 }
 

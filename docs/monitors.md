@@ -34,32 +34,35 @@ to the definitive verdict. `retries=0` means "report the first failure".
 
 A target usually has an address in both families, and the two paths are not
 equivalent: a host whose service on IPv6 is dead looks healthy forever when every
-check dials whichever family the dialer happened to pick.
+check dials whichever family the dialer happened to pick. The field picks between
+that pre-existing behaviour and an explicit family, so the choice is visible in the
+monitor instead of being a side effect of the resolver.
 
 | `config.ip_family` | Behavior |
 |---|---|
-| `alternate` (default) | every execution flips between IPv4 and IPv6, so both paths are tested. The family is only insisted on when the target really has an address in it, so a single stack target keeps working on every execution |
-| `auto` | no preference: the dialer picks the family of the first resolved address and tries the other one 300 ms later (happy eyeballs) |
+| `auto` (default) | no preference: the name is resolved and the dialer tries the addresses with happy eyeballs - IPv6 first when the name has an AAAA record and the host has a usable IPv6 route, the other family 300 ms later. The probe is up as soon as one family works, so **a dead family is not reported**; this is the pre-feature behaviour of every monitor, and what a monitor stored before the field existed keeps |
+| `alternate` | every execution flips between IPv4 and IPv6, so both paths are tested. The family is only insisted on when the target really has an address in it, so a single stack target keeps working on every execution. This is the mode that reports a dual stack host whose second path is dead |
 | `ipv4` / `ipv6` | a hard pin: the probe only ever uses that family, and it fails when the target has no address in it |
 
-- **One execution = one family.** The retries of a check re-test the path that
-  just failed (a retry cannot hide a dead family behind the working one) and the
-  next execution rotates.
+- **One execution = one family.** With `alternate`, the retries of a check re-test
+  the path that just failed (a retry cannot hide a dead family behind the working
+  one) and the next execution rotates.
 - The rotation lives in the worker and is seeded from the monitor id (odd ids
   start on IPv6), so a restart re-seeds it — it is deliberately in memory, like
   the ticker, and never reaches another node.
-- `alternate` is the default for monitors **and** templates, and every type reads
-  it (HTTP, Keyword, TCP, DNS and SSL), so it survives a type switch.
+- `auto` is the default for monitors **and** templates, and every type reads the
+  field (HTTP, Keyword, TCP, DNS and SSL), so it survives a type switch.
 - A dual stack target whose IPv6 path is broken is reported **down** on the
-  executions that test it: that is the point of the rotation. `auto` is the
-  opt-out for a target whose other family is known to be dead.
+  executions that test it only with `alternate`: that is the point of the
+  rotation. With the default (`auto`) the working family answers and the monitor
+  keeps looking up, so choose `alternate` when both paths must be proven.
 - The probe may add one resolution step: with a family to insist on, the name is
   resolved first so the chosen address can be dialed as is. Nothing changes for
   `auto`.
 - A failed probe names the family it used (`connection refused (tcp6)`,
   `dial tcp6 ...: no suitable address found`), so the half of the heartbeats that
   fail says which path is broken. An unknown `config.ip_family` answers
-  `400 ERR_MONITOR_CONFIG_INVALID`; an omitted one keeps `alternate`.
+  `400 ERR_MONITOR_CONFIG_INVALID`; an omitted one keeps `auto`.
 
 ### Re-notification
 

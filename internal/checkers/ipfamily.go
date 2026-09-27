@@ -10,9 +10,10 @@ import (
 
 // probePlan is the resolved dialing plan of a single probe.
 //
-// It is what `config.ip_family` plus the turn of the worker (models.IPFamily,
-// models.NextIPFamily) boil down to, and it is deliberately small: which family,
-// if any, and whether that family is negotiable.
+// It is what `config.ip_family` plus the turn of the worker
+// (models.IPFamilyAlternate, models.NextIPFamily) boil down to, and it is
+// deliberately small: which family, if any, and whether that family is
+// negotiable.
 type probePlan struct {
 	// family is the family the probe insists on: "ipv4", "ipv6" or "" when the
 	// dialer is free to choose (happy eyeballs).
@@ -28,15 +29,21 @@ type probePlan struct {
 // preference is `config.ip_family` and turn is the rotation state of the worker
 // ("ipv4" or "ipv6", empty when the monitor does not rotate):
 //
-//   - `ipv4`/`ipv6` -> a hard pin, the turn is ignored;
+//   - `auto` (the default) -> no pin at all: the dialer resolves the name and
+//     picks the family itself (happy eyeballs, IPv6 first when the name has an
+//     AAAA, the other family 300 ms later as a silent fallback);
 //   - `alternate` -> a soft pin of the turn: the family is only used when the
 //     target has an address in it, so a single stack target keeps working on
 //     every execution;
-//   - `auto` -> no pin at all. Anything else (an unreadable value the API would
-//     have rejected) lands here too, which is the safe direction: the probe keeps
-//     dialing the way it always did.
+//   - `ipv4`/`ipv6` -> a hard pin, the turn is ignored.
+//
+// Anything else (an unreadable value the API would have rejected) lands on the
+// plain dial too, which is the safe direction: the probe keeps dialing the way it
+// always did.
 func planFor(preference, turn string) probePlan {
 	switch models.NormalizeIPFamily(preference) {
+	case models.IPFamilyAuto:
+		return probePlan{}
 	case models.IPFamily4:
 		return probePlan{family: models.IPFamily4, hard: true}
 	case models.IPFamily6:
@@ -49,7 +56,7 @@ func planFor(preference, turn string) probePlan {
 			return probePlan{family: models.IPFamily6}
 		}
 		return probePlan{}
-	default: // auto
+	default: // an unreadable value: keep the plain dial
 		return probePlan{}
 	}
 }

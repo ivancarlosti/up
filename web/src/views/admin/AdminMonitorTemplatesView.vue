@@ -114,7 +114,7 @@ function blank(): TemplateForm {
     description: '',
     type: 'http',
     propagate: true,
-    config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', ip_family: 'alternate', headers: [] },
+    config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', ip_family: 'auto', headers: [] },
     defaults: {
       interval_seconds: 60,
       retries: 0,

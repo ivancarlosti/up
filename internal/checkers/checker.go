@@ -30,7 +30,9 @@ type Result struct {
 // turn is the rotation state of an alternating monitor (`config.ip_family ==
 // "alternate"`): the scheduler hands the worker's current family so that half of
 // the executions test the IPv6 path and half the IPv4 one; an empty turn means
-// "whatever this configuration asks for". See planFor for the exact rules.
+// "whatever this configuration asks for", which is every execution of a monitor
+// that does not rotate - `auto`, the default, included. See planFor for the exact
+// rules.
 //
 // Upside down monitors are handled here: the probed outcome is inverted so the
 // rest of the pipeline (voting, notifications, uptime) stays untouched.

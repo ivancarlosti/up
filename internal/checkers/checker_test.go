@@ -285,8 +285,8 @@ func TestDescribeRequestError(t *testing.T) {
 		"dial tcp 127.0.0.1:1: connect: connection refused": "connection refused",
 		"context deadline exceeded":                         "timeout exceeded",
 		// A probe that pinned an address family must say which one failed: with
-		// `config.ip_family` rotating between the two, that is the whole point of
-		// the message.
+		// `config.ip_family` set to `alternate` or hard-pinned, that is the whole
+		// point of the message.
 		"dial tcp6 [2606:4700::1]:443: connect: connection refused":                                               "connection refused (tcp6)",
 		"dial tcp4 127.0.0.1:1: connect: connection refused":                                                      "connection refused (tcp4)",
 		"dial udp6 [2606:4700::1]:53: i/o timeout":                                                                "dial udp6 [2606:4700::1]:53: i/o timeout",

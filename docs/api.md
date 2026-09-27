@@ -151,13 +151,15 @@ monitor carries a `domain` object (`domain`, `registrar`, `expires_at`, `source`
 `status`, `days_left`, `checked_at`), and an incoherent configuration answers
 `400 ERR_MONITOR_DOMAIN_INVALID`.
 
-`config.ip_family` (`alternate` | `auto` | `ipv4` | `ipv6`, default `alternate`;
-see `docs/monitors.md`) is the address family of the probe: `alternate` flips
-between IPv4 and IPv6 on every execution, `auto` leaves the choice to the dialer
-and the explicit values pin one family. An unknown value answers
-`ERR_MONITOR_CONFIG_INVALID` (`config.ip_family must be one of ...`), and an
-omitted one keeps `alternate`, so a client written before the field existed cannot
-break the endpoint.
+`config.ip_family` (`auto` | `alternate` | `ipv4` | `ipv6`, default `auto`;
+see `docs/monitors.md`) is the address family of the probe: `auto` leaves the
+choice to the dialer (happy eyeballs - IPv6 is tried first when the name has an
+AAAA record, the IPv4 fallback then hides a dead IPv6 path), `alternate` flips
+between IPv4 and IPv6 on every execution and the explicit values pin one family.
+An unknown value answers
+`ERR_MONITOR_CONFIG_INVALID` (`config.ip_family must be one of auto, alternate,
+ipv4, ipv6`), and an omitted one keeps `auto`, so a client written before the
+field existed cannot break the endpoint.
 
 `template_uuid` links the monitor to the template it follows (`template_name` is
 filled by the decoration) and must match the template type. Response `201` with

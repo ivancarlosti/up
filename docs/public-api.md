@@ -68,7 +68,7 @@ Query: `search`, `type`, `tag`, `active`, `include_secrets`.
 [{"id":6,"name":"HTTP Health","type":"http","active":true,
   "status":"up","uptime":99.99,"uptime_hours":24,"uptime_24h":99.99,
   "last_latency_ms":12,"last_check_at":"...","tags":"core",
-  "config":{"url":"https://api.example.com/health","method":"GET","ip_family":"alternate","basic_pass":"***"},
+  "config":{"url":"https://api.example.com/health","method":"GET","ip_family":"auto","basic_pass":"***"},
   "notification_ids":[1]}]
 ```
 

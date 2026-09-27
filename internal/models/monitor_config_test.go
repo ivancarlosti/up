@@ -80,12 +80,12 @@ func TestMonitorConfigPruneToType(t *testing.T) {
 }
 
 // TestMonitorConfigNormalizeIPFamily covers the default the checkers rely on: a
-// stored monitor (or an old payload) without the field ends up as `alternate`,
-// never as an empty preference - and an unreadable value is left alone, so
-// Validate rejects the write instead of silently applying the default.
+// stored monitor (or an old payload) without the field ends up as `auto` (the
+// dialer chooses), never as an empty preference - and an unreadable value is left
+// alone, so Validate rejects the write instead of silently applying the default.
 func TestMonitorConfigNormalizeIPFamily(t *testing.T) {
 	cases := map[string]string{
-		"":     IPFamilyAlternate,
+		"":     IPFamilyAuto,
 		"nope": "nope",
 		"IPv6": IPFamily6,
 		"auto": IPFamilyAuto,
@@ -98,7 +98,8 @@ func TestMonitorConfigNormalizeIPFamily(t *testing.T) {
 			t.Errorf("Normalize(%q) produced ip_family = %q, want %q", input, config.IPFamily, want)
 		}
 	}
-	// The default of a fresh monitor is the rotation, whatever the type.
+	// The default of a fresh monitor is the dialer's own choice (auto), whatever
+	// the type.
 	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL} {
 		config := MonitorConfig{}
 		config.Normalize(monitorType)
