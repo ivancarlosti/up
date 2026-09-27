@@ -27,9 +27,14 @@ type Result struct {
 
 // Check runs the probe matching the monitor type.
 //
+// turn is the rotation state of an alternating monitor (`config.ip_family ==
+// "alternate"`): the scheduler hands the worker's current family so that half of
+// the executions test the IPv6 path and half the IPv4 one; an empty turn means
+// "whatever this configuration asks for". See planFor for the exact rules.
+//
 // Upside down monitors are handled here: the probed outcome is inverted so the
 // rest of the pipeline (voting, notifications, uptime) stays untouched.
-func Check(ctx context.Context, monitor *models.Monitor) Result {
+func Check(ctx context.Context, monitor *models.Monitor, turn string) Result {
 	timeout := time.Duration(monitor.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -37,18 +42,19 @@ func Check(ctx context.Context, monitor *models.Monitor) Result {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	plan := planFor(monitor.Config.IPFamily, turn)
 	var result Result
 	switch monitor.Type {
 	case models.MonitorTypeHTTP:
-		result = checkHTTP(ctx, monitor)
+		result = checkHTTP(ctx, monitor, plan)
 	case models.MonitorTypeKeyword:
-		result = checkKeyword(ctx, monitor)
+		result = checkKeyword(ctx, monitor, plan)
 	case models.MonitorTypeTCP:
-		result = checkTCP(ctx, monitor)
+		result = checkTCP(ctx, monitor, plan)
 	case models.MonitorTypeDNS:
-		result = checkDNS(ctx, monitor)
+		result = checkDNS(ctx, monitor, plan)
 	case models.MonitorTypeSSL:
-		result = checkSSL(ctx, monitor)
+		result = checkSSL(ctx, monitor, plan)
 	default:
 		result = Result{Status: models.StatusDown, Message: "unsupported monitor type " + string(monitor.Type)}
 	}

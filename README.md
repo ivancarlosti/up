@@ -170,34 +170,37 @@ The expiry job talks to the registries directly, so the container needs:
 
 Two traps are worth knowing before debugging a failed look-up:
 
-* A Docker network is IPv4-only unless it is created with IPv6 enabled, so a
-  container on a default network has **no IPv6 route at all** even when the
-  machine running Docker has one: every registry — or CDN
-  or firewall — the host can only reach over IPv6 becomes unreachable, and the
-  only symptom is the IPv4 dial of the other family timing out after the whole
-  `timeout_seconds` (`dial tcp 52.37.99.5:43: i/o timeout`). Admin > TLD/SSL
-  expiration has an **IP family** setting (`auto`, `ipv4`, `ipv6`): a pinned
-  family fails immediately with `connect: network is unreachable` instead of
-  hiding the other one, and `auto` now reports every resolved address with its
-  own error.
+* **A Docker network is IPv4-only by default**, so the container has **no IPv6
+  route at all** even when the machine running Docker has one: every registry —
+  or CDN or firewall — that answers only over IPv6 becomes unreachable, and the
+  symptom is the IPv4 dial of the other family timing out after the whole
+  `timeout_seconds` (`dial tcp 52.37.99.5:43: i/o timeout`). The app cannot work
+  around that and does not pretend to: it dials both families on its own (Go's
+  happy eyeballs) and, when the dial fails, reports every resolved address with
+  its own error — an address family cannot create a route.
 * An egress firewall that only allows 80/443 breaks WHOIS (port 43) while RDAP
   keeps working, which looks like "the rule for this TLD is wrong".
 
-Both shipped compose files already declare an **IPv6-enabled network**
-(`fd00:1::/64`, a ULA subnet) and attach the service(s) to it, so a registry that
-answers only over IPv6 — `.pt` (`whois.dns.pt`) is one — works without touching
-the host: Docker enables IPv6 forwarding and masquerades the ULA range to the
-host's IPv6 on its own (verified on Docker 29.8.1, where the app's own client
-answered `whois.dns.pt` in ~1.3 s from inside the real container). The network
-also keeps its IPv4 subnet, so a host without IPv6 loses nothing: the IPv6 route
-simply leads nowhere, IPv4 keeps working, and an IPv6-only registry stays
-unreachable.
+The supported fix for an IPv6-only registry — `.pt` (`whois.dns.pt`) is one: its
+IPv4 `:43` dropped the SYN when measured (2026-09-27), so only its IPv6 address
+answered — is to run the container with the host network, so it uses the host's
+IPv6 route (Linux engines only). In Compose that means replacing `ports`,
+`extra_hosts` and `networks` on the `up` service with one line:
 
-To give *other* containers (or the default bridge) an IPv6 path, enable IPv6 in
-the engine (`/etc/docker/daemon.json`: `{"ipv6": true, "fixed-cidr-v6":
-"fd00::/80", "ip6tables": true}`, then restart Docker), or run the app with
-`network_mode: host` (Linux engines only; the database is then reached on
-`127.0.0.1` and `APP_PORT`/`HOST_PORT` are ignored).
+```yaml
+services:
+  up:
+    network_mode: host
+```
+
+The database is then reached where the host sees it (`DB_HOST=127.0.0.1`; with
+the bundle, uncomment the `DB_HOST_PORT` port of the `mariadb` service, which
+stays on the default bridge network), and `APP_PORT`/`HOST_PORT` no longer apply.
+
+Enabling IPv6 in the engine is the alternative that also covers every other
+container (`/etc/docker/daemon.json`: `{"ipv6": true, "fixed-cidr-v6":
+"fd00::/80", "ip6tables": true}`, then restart Docker), at the cost of touching
+the configuration of the whole host.
 Docker Desktop: Settings > Resources > Network > Enable IPv6.
 
 The image ships no network tools of its own, so test from the namespace of the

@@ -12,9 +12,14 @@ import (
 // heartbeat and asks the cluster to re-evaluate the aggregated status (which is
 // what ultimately triggers notifications).
 //
+// turn is the address family of this execution (see worker.probeFamily): every
+// attempt of the execution - and every connection of it, redirects included -
+// uses that family, so a retry re-tests the path that just failed instead of
+// hiding it behind the other one. The next execution rotates.
+//
 // Concurrency is capped by the scheduler semaphore (SCHEDULER_MAX_CONCURRENT),
 // so hundreds of monitors do not open hundreds of sockets at the same instant.
-func (s *Scheduler) execute(ctx context.Context, monitor *models.Monitor) {
+func (s *Scheduler) execute(ctx context.Context, monitor *models.Monitor, turn string) {
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
@@ -22,7 +27,7 @@ func (s *Scheduler) execute(ctx context.Context, monitor *models.Monitor) {
 		return
 	}
 
-	result := checkers.Check(ctx, monitor)
+	result := checkers.Check(ctx, monitor, turn)
 	attempts := 0
 	for result.Status == models.StatusDown && attempts < monitor.Retries {
 		attempts++
@@ -35,7 +40,7 @@ func (s *Scheduler) execute(ctx context.Context, monitor *models.Monitor) {
 		case <-ctx.Done():
 			return
 		}
-		result = checkers.Check(ctx, monitor)
+		result = checkers.Check(ctx, monitor, turn)
 	}
 
 	heartbeat := &models.Heartbeat{

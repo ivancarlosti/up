@@ -42,6 +42,18 @@ const authOptions = computed(() => [
   { value: 'basic', label: t('monitor.authBasic') },
   { value: 'bearer', label: t('monitor.authBearer') },
 ])
+/**
+ * Address family offered for every type (mirrors `models.IPFamilies`).
+ * `alternate` is the default: it rotates IPv4/IPv6 between executions, which is
+ * what catches a host whose service on one of the families is broken while the
+ * other one keeps answering.
+ */
+const ipFamilyOptions = computed(() => [
+  { value: 'alternate', label: t('monitor.ipFamilyAlternate') },
+  { value: 'auto', label: t('monitor.ipFamilyAuto') },
+  { value: 'ipv4', label: t('monitor.ipFamilyIPV4') },
+  { value: 'ipv6', label: t('monitor.ipFamilyIPV6') },
+])
 
 function addHeader(): void {
   if (!config.value.headers) config.value.headers = []
@@ -192,6 +204,14 @@ function removeHeader(index: number): void {
     <div class="sm:col-span-2">
       <Switch v-model="config.invert_check as boolean">{{ t('monitor.dnsInvert') }}</Switch>
       <p class="mt-1 text-[11px] text-muted-foreground">{{ t('monitor.dnsInvertHelp') }}</p>
+    </div>
+  </section>
+
+  <!-- Shared by every type (it sits outside the type chain above on purpose). -->
+  <section class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+    <div class="grid gap-1">
+      <Label for="monitor-ip-family" :help="t('monitor.ipFamilyHelp')">{{ t('monitor.ipFamily') }}</Label>
+      <Select id="monitor-ip-family" v-model="config.ip_family" :options="ipFamilyOptions" />
     </div>
   </section>
 </template>

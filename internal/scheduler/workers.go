@@ -82,7 +82,11 @@ func (s *Scheduler) startWorker(ctx context.Context, monitor *models.Monitor) {
 		scheduler: s,
 		trigger:   make(chan struct{}, 1),
 		monitor:   monitor,
-		cancel:    cancel,
+		// The first turn is seeded from the monitor id, so a fleet of monitors
+		// does not all start on the same family (a registry or CDN that only
+		// answers on one of them would see a step of every monitor at once).
+		family: seedFamily(monitor.ID),
+		cancel: cancel,
 	}
 
 	// Registering is check-and-set under the same lock: the command loop

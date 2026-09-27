@@ -42,7 +42,7 @@ func TestCheckHTTP(t *testing.T) {
 	defer server.Close()
 
 	t.Run("accepted status is up", func(t *testing.T) {
-		result := Check(context.Background(), httpMonitor(server.URL+"/health", nil))
+		result := Check(context.Background(), httpMonitor(server.URL+"/health", nil), "")
 		if result.Status != models.StatusUp {
 			t.Fatalf("status = %v, message = %s", result.Status, result.Message)
 		}
@@ -52,7 +52,7 @@ func TestCheckHTTP(t *testing.T) {
 	})
 
 	t.Run("unexpected status is down", func(t *testing.T) {
-		result := Check(context.Background(), httpMonitor(server.URL+"/teapot", nil))
+		result := Check(context.Background(), httpMonitor(server.URL+"/teapot", nil), "")
 		if result.Status != models.StatusDown {
 			t.Fatalf("status = %v", result.Status)
 		}
@@ -61,14 +61,14 @@ func TestCheckHTTP(t *testing.T) {
 	t.Run("accepted codes are honoured", func(t *testing.T) {
 		result := Check(context.Background(), httpMonitor(server.URL+"/teapot", func(c *models.MonitorConfig) {
 			c.AcceptedStatusCodes = "200-299,418"
-		}))
+		}), "")
 		if result.Status != models.StatusUp {
 			t.Fatalf("status = %v, message = %s", result.Status, result.Message)
 		}
 	})
 
 	t.Run("unreachable target is down", func(t *testing.T) {
-		result := Check(context.Background(), httpMonitor("http://127.0.0.1:1/", nil))
+		result := Check(context.Background(), httpMonitor("http://127.0.0.1:1/", nil), "")
 		if result.Status != models.StatusDown {
 			t.Fatalf("status = %v", result.Status)
 		}
@@ -77,7 +77,7 @@ func TestCheckHTTP(t *testing.T) {
 	t.Run("upside down inverts the result", func(t *testing.T) {
 		monitor := httpMonitor("http://127.0.0.1:1/", nil)
 		monitor.UpsideDown = true
-		result := Check(context.Background(), monitor)
+		result := Check(context.Background(), monitor, "")
 		if result.Status != models.StatusUp {
 			t.Fatalf("status = %v", result.Status)
 		}
@@ -111,7 +111,7 @@ func TestCheckHTTPCacheBuster(t *testing.T) {
 	defer server.Close()
 
 	t.Run("disabled leaves the query string alone", func(t *testing.T) {
-		result := Check(context.Background(), httpMonitor(server.URL+"/health?page=2", nil))
+		result := Check(context.Background(), httpMonitor(server.URL+"/health?page=2", nil), "")
 		if result.Status != models.StatusUp {
 			t.Fatalf("status = %v, message = %s", result.Status, result.Message)
 		}
@@ -128,9 +128,9 @@ func TestCheckHTTPCacheBuster(t *testing.T) {
 			c.CacheBuster = true
 		})
 
-		Check(context.Background(), monitor)
+		Check(context.Background(), monitor, "")
 		first := last().Get(cacheBusterParam)
-		Check(context.Background(), monitor)
+		Check(context.Background(), monitor, "")
 		second := last().Get(cacheBusterParam)
 
 		if first == "" || second == "" {
@@ -149,7 +149,7 @@ func TestCheckHTTPCacheBuster(t *testing.T) {
 		monitor := &models.Monitor{Name: "kw", Type: models.MonitorTypeKeyword, TimeoutSeconds: 5, Config: config}
 		monitor.Config.Normalize(monitor.Type)
 
-		Check(context.Background(), monitor)
+		Check(context.Background(), monitor, "")
 		if value := last().Get(cacheBusterParam); value == "" {
 			t.Fatal("cache buster missing on a keyword monitor")
 		}
@@ -172,19 +172,19 @@ func TestCheckKeyword(t *testing.T) {
 		return monitor
 	}
 
-	if result := Check(context.Background(), keyword(nil)); result.Status != models.StatusUp {
+	if result := Check(context.Background(), keyword(nil), ""); result.Status != models.StatusUp {
 		t.Fatalf("case insensitive match failed: %v %s", result.Status, result.Message)
 	}
 
-	if result := Check(context.Background(), keyword(func(c *models.MonitorConfig) { c.CaseSensitive = true })); result.Status != models.StatusDown {
+	if result := Check(context.Background(), keyword(func(c *models.MonitorConfig) { c.CaseSensitive = true }), ""); result.Status != models.StatusDown {
 		t.Fatalf("case sensitive mismatch should be down: %v", result.Status)
 	}
 
-	if result := Check(context.Background(), keyword(func(c *models.MonitorConfig) { c.InvertKeyword = true })); result.Status != models.StatusDown {
+	if result := Check(context.Background(), keyword(func(c *models.MonitorConfig) { c.InvertKeyword = true }), ""); result.Status != models.StatusDown {
 		t.Fatalf("an inverted keyword that is present should be down: %v", result.Status)
 	}
 
-	if result := Check(context.Background(), keyword(func(c *models.MonitorConfig) { c.Keyword = "absent"; c.InvertKeyword = true })); result.Status != models.StatusUp {
+	if result := Check(context.Background(), keyword(func(c *models.MonitorConfig) { c.Keyword = "absent"; c.InvertKeyword = true }), ""); result.Status != models.StatusUp {
 		t.Fatalf("an inverted keyword that is absent should be up: %v", result.Status)
 	}
 }
@@ -212,18 +212,18 @@ func TestCheckTCP(t *testing.T) {
 	monitor := &models.Monitor{Name: "tcp", Type: models.MonitorTypeTCP, TimeoutSeconds: 5, Config: config}
 	monitor.Config.Normalize(monitor.Type)
 
-	if result := Check(context.Background(), monitor); result.Status != models.StatusUp {
+	if result := Check(context.Background(), monitor, ""); result.Status != models.StatusUp {
 		t.Fatalf("tcp send/expect failed: %v %s", result.Status, result.Message)
 	}
 
 	monitor.Config.Expect = "NOPE"
-	if result := Check(context.Background(), monitor); result.Status != models.StatusDown {
+	if result := Check(context.Background(), monitor, ""); result.Status != models.StatusDown {
 		t.Fatalf("a mismatched expectation must be down: %v", result.Status)
 	}
 
 	monitor.Config.Host = "127.0.0.1"
 	monitor.Config.Port = 1
-	if result := Check(context.Background(), monitor); result.Status != models.StatusDown {
+	if result := Check(context.Background(), monitor, ""); result.Status != models.StatusDown {
 		t.Fatalf("a refused connection must be down: %v", result.Status)
 	}
 }
@@ -265,16 +265,16 @@ func TestCheckDNS(t *testing.T) {
 		return monitor
 	}
 
-	if result := Check(context.Background(), dnsMonitor("good.example.com", "192.0.2.42", false)); result.Status != models.StatusUp {
+	if result := Check(context.Background(), dnsMonitor("good.example.com", "192.0.2.42", false), ""); result.Status != models.StatusUp {
 		t.Fatalf("expected value match failed: %v %s", result.Status, result.Message)
 	}
-	if result := Check(context.Background(), dnsMonitor("good.example.com", "198.51.100.1", false)); result.Status != models.StatusDown {
+	if result := Check(context.Background(), dnsMonitor("good.example.com", "198.51.100.1", false), ""); result.Status != models.StatusDown {
 		t.Fatalf("expected value mismatch must be down: %v", result.Status)
 	}
-	if result := Check(context.Background(), dnsMonitor("good.example.com", "198.51.100.1", true)); result.Status != models.StatusUp {
+	if result := Check(context.Background(), dnsMonitor("good.example.com", "198.51.100.1", true), ""); result.Status != models.StatusUp {
 		t.Fatalf("inverted check should be up: %v %s", result.Status, result.Message)
 	}
-	if result := Check(context.Background(), dnsMonitor("missing.example.com", "", false)); result.Status != models.StatusDown {
+	if result := Check(context.Background(), dnsMonitor("missing.example.com", "", false), ""); result.Status != models.StatusDown {
 		t.Fatalf("a name without records must be down: %v", result.Status)
 	}
 }
@@ -284,6 +284,13 @@ func TestDescribeRequestError(t *testing.T) {
 		"dial tcp: lookup nothing: no such host":            "DNS resolution failed",
 		"dial tcp 127.0.0.1:1: connect: connection refused": "connection refused",
 		"context deadline exceeded":                         "timeout exceeded",
+		// A probe that pinned an address family must say which one failed: with
+		// `config.ip_family` rotating between the two, that is the whole point of
+		// the message.
+		"dial tcp6 [2606:4700::1]:443: connect: connection refused":                                               "connection refused (tcp6)",
+		"dial tcp4 127.0.0.1:1: connect: connection refused":                                                      "connection refused (tcp4)",
+		"dial udp6 [2606:4700::1]:53: i/o timeout":                                                                "dial udp6 [2606:4700::1]:53: i/o timeout",
+		"Get \"https://example.com\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)": "timeout exceeded",
 	}
 	for input, want := range cases {
 		if got := describeRequestError(fmt.Errorf("%s", input)); got != want {

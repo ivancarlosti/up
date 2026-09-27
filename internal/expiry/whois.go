@@ -24,9 +24,6 @@ const whoisMaxBytes = 1 << 20
 // WhoisClient queries port 43 servers.
 type WhoisClient struct {
 	Timeout time.Duration
-	// IPVersion is the address family used to reach the registry ("", "auto",
-	// "ipv4" or "ipv6" - see models.NormalizeExpiryIPVersion).
-	IPVersion string
 }
 
 // Query sends a single line to a whois server and returns the raw answer.
@@ -39,7 +36,7 @@ func (c *WhoisClient) Query(ctx context.Context, server, query string) (string, 
 	if address == "" {
 		return "", fmt.Errorf("the whois server is empty")
 	}
-	conn, err := dialRegistry(ctx, c.IPVersion, address, timeout)
+	conn, err := dialRegistry(ctx, address, timeout)
 	if err != nil {
 		return "", err
 	}

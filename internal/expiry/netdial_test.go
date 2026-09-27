@@ -9,31 +9,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/ivancarlosti/up/internal/models"
 )
-
-// TestRegistryNetworkPinsTheFamily covers the mapping between the admin setting
-// and the network string handed to net.Dialer.
-func TestRegistryNetworkPinsTheFamily(t *testing.T) {
-	cases := map[string]string{
-		"":     "tcp",
-		"auto": "tcp",
-		"junk": "tcp",
-		"ipv4": "tcp4",
-		"IPv4": "tcp4",
-		"4":    "tcp4",
-		"tcp4": "tcp4",
-		"ipv6": "tcp6",
-		"v6":   "tcp6",
-		"tcp6": "tcp6",
-	}
-	for input, want := range cases {
-		if got := registryNetwork(input); got != want {
-			t.Fatalf("registryNetwork(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
 
 // TestFamilyNetwork covers the per-address family of the diagnostic pass: an
 // IPv4-mapped IPv6 address is an IPv4 address.
@@ -81,40 +57,22 @@ func startWhoisStub(t *testing.T, host string) string {
 	return listener.Addr().String()
 }
 
-// TestWhoisQueryHonorsThePinnedFamily is the regression test of the incident the
-// setting exists for: the family the operator pinned must be the one that is
-// used (and named in the error), never silently replaced by the other one.
-func TestWhoisQueryHonorsThePinnedFamily(t *testing.T) {
-	ipv4Target := startWhoisStub(t, "127.0.0.1")
-	client4 := &WhoisClient{Timeout: 2 * time.Second, IPVersion: models.ExpiryIPVersion4}
-	raw, err := client4.Query(context.Background(), ipv4Target, "example.io")
-	if err != nil {
-		t.Fatalf("Query over ipv4: %v", err)
-	}
-	if !strings.Contains(raw, "Registry Expiry Date") {
-		t.Fatalf("raw = %q", raw)
-	}
-
-	pinned6 := &WhoisClient{Timeout: 2 * time.Second, IPVersion: models.ExpiryIPVersion6}
-	if _, err := pinned6.Query(context.Background(), ipv4Target, "example.io"); err == nil {
-		t.Fatal("tcp6 must not fall back to an IPv4 address")
-	} else if !strings.Contains(err.Error(), "tcp6") {
-		t.Fatalf("the error must name tcp6, got %v", err)
-	}
-
-	ipv6Target := startWhoisStub(t, "::1")
-	if _, err := client4.Query(context.Background(), ipv6Target, "example.io"); err == nil {
-		t.Fatal("tcp4 must not fall back to an IPv6 address")
-	}
-	client6 := &WhoisClient{Timeout: 2 * time.Second, IPVersion: models.ExpiryIPVersion6}
-	if _, err := client6.Query(context.Background(), ipv6Target, "example.io"); err != nil {
-		t.Fatalf("Query over ipv6: %v", err)
-	}
-
-	// An unset family keeps Go's happy eyeballs and still reaches loopback.
-	auto := &WhoisClient{Timeout: 2 * time.Second}
-	if _, err := auto.Query(context.Background(), ipv4Target, "example.io"); err != nil {
-		t.Fatalf("Query over auto: %v", err)
+// TestWhoisQueryReachesEitherLoopbackFamily is the regression test of the removed
+// family pin: with no setting to pin, the registry dial must reach whatever the
+// network offers. Loopback is the one name that is only reachable through the
+// family its literal belongs to, so a successful query on both proves the dialer
+// really tries both (happy eyeballs) instead of being stuck on one.
+func TestWhoisQueryReachesEitherLoopbackFamily(t *testing.T) {
+	client := &WhoisClient{Timeout: 2 * time.Second}
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		target := startWhoisStub(t, host)
+		raw, err := client.Query(context.Background(), target, "example.io")
+		if err != nil {
+			t.Fatalf("Query over %s: %v", host, err)
+		}
+		if !strings.Contains(raw, "Registry Expiry Date") {
+			t.Fatalf("raw = %q", raw)
+		}
 	}
 }
 
@@ -157,8 +115,8 @@ func TestUnreachableNetwork(t *testing.T) {
 }
 
 // TestDialRegistryExplainsAFailedDial covers the diagnostic pass end to end: a
-// failed "auto" dial names the address it probed, a pinned family keeps the
-// original error untouched.
+// failed dial names the address it probed, and a cancelled context keeps the
+// original error untouched (the diagnostics must not outlive the caller).
 func TestDialRegistryExplainsAFailedDial(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -167,15 +125,17 @@ func TestDialRegistryExplainsAFailedDial(t *testing.T) {
 	target := listener.Addr().String()
 	_ = listener.Close() // the port is closed now: every dial is refused
 
-	if _, err := dialRegistry(context.Background(), models.ExpiryIPVersionAuto, target, time.Second); err == nil {
+	if _, err := dialRegistry(context.Background(), target, time.Second); err == nil {
 		t.Fatal("dialing a closed port must fail")
 	} else if !strings.Contains(err.Error(), "failed:") || !strings.Contains(err.Error(), "127.0.0.1") {
 		t.Fatalf("the diagnostic error must name the probed address, got %v", err)
 	}
 
-	if _, err := dialRegistry(context.Background(), models.ExpiryIPVersion4, target, time.Second); err == nil {
-		t.Fatal("dialing a closed port must fail")
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := dialRegistry(cancelled, target, time.Second); err == nil {
+		t.Fatal("dialing with a cancelled context must fail")
 	} else if strings.Contains(err.Error(), "failed:") {
-		t.Fatalf("a pinned family must keep the original error, got %v", err)
+		t.Fatalf("a cancelled context must keep the original error, got %v", err)
 	}
 }

@@ -96,6 +96,24 @@ func TestMonitorConfigNormalizeAndValidate(t *testing.T) {
 	if problem := dnsConfig.Validate(MonitorTypeDNS); problem == "" {
 		t.Fatal("an unsupported record type must be invalid")
 	}
+
+	// The address family is shared by every type, so it is validated for every
+	// type: a typo cannot be accepted just because the probe would ignore it, and
+	// an omitted field stays valid (the default is applied by Normalize).
+	badFamily := MonitorConfig{URL: "https://example.com", IPFamily: "ipv7"}
+	if problem := badFamily.Validate(MonitorTypeHTTP); !strings.Contains(problem, "config.ip_family") {
+		t.Fatalf("an unknown ip_family must be rejected, got %q", problem)
+	}
+	omitted := MonitorConfig{Host: "db.internal", Port: 3306}
+	omitted.Normalize(MonitorTypeTCP)
+	if problem := omitted.Validate(MonitorTypeTCP); problem != "" {
+		t.Fatalf("an omitted ip_family must be valid: %s", problem)
+	}
+	tcpFamily := MonitorConfig{Host: "db.internal", Port: 3306, IPFamily: IPFamily6}
+	tcpFamily.Normalize(MonitorTypeTCP)
+	if problem := tcpFamily.Validate(MonitorTypeTCP); problem != "" {
+		t.Fatalf("a pinned family must be valid: %s", problem)
+	}
 }
 
 func TestHeartbeatStatusParsing(t *testing.T) {

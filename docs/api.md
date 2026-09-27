@@ -149,10 +149,19 @@ The domain expiration watch rides along the same way: `domain_watch`,
 `domain_expires_at` (RFC3339 or `null`). When `domain_watch` is on, the decorated
 monitor carries a `domain` object (`domain`, `registrar`, `expires_at`, `source`,
 `status`, `days_left`, `checked_at`), and an incoherent configuration answers
-`400 ERR_MONITOR_DOMAIN_INVALID`. Response `201` with the decorated monitor.
-Validation errors use
+`400 ERR_MONITOR_DOMAIN_INVALID`.
+
+`config.ip_family` (`alternate` | `auto` | `ipv4` | `ipv6`, default `alternate`;
+see `docs/monitors.md`) is the address family of the probe: `alternate` flips
+between IPv4 and IPv6 on every execution, `auto` leaves the choice to the dialer
+and the explicit values pin one family. An unknown value answers
+`ERR_MONITOR_CONFIG_INVALID` (`config.ip_family must be one of ...`), and an
+omitted one keeps `alternate`, so a client written before the field existed cannot
+break the endpoint.
+
 `template_uuid` links the monitor to the template it follows (`template_name` is
-filled by the decoration) and must match the template type. Validation errors use
+filled by the decoration) and must match the template type. Response `201` with
+the decorated monitor. Validation errors use
 `ERR_MONITOR_CONFIG_INVALID` / `ERR_MONITOR_TYPE_INVALID` / `ERR_MONITOR_TEMPLATE_INVALID` / `ERR_VALIDATION`
 (see `docs/monitors.md` for every field).
 
@@ -365,7 +374,7 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/admin/expiry` | `{settings, parsers, defaults, last_run_day, next_run}` |
-| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds`, `ip_version` (`auto` \| `ipv4` \| `ipv6`) |
+| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds` |
 | POST | `/api/admin/expiry/run` | runs the daily check now (deduplicated targets) -> `{ran: true, at}` |
 | GET | `/api/admin/expiry/targets` | the deduplicated worklist: `{targets, count}` (no lookup is performed) |
 | POST | `/api/admin/expiry/targets/refresh` | refreshes ONE target: `{kind, target}` -> `{ran: true, kind, target, monitors, at}` |
@@ -379,22 +388,21 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 `settings` is the whole configuration in one object; `defaults` is what an empty
 install uses, so the UI can offer a "restore defaults" action. Incoherent values
 answer `400 ERR_VALIDATION` (bad time, unknown timezone, out of range rate limit
-or timeout, an uncompilable regex, a regex without a capture group). An omitted
-`ip_version` is valid: it keeps `auto`, so a client that does not know the field
-cannot break the endpoint.
+or timeout, an uncompilable regex, a regex without a capture group).
 
-`ip_version` selects the address family of every registry lookup (`auto` lets the
-Go dialer pick the family of the first resolved address and use the other one as a
-fallback, `ipv4`/`ipv6` pin it with `tcp4`/`tcp6`). It exists because the two
-paths of a registry host are not equivalent: a Docker network is IPv4-only unless
-it is created with IPv6 enabled, so a container on a default network has no IPv6
-route even when the machine that runs it does, and anything the host reaches only
-over IPv6 is then unreachable — which surfaces as `dial tcp <ipv4>:43: i/o
-timeout` after the whole `timeout_seconds`. Pin the family and the same lookup
-answers immediately with `connect: network is unreachable`, and in `auto` a failed
-lookup now lists **every** resolved address with its own error instead of only the
-family Go tried first (see the "Network egress" section of the README; both
-shipped compose files create an IPv6-enabled network already).
+A registry lookup always dials both families (Go's happy eyeballs: the family of
+the first resolved address is tried at once and the other one follows 300 ms
+later, sharing the one deadline). There is no address family setting on purpose:
+the two paths of a registry host are not equivalent — a Docker network is
+IPv4-only by default, so a container has no IPv6 route even when the machine that
+runs it does, and a registry that only answers over IPv6 (`.pt`,
+`whois.dns.pt`) is then unreachable. Pinning the family only replaced a timeout
+with an immediate `connect: network is unreachable`; the fix is to give the
+container an IPv6 route, which is the `network_mode: host` recipe of the
+"Network egress" section of the README. When a lookup does fail, the error lists
+**every** resolved address with its own error (instead of only the family Go
+tried first), and it names the fix when the IPv6 addresses are the unreachable
+ones.
 
 `GET /api/admin/expiry/whois-parsers` answers the stored rules. A fresh install
 starts with the built-in table of `models.DefaultWhoisParsers()` (the TLDs

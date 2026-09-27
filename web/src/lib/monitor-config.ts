@@ -18,8 +18,9 @@ import type { MonitorConfig, MonitorPayload, MonitorType, TemplateDefaults } fro
  * a monitor type or one of its options is added (see `docs/architecture.md`).
  *
  * Fields shared by several types (`host`/`port` for TCP and SSL, `ignore_tls`
- * for HTTP, Keyword and SSL) are listed by each of them on purpose, so a switch
- * between those types does not lose the value the new one still uses.
+ * for HTTP, Keyword and SSL, `ip_family` for every type) are listed by each of
+ * them on purpose, so a switch between those types does not lose the value the
+ * new one still uses.
  */
 export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]> = {
   http: [
@@ -36,6 +37,7 @@ export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]
     'max_redirects',
     'cache_buster',
     'accepted_status_codes',
+    'ip_family',
   ],
   keyword: [
     'url',
@@ -54,10 +56,11 @@ export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]
     'keyword',
     'invert_keyword',
     'case_sensitive',
+    'ip_family',
   ],
-  tcp: ['host', 'port', 'send', 'expect'],
-  dns: ['hostname', 'resolver_server', 'record_type', 'expected_value', 'invert_check'],
-  ssl: ['host', 'port', 'server_name', 'ignore_tls'],
+  tcp: ['host', 'port', 'send', 'expect', 'ip_family'],
+  dns: ['hostname', 'resolver_server', 'record_type', 'expected_value', 'invert_check', 'ip_family'],
+  ssl: ['host', 'port', 'server_name', 'ignore_tls', 'ip_family'],
 }
 
 /** supportsCertificate reports whether a type can read a TLS certificate. */

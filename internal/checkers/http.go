@@ -38,13 +38,13 @@ func cacheBusterValue() string {
 
 // checkHTTP performs the HTTP(s) probe and returns the raw (not inverted)
 // result together with the response body, which the keyword checker reuses.
-func checkHTTP(ctx context.Context, monitor *models.Monitor) Result {
-	result, _ := httpRequest(ctx, monitor)
+func checkHTTP(ctx context.Context, monitor *models.Monitor, plan probePlan) Result {
+	result, _ := httpRequest(ctx, monitor, plan)
 	return result
 }
 
 // httpRequest executes the request described by the monitor configuration.
-func httpRequest(ctx context.Context, monitor *models.Monitor) (Result, string) {
+func httpRequest(ctx context.Context, monitor *models.Monitor, plan probePlan) (Result, string) {
 	cfg := monitor.Config
 
 	ranges, err := models.ParseStatusRanges(cfg.AcceptedStatusCodes)
@@ -90,10 +90,12 @@ func httpRequest(ctx context.Context, monitor *models.Monitor) (Result, string) 
 		Timeout: timeoutFromContext(ctx),
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   timeoutFromContext(ctx),
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
+			// The plan is bound to the TRANSPORT, not to the request, so every
+			// connection the probe opens - redirects, connection reuse - uses the
+			// family of this execution.
+			DialContext: func(dialCtx context.Context, _, address string) (net.Conn, error) {
+				return dialProbe(dialCtx, plan, address, timeoutFromContext(dialCtx))
+			},
 			TLSClientConfig:       &tls.Config{InsecureSkipVerify: cfg.IgnoreTLS}, //nolint:gosec // explicit operator opt-in
 			TLSHandshakeTimeout:   timeoutFromContext(ctx),
 			ResponseHeaderTimeout: timeoutFromContext(ctx),
@@ -154,9 +156,9 @@ func httpRequest(ctx context.Context, monitor *models.Monitor) (Result, string) 
 }
 
 // checkKeyword runs an HTTP probe and validates the presence of the keyword.
-func checkKeyword(ctx context.Context, monitor *models.Monitor) Result {
+func checkKeyword(ctx context.Context, monitor *models.Monitor, plan probePlan) Result {
 	cfg := monitor.Config
-	result, body := httpRequest(ctx, monitor)
+	result, body := httpRequest(ctx, monitor, plan)
 
 	// A failed request can never match a keyword.
 	if result.Status != models.StatusUp {
@@ -212,17 +214,40 @@ func encodeBody(cfg models.MonitorConfig) (io.Reader, string, error) {
 }
 
 // describeRequestError shortens the network errors into a readable message.
+//
+// A dial error that names an address family keeps it: with `config.ip_family`
+// rotating between IPv4 and IPv6, "connection refused" alone would not say which
+// of the two paths refused, which is the one thing the operator needs to know.
 func describeRequestError(err error) string {
 	message := err.Error()
 	switch {
 	case strings.Contains(message, "no such host"):
 		return "DNS resolution failed"
 	case strings.Contains(message, "connection refused"):
-		return "connection refused"
+		return qualifyFamily("connection refused", message)
 	case strings.Contains(message, "context deadline exceeded"), strings.Contains(message, "Client.Timeout"):
-		return "timeout exceeded"
+		return qualifyFamily("timeout exceeded", message)
 	case strings.Contains(message, "certificate"), strings.Contains(message, "x509"):
 		return "TLS certificate error: " + message
 	}
 	return message
+}
+
+// qualifyFamily appends the family a dial error pinned to a shortened message.
+func qualifyFamily(short, message string) string {
+	if family := dialedFamily(message); family != "" {
+		return short + " (" + family + ")"
+	}
+	return short
+}
+
+// dialedFamily is the network a "dial tcp4 ..." style error names, or "" when the
+// error does not pin one (the plain "tcp" of a happy-eyeballs dial).
+func dialedFamily(message string) string {
+	for _, network := range []string{"tcp4", "tcp6", "udp4", "udp6"} {
+		if strings.Contains(message, "dial "+network+" ") {
+			return network
+		}
+	}
+	return ""
 }

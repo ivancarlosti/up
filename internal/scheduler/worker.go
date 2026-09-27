@@ -21,7 +21,12 @@ type worker struct {
 
 	mu      sync.RWMutex
 	monitor *models.Monitor
-	cancel  context.CancelFunc
+	// family is the address family of the NEXT execution of an alternating
+	// monitor. The rotation is in memory on purpose: it is a property of this
+	// worker (not of the monitor row), it re-seeds on restart, and it never needs
+	// to be visible to another node.
+	family string
+	cancel context.CancelFunc
 }
 
 // run is the worker main loop.
@@ -96,10 +101,42 @@ func (w *worker) executeOnce(ctx context.Context) {
 		return
 	}
 	w.update(fresh)
-	w.scheduler.execute(ctx, fresh)
+	w.scheduler.execute(ctx, fresh, w.probeFamily(fresh))
+}
+
+// probeFamily returns the address family of this execution and advances the
+// rotation.
+//
+// A monitor that is not configured with `alternate` has no rotation at all: it
+// gets an empty turn, so the checkers honor its explicit `ipv4`/`ipv6` (or the
+// plain happy eyeballs of `auto`) on every execution. Only `alternate` consumes
+// the state, and the state flips whether the execution succeeds or fails, so a
+// host with one dead family is reported down on the turns that test it instead of
+// looking healthy because the other family answered.
+func (w *worker) probeFamily(monitor *models.Monitor) string {
+	if models.NormalizeIPFamily(monitor.Config.IPFamily) != models.IPFamilyAlternate {
+		return ""
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	family := w.family
+	w.family = models.NextIPFamily(family)
+	return family
 }
 
 // jitter spreads the first execution of the workers over a few seconds.
 func jitter() time.Duration {
 	return time.Duration(rand.Intn(3000)) * time.Millisecond
+}
+
+// seedFamily is the first turn of a worker: odd monitor ids start on IPv6 and
+// even ones on IPv4. The split means a restart does not put every alternating
+// monitor on the same family at the same second, which would double the load of
+// one path (and, on a host whose IPv6 route is down, make every monitor look down
+// at once instead of half of them).
+func seedFamily(monitorID uint) string {
+	if monitorID%2 == 0 {
+		return models.IPFamily4
+	}
+	return models.IPFamily6
 }

@@ -8,6 +8,10 @@ import (
 // Validate checks the type specific configuration and returns a human readable
 // problem description. An empty string means the configuration is valid.
 func (c *MonitorConfig) Validate(monitorType MonitorType) string {
+	// The address family is a shared field, so it is checked for every type.
+	if !ValidIPFamily(c.IPFamily) {
+		return fmt.Sprintf("config.ip_family must be one of %s", strings.Join(IPFamilies, ", "))
+	}
 	switch monitorType {
 	case MonitorTypeHTTP, MonitorTypeKeyword:
 		if c.URL == "" {

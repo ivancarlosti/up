@@ -85,38 +85,17 @@ func TestExpirySettingsValidation(t *testing.T) {
 	if problem := bad.Validate(); problem == "" {
 		t.Fatal("a zero timeout must be rejected")
 	}
-	bad = settings
-	bad.IPVersion = "ipv7"
-	if problem := bad.Validate(); problem == "" {
-		t.Fatal("an unknown ip_version must be rejected")
-	}
-	// A payload that omits the field stays valid: Normalize turns it into
-	// "auto", so an older client cannot break the endpoint.
-	omitted := settings
-	omitted.IPVersion = ""
-	if problem := omitted.Validate(); problem != "" {
-		t.Fatalf("an omitted ip_version must be valid: %s", problem)
-	}
 }
 
 // TestExpirySettingsNormalize clamps the stored values.
 func TestExpirySettingsNormalize(t *testing.T) {
-	settings := ExpirySettings{CheckTime: "nope", CheckTimezone: "nope", RateLimitMS: 999999, TimeoutSeconds: 999, IPVersion: "IPv6"}
+	settings := ExpirySettings{CheckTime: "nope", CheckTimezone: "nope", RateLimitMS: 999999, TimeoutSeconds: 999}
 	settings.Normalize()
 	if settings.CheckTime != DefaultExpiryCheckTime || settings.CheckTimezone != DefaultExpiryTimezone {
 		t.Fatalf("normalize = %+v", settings)
 	}
 	if settings.RateLimitMS != 60000 || settings.TimeoutSeconds != DefaultExpiryTimeoutSeconds {
 		t.Fatalf("clamp = %+v", settings)
-	}
-	if settings.IPVersion != ExpiryIPVersion6 {
-		t.Fatalf("ip_version = %q, want %q", settings.IPVersion, ExpiryIPVersion6)
-	}
-	// Anything unreadable means "auto", never an invalid stored value.
-	settings.IPVersion = "nope"
-	settings.Normalize()
-	if settings.IPVersion != DefaultExpiryIPVersion {
-		t.Fatalf("ip_version = %q, want %q", settings.IPVersion, DefaultExpiryIPVersion)
 	}
 }
 

@@ -30,6 +30,37 @@ A failing probe is retried up to `retries` times, waiting
 stored with `important=false`, so uptime statistics and notifications only react
 to the definitive verdict. `retries=0` means "report the first failure".
 
+### Address family (`config.ip_family`)
+
+A target usually has an address in both families, and the two paths are not
+equivalent: a host whose service on IPv6 is dead looks healthy forever when every
+check dials whichever family the dialer happened to pick.
+
+| `config.ip_family` | Behavior |
+|---|---|
+| `alternate` (default) | every execution flips between IPv4 and IPv6, so both paths are tested. The family is only insisted on when the target really has an address in it, so a single stack target keeps working on every execution |
+| `auto` | no preference: the dialer picks the family of the first resolved address and tries the other one 300 ms later (happy eyeballs) |
+| `ipv4` / `ipv6` | a hard pin: the probe only ever uses that family, and it fails when the target has no address in it |
+
+- **One execution = one family.** The retries of a check re-test the path that
+  just failed (a retry cannot hide a dead family behind the working one) and the
+  next execution rotates.
+- The rotation lives in the worker and is seeded from the monitor id (odd ids
+  start on IPv6), so a restart re-seeds it — it is deliberately in memory, like
+  the ticker, and never reaches another node.
+- `alternate` is the default for monitors **and** templates, and every type reads
+  it (HTTP, Keyword, TCP, DNS and SSL), so it survives a type switch.
+- A dual stack target whose IPv6 path is broken is reported **down** on the
+  executions that test it: that is the point of the rotation. `auto` is the
+  opt-out for a target whose other family is known to be dead.
+- The probe may add one resolution step: with a family to insist on, the name is
+  resolved first so the chosen address can be dialed as is. Nothing changes for
+  `auto`.
+- A failed probe names the family it used (`connection refused (tcp6)`,
+  `dial tcp6 ...: no suitable address found`), so the half of the heartbeats that
+  fail says which path is broken. An unknown `config.ip_family` answers
+  `400 ERR_MONITOR_CONFIG_INVALID`; an omitted one keeps `alternate`.
+
 ### Re-notification
 
 - `resend_interval_seconds=0`: an alert is sent on each transition
@@ -435,8 +466,9 @@ smallest one the reminder repeats **once a day**. The events are
    rule's `server` field when it is set, otherwise the built-in table — and only
    asks `whois.iana.org` for the TLDs nothing else covers. A stale `server` in a
    rule therefore overrides a correct built-in entry, and a registry that only
-   answers over IPv6 (`.pt`, `whois.dns.pt`) also needs IPv6 egress from the
-   container: see *Network egress* in the README.
+   answers over IPv6 (`.pt`, `whois.dns.pt`) also needs an IPv6 route from inside
+   the container — the `network_mode: host` recipe of *Network egress* in the
+   README, since no address family setting can create one.
 
 `date_layouts` is a `;` separated list of Go reference layouts and its
 recommended value is **ISO 8601** (`2006-01-02T15:04:05Z07:00;2006-01-02`),

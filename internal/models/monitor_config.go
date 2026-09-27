@@ -50,6 +50,12 @@ type MonitorConfig struct {
 	// ServerName is the SNI sent on the handshake of a ssl monitor (useful when
 	// the certificate names a virtual host that the IP alone does not identify).
 	ServerName string `json:"server_name,omitempty"`
+
+	// --- every type -------------------------------------------------------
+	// IPFamily is the address family the probe prefers: "alternate" (default,
+	// flips between IPv4 and IPv6 on every execution, see models.IPFamily),
+	// "auto" (no preference) or a hard "ipv4"/"ipv6" pin.
+	IPFamily string `json:"ip_family,omitempty"`
 }
 
 // HTTPMethods lists the methods accepted by the HTTP and Keyword monitors.
@@ -67,6 +73,10 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 	if c.Headers == nil {
 		c.Headers = []Header{}
 	}
+	// The address family applies to every type, so it is normalized before the
+	// switch: a stored monitor (or an old client payload) without the field keeps
+	// the default rotation instead of leaving the checkers without a preference.
+	c.IPFamily = NormalizeIPFamily(c.IPFamily)
 	switch monitorType {
 	case MonitorTypeHTTP, MonitorTypeKeyword:
 		c.URL = strings.TrimSpace(c.URL)
@@ -115,6 +125,7 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 // ignores them, but they would show up in the stored JSON and in the API payload
 // of a monitor they do not describe).
 func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
+	// The address family applies to every type, so every branch below carries it.
 	switch monitorType {
 	case MonitorTypeHTTP:
 		return MonitorConfig{
@@ -123,6 +134,7 @@ func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
 			BasicPass: c.BasicPass, BearerToken: c.BearerToken, IgnoreTLS: c.IgnoreTLS,
 			MaxRedirects: c.MaxRedirects, CacheBuster: c.CacheBuster,
 			AcceptedStatusCodes: c.AcceptedStatusCodes,
+			IPFamily:            c.IPFamily,
 		}
 	case MonitorTypeKeyword:
 		return MonitorConfig{
@@ -132,16 +144,18 @@ func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
 			MaxRedirects: c.MaxRedirects, CacheBuster: c.CacheBuster,
 			AcceptedStatusCodes: c.AcceptedStatusCodes,
 			Keyword:             c.Keyword, InvertKeyword: c.InvertKeyword, CaseSensitive: c.CaseSensitive,
+			IPFamily: c.IPFamily,
 		}
 	case MonitorTypeTCP:
-		return MonitorConfig{Host: c.Host, Port: c.Port, Send: c.Send, Expect: c.Expect}
+		return MonitorConfig{Host: c.Host, Port: c.Port, Send: c.Send, Expect: c.Expect, IPFamily: c.IPFamily}
 	case MonitorTypeDNS:
 		return MonitorConfig{
 			Hostname: c.Hostname, ResolverServer: c.ResolverServer,
 			RecordType: c.RecordType, ExpectedValue: c.ExpectedValue, InvertCheck: c.InvertCheck,
+			IPFamily: c.IPFamily,
 		}
 	case MonitorTypeSSL:
-		return MonitorConfig{Host: c.Host, Port: c.Port, ServerName: c.ServerName, IgnoreTLS: c.IgnoreTLS}
+		return MonitorConfig{Host: c.Host, Port: c.Port, ServerName: c.ServerName, IgnoreTLS: c.IgnoreTLS, IPFamily: c.IPFamily}
 	}
 	return MonitorConfig{}
 }

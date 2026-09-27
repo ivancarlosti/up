@@ -45,7 +45,7 @@ function emptyForm(): MonitorPayload {
     run_on_nodes: '',
     node_id: '',
     tags: '',
-    config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', headers: [] },
+    config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', ip_family: 'alternate', headers: [] },
     notification_ids: [],
     group_ids: [],
     template_uuid: '',

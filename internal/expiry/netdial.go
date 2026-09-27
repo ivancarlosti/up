@@ -31,23 +31,6 @@ func registryDialer(timeout time.Duration) *net.Dialer {
 	return &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
 }
 
-// registryNetwork maps the admin setting to the network of net.Dialer.
-//
-// A pinned family fails fast and explicitly (tcp6 without a route answers
-// connect: network is unreachable in milliseconds), while "auto" keeps Go's happy
-// eyeballs: the family of the first resolved address is dialed at once, the other
-// one follows after 300 ms and both share the one deadline.
-func registryNetwork(ipVersion string) string {
-	switch models.NormalizeExpiryIPVersion(ipVersion) {
-	case models.ExpiryIPVersion4:
-		return "tcp4"
-	case models.ExpiryIPVersion6:
-		return "tcp6"
-	default:
-		return "tcp"
-	}
-}
-
 // familyNetwork is the network of a single resolved address.
 func familyNetwork(ip net.IP) string {
 	if ip.To4() != nil {
@@ -56,24 +39,29 @@ func familyNetwork(ip net.IP) string {
 	return "tcp6"
 }
 
-// dialRegistry opens a TCP connection to a registry endpoint honoring the address
-// family the operator chose.
+// dialRegistry opens a TCP connection to a registry endpoint.
 //
-// The reason a failing dial is so hard to read is Go's happy eyeballs: on total
-// failure net.Dialer reports ONLY the error of the family it tried first, so a
-// blackholed IPv4 path hides the fact that the container has no IPv6 route at all
-// (the Docker default) - the operator sees "dial tcp 52.37.99.5:43: i/o timeout"
-// while the host that runs Docker answers fine because IT reaches the registry
-// over IPv6. registryDialError re-dials every resolved address to name them all.
-func dialRegistry(ctx context.Context, ipVersion, address string, timeout time.Duration) (net.Conn, error) {
-	network := registryNetwork(ipVersion)
-	conn, err := registryDialer(timeout).DialContext(ctx, network, address)
+// The dial is always "tcp", so Go's happy eyeballs applies: the family of the
+// first resolved address is tried at once and the other one follows after 300 ms
+// sharing the one deadline. There is no per-lookup way to choose a family on
+// purpose: a registry that only answers on IPv6 (whois.nic.io on port 43) is
+// unreachable from a container whose network has no IPv6 route, and the fix is to
+// give the container such a route (network_mode: host), not to pin a family that
+// is known to be dead.
+//
+// The reason a failing dial is so hard to read is exactly that happy eyeballs
+// reports ONLY the error of the family it tried first, so a blackholed IPv4 path
+// hides the fact that the container has no IPv6 route at all (the Docker
+// default) - the operator sees "dial tcp 52.37.99.5:43: i/o timeout" while the
+// host that runs Docker answers fine because IT reaches the registry over IPv6.
+// registryDialError re-dials every resolved address to name them all.
+func dialRegistry(ctx context.Context, address string, timeout time.Duration) (net.Conn, error) {
+	conn, err := registryDialer(timeout).DialContext(ctx, "tcp", address)
 	if err == nil {
 		return conn, nil
 	}
-	if network != "tcp" || ctx.Err() != nil {
-		// A pinned family needs no probe (the error already names it) and a
-		// cancelled context must not be kept alive by diagnostics.
+	if ctx.Err() != nil {
+		// A cancelled context must not be kept alive by diagnostics.
 		return nil, err
 	}
 	return nil, registryDialError(ctx, address, err)
@@ -155,7 +143,7 @@ func describeDialAttempts(host string, attempts []dialAttempt) string {
 		return message + " - " + reached + " answered on a retry: the first attempt was probably rate limited, try again"
 	}
 	if ipv6Attempts > 0 && ipv6Unreachable == ipv6Attempts {
-		return message + " - this host has no IPv6 route (Docker networks are IPv4-only unless IPv6 is enabled for them): see the Network egress section of the README"
+		return message + " - this host has no IPv6 route (Docker networks are IPv4-only by default), while the registry answers on IPv6 only: run the container with network_mode: host, see the Network egress section of the README"
 	}
 	return message
 }

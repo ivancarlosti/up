@@ -7,6 +7,16 @@ import type { ClusterStatus } from './types-platform'
  */
 
 export type MonitorType = 'http' | 'keyword' | 'tcp' | 'dns' | 'ssl'
+/**
+ * Address family a probe prefers (mirror of `models.IPFamily`).
+ *
+ * - `alternate` (default) flips between IPv4 and IPv6 on every execution, so a
+ *   dead path of a dual stack host cannot hide behind the working one;
+ * - `auto` lets the dialer choose (happy eyeballs) - the classic behavior;
+ * - `ipv4`/`ipv6` pin one family for good, and the probe fails when the target
+ *   has no address in it.
+ */
+export type IPFamily = 'alternate' | 'auto' | 'ipv4' | 'ipv6'
 export type AggregateStatus = 'up' | 'down' | 'degraded' | 'pending' | 'maintenance' | 'unknown'
 export type HeartbeatStatus = 'up' | 'down' | 'pending' | 'maintenance'
 export type FailureStrategy = 'ANY_NODE_FAILS' | 'ALL_NODES_FAIL' | 'QUORUM'
@@ -50,6 +60,11 @@ export interface MonitorConfig {
   invert_check?: boolean
   // SNI of a ssl monitor (the certificate usually names a virtual host).
   server_name?: string
+  /**
+   * Address family the probe prefers. Shared by every type, like `ignore_tls`:
+   * see `IPFamily`. Absent means the backend default (`alternate`).
+   */
+  ip_family?: IPFamily
 }
 
 /** CertificateInfo is the TLS certificate read by the probe of a monitor. */

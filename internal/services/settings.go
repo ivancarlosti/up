@@ -257,10 +257,6 @@ func (s *SettingService) ExpirySettings() models.ExpirySettings {
 			out.TimeoutSeconds = parsed
 		}
 	}
-	if value, ok := s.Get(models.SettingExpiryIPVersion); ok && strings.TrimSpace(value) != "" {
-		// Normalize below turns anything unknown into "auto".
-		out.IPVersion = strings.TrimSpace(value)
-	}
 	out.Normalize()
 	return out
 }
@@ -275,7 +271,6 @@ func (s *SettingService) SetExpirySettings(ctx context.Context, settings models.
 		models.SettingExpiryWHOISEnabled:   strconv.FormatBool(settings.WHOISEnabled),
 		models.SettingExpiryRateLimitMS:    strconv.Itoa(settings.RateLimitMS),
 		models.SettingExpiryTimeoutSeconds: strconv.Itoa(settings.TimeoutSeconds),
-		models.SettingExpiryIPVersion:      settings.IPVersion,
 	}
 	for key, value := range stored {
 		if err := s.Set(ctx, key, value); err != nil {

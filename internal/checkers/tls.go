@@ -21,7 +21,7 @@ import (
 // down (which is what a browser would see). The certificate is captured even
 // when the verification fails, so the operator gets "expires in -3 days
 // (issuer: ...)" instead of a bare handshake error.
-func checkSSL(ctx context.Context, monitor *models.Monitor) Result {
+func checkSSL(ctx context.Context, monitor *models.Monitor, plan probePlan) Result {
 	cfg := monitor.Config
 	host := strings.TrimSpace(cfg.Host)
 	if host == "" {
@@ -33,7 +33,7 @@ func checkSSL(ctx context.Context, monitor *models.Monitor) Result {
 	}
 
 	started := time.Now()
-	info, err := probeCertificate(ctx, net.JoinHostPort(host, strconv.Itoa(port)), cfg.ServerName, cfg.IgnoreTLS)
+	info, err := probeCertificate(ctx, net.JoinHostPort(host, strconv.Itoa(port)), cfg.ServerName, cfg.IgnoreTLS, plan)
 	latency := time.Since(started).Milliseconds()
 	if err != nil {
 		return Result{
@@ -59,14 +59,15 @@ func checkSSL(ctx context.Context, monitor *models.Monitor) Result {
 //
 // It is the exported entry point of the daily expiry job, which re-checks the
 // deduplicated certificate endpoints once a day (instead of writing the row on
-// every probe), and of the "run now" action of the admin page.
+// every probe), and of the "run now" action of the admin page. It dials with the
+// default plan: the daily pass is not a monitor, so it has no turn to honor.
 func ProbeCertificate(ctx context.Context, address, serverName string, insecure bool, timeout time.Duration) (*models.CertificateInfo, error) {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return probeCertificate(ctx, address, serverName, insecure)
+	return probeCertificate(ctx, address, serverName, insecure, probePlan{})
 }
 
 // probeCertificate dials the address and returns the leaf certificate.
@@ -74,7 +75,7 @@ func ProbeCertificate(ctx context.Context, address, serverName string, insecure 
 // When the verification fails the certificates carried by the error are used:
 // an expired or self signed chain is exactly the situation the certificate
 // watcher has to report.
-func probeCertificate(ctx context.Context, address, serverName string, insecure bool) (*models.CertificateInfo, error) {
+func probeCertificate(ctx context.Context, address, serverName string, insecure bool, plan probePlan) (*models.CertificateInfo, error) {
 	config := &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec // explicit operator opt-in
 	if serverName != "" {
 		config.ServerName = serverName
@@ -82,8 +83,7 @@ func probeCertificate(ctx context.Context, address, serverName string, insecure 
 		config.ServerName = host
 	}
 
-	dialer := &net.Dialer{Timeout: timeoutFromContext(ctx)}
-	conn, err := tls.DialWithDialer(dialer, "tcp", address, config)
+	conn, err := dialTLS(ctx, plan, address, config)
 	now := time.Now().UTC()
 	if err != nil {
 		return certificateFromError(err, now), err
@@ -92,6 +92,23 @@ func probeCertificate(ctx context.Context, address, serverName string, insecure 
 
 	state := conn.ConnectionState()
 	return captureCertificate(&state, now), nil
+}
+
+// dialTLS opens the planned TCP connection and completes the handshake on it.
+//
+// tls.DialWithDialer cannot be used here: it owns the dialer, so it cannot go
+// through the plan (the address family of the execution).
+func dialTLS(ctx context.Context, plan probePlan, address string, config *tls.Config) (*tls.Conn, error) {
+	raw, err := dialProbe(ctx, plan, address, timeoutFromContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	conn := tls.Client(raw, config)
+	if err := conn.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 // captureCertificate reads the leaf certificate of a completed handshake.

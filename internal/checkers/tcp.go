@@ -12,13 +12,12 @@ import (
 
 // checkTCP opens a TCP connection (optionally writing a payload and expecting a
 // response) and reports the time it took to complete the handshake.
-func checkTCP(ctx context.Context, monitor *models.Monitor) Result {
+func checkTCP(ctx context.Context, monitor *models.Monitor, plan probePlan) Result {
 	cfg := monitor.Config
 	address := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
-	dialer := &net.Dialer{Timeout: timeoutFromContext(ctx)}
 
 	started := time.Now()
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	conn, err := dialProbe(ctx, plan, address, timeoutFromContext(ctx))
 	latency := time.Since(started).Milliseconds()
 	if err != nil {
 		return Result{

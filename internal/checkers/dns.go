@@ -31,7 +31,7 @@ var dnsTypeMap = map[string]uint16{
 //   - with an expected value: the monitor is up when the value is NOT matched.
 //   - without an expected value: the monitor is up when the name does NOT
 //     resolve (useful to detect unwanted DNS records).
-func checkDNS(ctx context.Context, monitor *models.Monitor) Result {
+func checkDNS(ctx context.Context, monitor *models.Monitor, plan probePlan) Result {
 	cfg := monitor.Config
 
 	recordType, ok := dnsTypeMap[strings.ToUpper(cfg.RecordType)]
@@ -51,7 +51,17 @@ func checkDNS(ctx context.Context, monitor *models.Monitor) Result {
 	query.SetQuestion(dns.Fqdn(cfg.Hostname), recordType)
 	query.RecursionDesired = true
 
+	// The plan decides the transport of the query: dns.Client passes Net verbatim
+	// to net.Dialer, so udp4/udp6 pin the family of the resolver connection the
+	// same way tcp4/tcp6 pin a probe. A negotiable family that the resolver does
+	// not have keeps the library default (udp), and the resolved address is used
+	// as is so the query tests exactly one path.
 	client := &dns.Client{Timeout: timeoutFromContext(ctx)}
+	if network, address := probeTarget(ctx, plan, resolver); network != "tcp" {
+		client.Net = "udp" + models.NetworkFor(plan.family)
+		resolver = address
+	}
+
 	started := time.Now()
 	response, _, err := client.ExchangeContext(ctx, query, resolver)
 	latency := time.Since(started).Milliseconds()

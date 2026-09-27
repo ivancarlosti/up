@@ -660,6 +660,8 @@ Notes on the generated DDL:
 | `keyword`, `invert_keyword`, `case_sensitive` | keyword | response body match options |
 | `host`, `port`, `send`, `expect` | tcp | connect, optional payload and expected answer |
 | `hostname`, `resolver_server`, `record_type`, `expected_value`, `invert_check` | dns | A/AAAA/CNAME/MX/TXT/NS/SOA query through a chosen resolver |
+| `host`, `port`, `server_name`, `ignore_tls` | ssl | TLS handshake target (SNI and unverified chain accepted as documented in `docs/monitors.md`) |
+| `ip_family` | every type | address family of the probe: `alternate` (default: IPv4/IPv6 flipped on every execution), `auto` (no preference) or a hard `ipv4`/`ipv6` pin |
 
 ## 5. Queries the application runs
 

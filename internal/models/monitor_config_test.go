@@ -7,7 +7,8 @@ import (
 
 // TestMonitorConfigPruneToType documents the Go twin of `CONFIG_FIELDS` of the
 // UI: only the options of the type survive, and the options shared by several
-// types (host/port for tcp and ssl, ignore_tls for http/keyword/ssl) are kept.
+// types (host/port for tcp and ssl, ignore_tls for http/keyword/ssl, ip_family
+// for every type) are kept.
 func TestMonitorConfigPruneToType(t *testing.T) {
 	full := MonitorConfig{
 		URL: "https://example.com", Method: "POST", Encoding: "xml", Body: "{}",
@@ -18,6 +19,7 @@ func TestMonitorConfigPruneToType(t *testing.T) {
 		Hostname: "example.com", ResolverServer: "8.8.8.8", RecordType: "AAAA",
 		ExpectedValue: "93.184", InvertCheck: true,
 		ServerName: "shop.example.com",
+		IPFamily:   IPFamily6,
 	}
 
 	tcp := full.PruneToType(MonitorTypeTCP)
@@ -64,6 +66,45 @@ func TestMonitorConfigPruneToType(t *testing.T) {
 	// An unknown type keeps nothing rather than leaking every option.
 	if pruned := full.PruneToType(MonitorType("planet")); !reflect.DeepEqual(pruned, MonitorConfig{}) {
 		t.Fatalf("unknown type = %+v", pruned)
+	}
+
+	// The address family belongs to every type: a bulk row that changes the type
+	// of its template must not drop it (the UI saves the five lists of
+	// CONFIG_FIELDS, so a missing branch would silently reset the monitor to the
+	// default rotation).
+	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL} {
+		if got := full.PruneToType(monitorType); got.IPFamily != IPFamily6 {
+			t.Fatalf("%s kept ip_family = %q, want %q", monitorType, got.IPFamily, IPFamily6)
+		}
+	}
+}
+
+// TestMonitorConfigNormalizeIPFamily covers the default the checkers rely on: a
+// stored monitor (or an old payload) without the field ends up as `alternate`,
+// never as an empty preference - and an unreadable value is left alone, so
+// Validate rejects the write instead of silently applying the default.
+func TestMonitorConfigNormalizeIPFamily(t *testing.T) {
+	cases := map[string]string{
+		"":     IPFamilyAlternate,
+		"nope": "nope",
+		"IPv6": IPFamily6,
+		"auto": IPFamilyAuto,
+		"ipv4": IPFamily4,
+	}
+	for input, want := range cases {
+		config := MonitorConfig{IPFamily: input}
+		config.Normalize(MonitorTypeHTTP)
+		if config.IPFamily != want {
+			t.Errorf("Normalize(%q) produced ip_family = %q, want %q", input, config.IPFamily, want)
+		}
+	}
+	// The default of a fresh monitor is the rotation, whatever the type.
+	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL} {
+		config := MonitorConfig{}
+		config.Normalize(monitorType)
+		if config.IPFamily != DefaultIPFamily {
+			t.Errorf("%s default ip_family = %q, want %q", monitorType, config.IPFamily, DefaultIPFamily)
+		}
 	}
 }
 
