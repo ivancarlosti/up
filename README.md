@@ -247,7 +247,7 @@ the `Live` badge is the real WebSocket connection (regenerate them with
 
 | ![dashboard](docs/screenshots/1-dashboard.png) | 
 |:--:| 
-| *Main dashboard panel: counters, status, uptime and heartbeat bars* |
+| *Main dashboard panel: counters, status, uptime and heartbeat bars (benchmark: 7 seconds to load 1600 monitors)* |
 
 | ![monitor groups](docs/screenshots/2-monitorgroups.png) | 
 |:--:| 
