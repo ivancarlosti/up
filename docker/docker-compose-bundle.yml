@@ -66,6 +66,12 @@ services:
     # against a database on the Docker host (DB_HOST=host.docker.internal).
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # IPv6-enabled network (declared below). A default Docker network has no
+    # IPv6 route, so a registry that answers WHOIS only over IPv6 - such as
+    # whois.dns.pt - times out from inside the container. Docker also enables
+    # IPv6 forwarding and masquerades the ULA range to the host's IPv6.
+    networks:
+      - up
     # Wait for a database that already accepted connections. Up also retries the
     # connection for up to 90 s on its own, so a slow first boot is harmless.
     depends_on:
@@ -103,8 +109,22 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+    # The same network as Up, so the application still reaches the database by
+    # the `mariadb` service name.
+    networks:
+      - up
     restart: unless-stopped
 
 volumes:
   # Database files of the bundled MariaDB (removed by `down -v`).
   mariadb_data:
+
+# ULA subnet for the container's IPv6 egress (Docker allocates the IPv4 subnet
+# automatically). Keep it disjoint from a daemon-level fixed-cidr-v6: fd00::/80
+# and fd00:1::/64 do not overlap.
+networks:
+  up:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd00:1::/64

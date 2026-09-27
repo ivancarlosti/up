@@ -170,8 +170,9 @@ The expiry job talks to the registries directly, so the container needs:
 
 Two traps are worth knowing before debugging a failed look-up:
 
-* A Docker network is IPv4-only by default, so the container has **no IPv6 route
-  at all** even when the machine running Docker has one: every registry — or CDN
+* A Docker network is IPv4-only unless it is created with IPv6 enabled, so a
+  container on a default network has **no IPv6 route at all** even when the
+  machine running Docker has one: every registry — or CDN
   or firewall — the host can only reach over IPv6 becomes unreachable, and the
   only symptom is the IPv4 dial of the other family timing out after the whole
   `timeout_seconds` (`dial tcp 52.37.99.5:43: i/o timeout`). Admin > TLD/SSL
@@ -182,11 +183,21 @@ Two traps are worth knowing before debugging a failed look-up:
 * An egress firewall that only allows 80/443 breaks WHOIS (port 43) while RDAP
   keeps working, which looks like "the rule for this TLD is wrong".
 
-To give the containers an IPv6 path, enable IPv6 in the engine
-(`/etc/docker/daemon.json`: `{"ipv6": true, "fixed-cidr-v6": "fd00::/80",
-"experimental": true}`, then restart Docker), attach them to an IPv6-enabled
-compose network, or run the app with `network_mode: host` (Linux engines only; the
-database is then reached on `127.0.0.1` and `APP_PORT`/`HOST_PORT` are ignored).
+Both shipped compose files already declare an **IPv6-enabled network**
+(`fd00:1::/64`, a ULA subnet) and attach the service(s) to it, so a registry that
+answers only over IPv6 — `.pt` (`whois.dns.pt`) is one — works without touching
+the host: Docker enables IPv6 forwarding and masquerades the ULA range to the
+host's IPv6 on its own (verified on Docker 29.8.1, where the app's own client
+answered `whois.dns.pt` in ~1.3 s from inside the real container). The network
+also keeps its IPv4 subnet, so a host without IPv6 loses nothing: the IPv6 route
+simply leads nowhere, IPv4 keeps working, and an IPv6-only registry stays
+unreachable.
+
+To give *other* containers (or the default bridge) an IPv6 path, enable IPv6 in
+the engine (`/etc/docker/daemon.json`: `{"ipv6": true, "fixed-cidr-v6":
+"fd00::/80", "ip6tables": true}`, then restart Docker), or run the app with
+`network_mode: host` (Linux engines only; the database is then reached on
+`127.0.0.1` and `APP_PORT`/`HOST_PORT` are ignored).
 Docker Desktop: Settings > Resources > Network > Enable IPv6.
 
 The image ships no network tools of its own, so test from the namespace of the
@@ -202,6 +213,12 @@ docker run --rm --network container:up alpine:3.24 \
 # network the second one answers "Network unreachable" in milliseconds.
 docker run --rm --network container:up alpine:3.24 sh -c \
   'nc -zv -w5 "52.37.99.5:43"; nc -zv -w5 "[2600:1f13:101:c200:9b9b:7011:8bd8:a4af]:43"'
+
+# whois.dns.pt (the .pt registry) is the same shape in reverse: its IPv4 :43
+# dropped the SYN when measured (2026-09-27), so only the IPv6 address
+# answered - 185.39.208.67 and 2a04:6d80:0:1::3.
+docker run --rm --network container:up alpine:3.24 sh -c \
+  'nc -zv -w5 "185.39.208.67:43"; nc -zv -w5 "[2a04:6d80:0:1::3]:43"'
 ```
 
 ## Public API and status pages

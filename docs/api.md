@@ -386,14 +386,15 @@ cannot break the endpoint.
 `ip_version` selects the address family of every registry lookup (`auto` lets the
 Go dialer pick the family of the first resolved address and use the other one as a
 fallback, `ipv4`/`ipv6` pin it with `tcp4`/`tcp6`). It exists because the two
-paths of a registry host are not equivalent: a Docker network is IPv4-only by
-default, so a container has no IPv6 route even when the machine that runs it does,
-and anything the host reaches only over IPv6 is then unreachable — which surfaces
-as `dial tcp <ipv4>:43: i/o timeout` after the whole `timeout_seconds`. Pin the
-family and the same lookup answers immediately with
-`connect: network is unreachable`, and in `auto` a failed lookup now lists
-**every** resolved address with its own error instead of only the family Go tried
-first (see the "Network egress" section of the README).
+paths of a registry host are not equivalent: a Docker network is IPv4-only unless
+it is created with IPv6 enabled, so a container on a default network has no IPv6
+route even when the machine that runs it does, and anything the host reaches only
+over IPv6 is then unreachable — which surfaces as `dial tcp <ipv4>:43: i/o
+timeout` after the whole `timeout_seconds`. Pin the family and the same lookup
+answers immediately with `connect: network is unreachable`, and in `auto` a failed
+lookup now lists **every** resolved address with its own error instead of only the
+family Go tried first (see the "Network egress" section of the README; both
+shipped compose files create an IPv6-enabled network already).
 
 `GET /api/admin/expiry/whois-parsers` answers the stored rules. A fresh install
 starts with the built-in table of `models.DefaultWhoisParsers()` (the TLDs

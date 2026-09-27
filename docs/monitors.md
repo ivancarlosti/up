@@ -431,9 +431,12 @@ smallest one the reminder repeats **once a day**. The events are
    Up ships a built-in table of the TLDs without RDAP whose registry does publish
    the expiration (`.io`, `.co`, `.me`, `.it`, `.se`, `.ru`, `.mx`, `.tr`, …:
    every row was verified against the live registry), so those monitors work
-   without any configuration. The query goes to the registry of the TLD first —
-   the built-in table, then the rule's `server` field — and only asks
-   `whois.iana.org` for the TLDs nothing else covers.
+   without any configuration. The query goes to the registry of the TLD — the
+   rule's `server` field when it is set, otherwise the built-in table — and only
+   asks `whois.iana.org` for the TLDs nothing else covers. A stale `server` in a
+   rule therefore overrides a correct built-in entry, and a registry that only
+   answers over IPv6 (`.pt`, `whois.dns.pt`) also needs IPv6 egress from the
+   container: see *Network egress* in the README.
 
 `date_layouts` is a `;` separated list of Go reference layouts and its
 recommended value is **ISO 8601** (`2006-01-02T15:04:05Z07:00;2006-01-02`),

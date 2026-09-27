@@ -51,4 +51,20 @@ services:
     # host.docker.internal. This is what the default DB_HOST points to.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # IPv6-enabled network (declared below). A default Docker network has no
+    # IPv6 route, so a registry that answers WHOIS only over IPv6 - such as
+    # whois.dns.pt - times out from inside the container. Docker also enables
+    # IPv6 forwarding and masquerades the ULA range to the host's IPv6.
+    networks:
+      - up
     restart: unless-stopped
+
+# ULA subnet for the container's IPv6 egress (Docker allocates the IPv4 subnet
+# automatically). Keep it disjoint from a daemon-level fixed-cidr-v6: fd00::/80
+# and fd00:1::/64 do not overlap.
+networks:
+  up:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd00:1::/64
