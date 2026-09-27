@@ -1,4 +1,4 @@
-import type { MonitorConfig, MonitorPayload, MonitorType, TemplateDefaults } from './types'
+import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, TemplateDefaults } from './types'
 
 /**
  * Type aware pruning of a monitor payload.
@@ -193,4 +193,47 @@ export function sanitizeTemplateDefaults(type: MonitorType, defaults: TemplateDe
   }
 
   return clean
+}
+
+/** Port a ssl monitor dials when none is configured (mirror of `models.DefaultSSLPort`). */
+const DEFAULT_SSL_PORT = 443
+
+/**
+ * monitorTarget renders the probe target in a readable form, exactly like
+ * `notify.MonitorTarget` on the Go side: the URL of an http/keyword probe, the
+ * `host:port` of tcp, the `record host @resolver` of dns and the `host:port` of
+ * ssl (falling back to 443). It is what the table prints under the monitor name.
+ */
+export function monitorTarget(monitor: Monitor): string {
+  const config = monitor.config ?? {}
+  switch (monitor.type) {
+    case 'http':
+    case 'keyword':
+      return config.url ?? ''
+    case 'tcp':
+      return `${config.host ?? ''}:${config.port ?? 0}`
+    case 'dns':
+      return `${config.record_type ?? ''} ${config.hostname ?? ''} @${config.resolver_server ?? ''}`
+    case 'ssl':
+      return `${config.host ?? ''}:${config.port && config.port > 0 ? config.port : DEFAULT_SSL_PORT}`
+  }
+  return monitor.type
+}
+
+/**
+ * monitorTargetURL returns the target when it is a web URL that can be opened,
+ * so the table makes it a link; every other target (a host, a DNS record) is
+ * plain text. A malformed or non http(s) URL is not a link.
+ */
+export function monitorTargetURL(monitor: Monitor): string | null {
+  if (monitor.type !== 'http' && monitor.type !== 'keyword') return null
+  const url = monitor.config?.url?.trim()
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  } catch {
+    return null
+  }
+  return url
 }

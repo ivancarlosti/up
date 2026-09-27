@@ -16,12 +16,12 @@ const router = createRouter({
       component: () => import('@/views/MonitorDetailView.vue'),
       meta: { auth: true, app: true },
     },
-    {
-      path: '/admin/monitors',
-      name: 'admin-monitors',
-      component: () => import('@/views/admin/AdminMonitorsView.vue'),
-      meta: { auth: true, app: true },
-    },
+    /**
+     * The monitors page was absorbed by the dashboard (2026-09-27): the old path
+     * stays as a redirect so a bookmark, the browser history and the e2e scripts
+     * that land on it keep working instead of hitting "not found".
+     */
+    { path: '/admin/monitors', redirect: { name: 'dashboard' } },
     {
       path: '/admin/monitor-groups',
       name: 'admin-monitor-groups',

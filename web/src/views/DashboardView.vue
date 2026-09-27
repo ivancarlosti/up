@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, RefreshCw } from 'lucide-vue-next'
+import { ListPlus, Plus, RefreshCw, Wand2 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import Alert from '@/components/ui/Alert.vue'
 import Button from '@/components/ui/Button.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import Dialog from '@/components/ui/Dialog.vue'
 import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
+import Switch from '@/components/ui/Switch.vue'
+import ApplyTemplateDialog from '@/components/monitors/ApplyTemplateDialog.vue'
+import BulkAddDialog from '@/components/monitors/BulkAddDialog.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import MonitorTable from '@/components/monitors/MonitorTable.vue'
 import { api } from '@/lib/api'
@@ -18,7 +23,23 @@ import { sortMonitors } from '@/lib/sort'
 import type { MonitorSortKey } from '@/lib/sort'
 import { useMonitorStore } from '@/stores/monitors'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorPayload, MonitorTemplate, Notification } from '@/lib/types'
+import type {
+  Monitor,
+  MonitorCloneOptions,
+  MonitorGroup,
+  MonitorPayload,
+  MonitorTemplate,
+  Notification,
+} from '@/lib/types'
+
+/**
+ * DashboardView is the one monitors screen: the actionable summary boxes on top,
+ * the filters and the actions under them, and the shared monitors table below.
+ *
+ * It absorbed AdminMonitorsView (removed on 2026-09-27): the group / status
+ * filters, the clone action and the bulk add / apply template dialogs live here
+ * now, and `/admin/monitors` redirects to this route.
+ */
 
 const monitors = useMonitorStore()
 const toasts = useToastStore()
@@ -27,7 +48,10 @@ const { t, locale } = useI18n()
 
 const notifications = ref<Notification[]>([])
 const templates = ref<MonitorTemplate[]>([])
+const groups = ref<MonitorGroup[]>([])
 const formOpen = ref(false)
+const bulkOpen = ref(false)
+const applyOpen = ref(false)
 const editing = ref<Monitor | null>(null)
 const saving = ref(false)
 const confirmOpen = ref(false)
@@ -35,6 +59,14 @@ const pendingRemoval = ref<Monitor | null>(null)
 const removing = ref(false)
 const search = ref('')
 const typeFilter = ref('')
+const statusFilter = ref('')
+const groupFilter = ref('')
+
+/** Clone dialog state (the shallow monitor clone of the removed page). */
+const cloneOpen = ref(false)
+const cloning = ref(false)
+const cloneSource = ref<Monitor | null>(null)
+const cloneForm = reactive<MonitorCloneOptions>({ name: '', copy_notifications: true, copy_groups: true })
 
 /**
  * The summary box currently selected: it filters the table below, and clicking
@@ -47,7 +79,7 @@ const activeBox = ref<SummaryBox>('all')
 const certificateWarnDays = 7
 const domainWarnDays = 30
 
-/** The table shares its sort preference with Admin > Monitors. */
+/** The table remembers its sort across visits (see lib/monitor-sort.ts). */
 const sort = ref(loadMonitorSort())
 
 function toggleSort(key: MonitorSortKey): void {
@@ -153,36 +185,73 @@ const boxes = computed(() => [
   },
 ])
 
-const filtered = computed(() => {
-  const term = search.value.trim().toLowerCase()
-  return list.value.filter((monitor) => {
-    if (typeFilter.value && monitor.type !== typeFilter.value) return false
-    if (!matchesBox(monitor)) return false
-    if (!term) return true
-    return (
-      monitor.name.toLowerCase().includes(term) ||
-      monitor.description?.toLowerCase().includes(term) ||
-      monitor.tags?.toLowerCase().includes(term)
-    )
-  })
-})
 
-const sorted = computed(() =>
-  sortMonitors(filtered.value, sort.value.key, sort.value.direction, {
-    // The dashboard does not load the group list; the group column falls back to
-    // the name order, which is what the admin table does too for ungrouped rows.
-    groupNames: new Map<number, string>(),
-    locale: locale.value,
-  }),
-)
+/** groupFilterOptions adds the "all groups" entry to the real groups. */
+const groupFilterOptions = computed(() => [
+  { value: '', label: t('monitor.allGroups') },
+  ...groups.value.map((group) => ({ value: String(group.id), label: `${group.name} (${group.monitor_count})` })),
+])
 
+/** typeOptions adds the "all types" entry to the probe types. */
 const typeOptions = computed(() => [
   { value: '', label: t('dashboard.allTypes') },
   { value: 'http', label: t('monitor.typeHttp') },
   { value: 'keyword', label: t('monitor.typeKeyword') },
   { value: 'tcp', label: t('monitor.typeTcp') },
   { value: 'dns', label: t('monitor.typeDns') },
+  { value: 'ssl', label: t('monitor.typeSsl') },
 ])
+
+/**
+ * statusFilterOptions adds the "all statuses" entry. "Paused" is the effective
+ * status of an inactive monitor, so it is a filter of its own (the same rule the
+ * header counters use: a paused monitor is never counted as up or down).
+ */
+const statusFilterOptions = computed(() => [
+  { value: '', label: t('dashboard.allStatus') },
+  { value: 'up', label: t('status.up') },
+  { value: 'down', label: t('status.down') },
+  { value: 'degraded', label: t('status.degraded') },
+  { value: 'pending', label: t('status.pending') },
+  { value: 'maintenance', label: t('status.maintenance') },
+  { value: 'unknown', label: t('status.unknown') },
+  { value: 'paused', label: t('common.paused') },
+])
+
+/** filtered applies the summary box, the selects and the search term together. */
+const filtered = computed(() => {
+  const term = search.value.trim().toLowerCase()
+  const groupID = Number(groupFilter.value) || 0
+  return list.value.filter((monitor) => {
+    if (groupID > 0 && !(monitor.group_ids ?? []).includes(groupID)) return false
+    if (typeFilter.value && monitor.type !== typeFilter.value) return false
+    if (statusFilter.value) {
+      if (statusFilter.value === 'paused') {
+        if (monitor.active) return false
+      } else if (!monitor.active || monitor.status !== statusFilter.value) {
+        return false
+      }
+    }
+    if (!matchesBox(monitor)) return false
+    if (!term) return true
+    return (
+      monitor.name.toLowerCase().includes(term) ||
+      monitor.description?.toLowerCase().includes(term) ||
+      monitor.tags?.toLowerCase().includes(term) ||
+      monitor.type.includes(term)
+    )
+  })
+})
+
+/** groupNames feeds both the "group" comparator and the group cells. */
+const groupNames = computed(() => new Map(groups.value.map((group) => [group.id, group.name])))
+
+const sorted = computed(() =>
+  sortMonitors(filtered.value, sort.value.key, sort.value.direction, {
+    groupNames: groupNames.value,
+    locale: locale.value,
+  }),
+)
 
 const degradedNodes = computed(() => monitors.summary?.cluster?.offline_node_names ?? [])
 
@@ -204,8 +273,8 @@ async function loadNotifications(): Promise<void> {
 
 /**
  * The monitor form resolves the type of the template a monitor follows to drop
- * a link the selected type cannot follow; without the list the dashboard dialog
- * could not do it.
+ * a link the selected type cannot follow; without the list the dialog could not
+ * do it.
  */
 async function loadTemplates(): Promise<void> {
   try {
@@ -213,6 +282,20 @@ async function loadTemplates(): Promise<void> {
   } catch {
     templates.value = []
   }
+}
+
+/** The group list names the filter options and the table cells. */
+async function loadGroups(): Promise<void> {
+  try {
+    groups.value = await api.monitorGroups()
+  } catch {
+    groups.value = []
+  }
+}
+
+/** refresh reloads the monitors and the group counters after a mutation. */
+async function refresh(): Promise<void> {
+  await Promise.all([load(), loadGroups()])
 }
 
 function openCreate(): void {
@@ -228,12 +311,11 @@ function openEdit(monitor: Monitor): void {
 async function submit(payload: MonitorPayload): Promise<void> {
   saving.value = true
   try {
-    const saved = editing.value
-      ? await api.updateMonitor(editing.value.id, payload)
-      : await api.createMonitor(payload)
-    monitors.upsert(saved)
+    if (editing.value) await api.updateMonitor(editing.value.id, payload)
+    else await api.createMonitor(payload)
     formOpen.value = false
     toasts.success(t('common.saved'))
+    await refresh()
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   } finally {
@@ -245,6 +327,8 @@ async function toggle(monitor: Monitor): Promise<void> {
   try {
     const updated = monitor.active ? await api.pauseMonitor(monitor.id) : await api.resumeMonitor(monitor.id)
     monitors.upsert(updated)
+    // Pausing or resuming moves the monitor between the summary boxes.
+    monitors.refreshSummary()
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   }
@@ -270,12 +354,43 @@ async function confirmRemove(): Promise<void> {
   try {
     await api.deleteMonitor(pendingRemoval.value.id)
     monitors.remove(pendingRemoval.value.id)
+    monitors.refreshSummary()
     toasts.success(t('common.deleted'))
     confirmOpen.value = false
+    // The group counters drop the deleted monitor.
+    await loadGroups()
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   } finally {
     removing.value = false
+  }
+}
+
+/** openClone prepares the clone dialog; an empty name lets the API decide. */
+function openClone(monitor: Monitor): void {
+  cloneSource.value = monitor
+  cloneForm.name = ''
+  cloneForm.copy_notifications = true
+  cloneForm.copy_groups = true
+  cloneOpen.value = true
+}
+
+async function submitClone(): Promise<void> {
+  if (!cloneSource.value) return
+  cloning.value = true
+  try {
+    await api.cloneMonitor(cloneSource.value.id, {
+      name: cloneForm.name?.trim() || undefined,
+      copy_notifications: cloneForm.copy_notifications,
+      copy_groups: cloneForm.copy_groups,
+    })
+    cloneOpen.value = false
+    toasts.success(t('common.saved'))
+    await refresh()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    cloning.value = false
   }
 }
 
@@ -284,7 +399,7 @@ function openDetail(monitor: Monitor): void {
 }
 
 onMounted(async () => {
-  await Promise.all([load(), loadNotifications(), loadTemplates()])
+  await Promise.all([load(), loadNotifications(), loadTemplates(), loadGroups()])
 })
 </script>
 
@@ -304,13 +419,12 @@ onMounted(async () => {
         </p>
       </div>
       <div class="flex items-center gap-2">
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('common.lastCheck') }}: {{ formatRelative(monitors.summary ? new Date().toISOString() : null, locale) }}
+        </span>
         <Button variant="outline" size="sm" @click="load">
           <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('common.refresh') }}
-        </Button>
-        <Button size="sm" @click="openCreate">
-          <Plus class="h-3.5 w-3.5" aria-hidden="true" />
-          {{ t('dashboard.addMonitor') }}
         </Button>
       </div>
     </header>
@@ -331,26 +445,46 @@ onMounted(async () => {
       </button>
     </div>
 
+    <!--
+      The filters and the actions of the removed Admin > Monitors page, right
+      below the summary boxes: the boxes answer "how many", this toolbar lets the
+      operator narrow which rows that number is made of, and adds a monitor, adds
+      many in bulk or applies a template.
+    -->
+    <div class="flex flex-wrap items-center gap-2">
+      <Select v-if="groups.length" v-model="groupFilter" class="w-44" :options="groupFilterOptions" />
+      <Select v-model="typeFilter" class="w-40" :options="typeOptions" />
+      <Select v-model="statusFilter" class="w-40" :options="statusFilterOptions" />
+      <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
+      <Button v-if="activeBox !== 'all'" variant="outline" size="sm" @click="activeBox = 'all'">
+        {{ t('dashboard.clearFilter') }}
+      </Button>
+      <div class="ms-auto flex flex-wrap items-center gap-2">
+        <Button size="sm" @click="openCreate">
+          <Plus class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('dashboard.addMonitor') }}
+        </Button>
+        <Button variant="outline" size="sm" @click="bulkOpen = true">
+          <ListPlus class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('bulk.button') }}
+        </Button>
+        <Button v-if="templates.length" variant="outline" size="sm" @click="applyOpen = true">
+          <Wand2 class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('apply.button') }}
+        </Button>
+      </div>
+    </div>
+
     <Alert v-if="degradedNodes.length" variant="warning">
       {{ t('dashboard.degradedWarning') }} ({{ degradedNodes.join(', ') }})
     </Alert>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
-      <Select v-model="typeFilter" :options="typeOptions" class="max-w-[12rem]" />
-      <Button v-if="activeBox !== 'all'" variant="outline" size="sm" @click="activeBox = 'all'">
-        {{ t('dashboard.clearFilter') }}
-      </Button>
-      <span class="ms-auto text-[11px] text-muted-foreground">
-        {{ t('common.lastCheck') }}: {{ formatRelative(monitors.summary ? new Date().toISOString() : null, locale) }}
-      </span>
-    </div>
-
     <MonitorTable
       :monitors="sorted"
+      :groups="groups"
       :sort="sort"
       :loading="monitors.loading"
-      :actions="['detail', 'check', 'toggle', 'edit', 'remove']"
+      :actions="['detail', 'check', 'toggle', 'edit', 'clone', 'remove']"
       :empty-title="t('dashboard.empty')"
       :empty-description="t('dashboard.emptyHint')"
       @sort="toggleSort"
@@ -358,6 +492,7 @@ onMounted(async () => {
       @check="checkNow"
       @toggle="toggle"
       @edit="openEdit"
+      @clone="openClone"
       @remove="askRemove"
     >
       <template #empty>
@@ -372,10 +507,31 @@ onMounted(async () => {
       v-model="formOpen"
       :monitor="editing"
       :notifications="notifications"
+      :groups="groups"
       :templates="templates"
       :saving="saving"
       @submit="submit"
     />
+
+    <BulkAddDialog v-model="bulkOpen" :templates="templates" :groups="groups" @created="refresh" />
+    <ApplyTemplateDialog v-model="applyOpen" :templates="templates" :monitors="list" @applied="refresh" />
+
+    <Dialog v-model="cloneOpen" :title="t('monitor.cloneTitle')" :description="t('monitor.cloneHelp')">
+      <div class="grid gap-4">
+        <div class="grid gap-1">
+          <Label for="clone-name">{{ t('monitor.cloneName') }}</Label>
+          <Input id="clone-name" v-model="cloneForm.name" :placeholder="cloneSource ? `${cloneSource.name} (copy)` : ''" />
+        </div>
+        <div class="grid gap-2">
+          <Switch v-model="cloneForm.copy_notifications as boolean">{{ t('monitor.copyNotifications') }}</Switch>
+          <Switch v-model="cloneForm.copy_groups as boolean">{{ t('monitor.copyGroups') }}</Switch>
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="cloneOpen = false">{{ t('common.cancel') }}</Button>
+        <Button :loading="cloning" @click="submitClone">{{ t('common.clone') }}</Button>
+      </template>
+    </Dialog>
 
     <ConfirmDialog
       v-model="confirmOpen"

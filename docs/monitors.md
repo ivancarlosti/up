@@ -264,11 +264,11 @@ channels and the certificate/domain watches). The **groups and the tags are neve
 part of a template**: two monitors can follow the same template and live in
 different groups with different tags. A template exists for three jobs:
 
-1. **Add monitors in bulk** (Admin > Monitors > *Add in bulk*): paste one monitor
+1. **Add monitors in bulk** (Dashboard > *Add in bulk*): paste one monitor
    per line and pick the template. The server parses the paste, validates every
    line and reports what it did, line by line. The created monitors **follow** the
    template.
-2. **Bulk edit** (Admin > Monitors > *Apply template*): overwrite the fields of
+2. **Bulk edit** (Dashboard > *Apply template*): overwrite the fields of
    many monitors at once, with a preview of the diff.
 3. **Be followed** by the monitors linked to it (see below).
 
@@ -591,7 +591,7 @@ exist.
 | Shared monitors table (dashboard + admin) | `web/src/components/monitors/MonitorTable.vue` |
 | Heartbeat bars | `web/src/components/monitors/HeartbeatBar.vue` (series) and `HeartbeatSparkline.vue` (bucketed column) |
 | Detail page (stats + events + votes + expiry badges) | `web/src/views/MonitorDetailView.vue` |
-| Table listing (sortable, expiry columns) | `web/src/views/admin/AdminMonitorsView.vue` |
+| Table listing (sortable, expiry columns, filters, bulk/apply) | `web/src/views/DashboardView.vue` |
 | Other sortable admin tables | `web/src/views/admin/AdminMonitorGroupsView.vue`, `AdminMonitorTemplatesView.vue`, `AdminStatusPagesView.vue` |
 | Sortable header widget | `web/src/components/ui/SortHeader.vue` |
 | Table sorting rules | `web/src/lib/sort.ts` (`lib/monitor-sort.ts` and `lib/table-sort.ts` for the remembered state) |
@@ -621,7 +621,7 @@ All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
 
 ### Sorting the monitors table
 
-Every column of the shared monitors table (dashboard and Admin > Monitors) except
+Every column of the dashboard monitors table except
 *Actions* and *Heartbeat* is a sort button: name, type, groups, certificate,
 domain, status, interval and uptime. Clicking a header sorts
 ascending, clicking it again reverses the direction; the choice is remembered per

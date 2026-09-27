@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import {
   Bell,
-  Boxes,
   CalendarClock,
   FileCog,
   FolderTree,
@@ -27,7 +26,6 @@ const route = useRoute()
 
 const items = computed(() => [
   { name: 'dashboard', to: { name: 'dashboard' }, icon: LayoutDashboard, label: 'nav.dashboard' },
-  { name: 'monitors', to: { name: 'admin-monitors' }, icon: Boxes, label: 'nav.monitors' },
   { name: 'monitor-groups', to: { name: 'admin-monitor-groups' }, icon: FolderTree, label: 'nav.monitorGroups' },
   { name: 'monitor-templates', to: { name: 'admin-monitor-templates' }, icon: FileCog, label: 'nav.monitorTemplates' },
   { name: 'notifications', to: { name: 'admin-notifications' }, icon: Bell, label: 'nav.notifications' },

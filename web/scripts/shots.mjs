@@ -16,8 +16,9 @@ import { join } from 'node:path'
 import { findChrome, launch, newPage } from './browser.mjs'
 
 const ROUTES = [
+  // The dashboard is the one monitors screen since 2026-09-27; /admin/monitors
+  // only redirects to it, so there is no second shot to take.
   { path: '/', name: 'dashboard' },
-  { path: '/admin/monitors', name: 'admin-monitors' },
   { path: '/admin/monitor-groups', name: 'admin-monitor-groups' },
   { path: '/admin/notifications', name: 'admin-notifications' },
   { path: '/admin/status-pages', name: 'admin-status-pages' },

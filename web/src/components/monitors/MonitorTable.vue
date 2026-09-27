@@ -11,18 +11,18 @@ import HeartbeatSparkline from '@/components/monitors/HeartbeatSparkline.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant } from '@/lib/expiry'
 import { formatInterval, formatUptime, formatUptimeWindow } from '@/lib/format'
+import { monitorTarget, monitorTargetURL } from '@/lib/monitor-config'
 import type { MonitorSortState } from '@/lib/monitor-sort'
 import type { MonitorSortKey } from '@/lib/sort'
 import type { Monitor, MonitorGroup } from '@/lib/types'
 
 /**
- * MonitorTable is the sortable table shared by Admin > Monitors and the
- * dashboard.
+ * MonitorTable is the sortable table of the dashboard, the one monitors screen.
  *
  * It is presentational on purpose: the CALLER owns the filters and the sorting
  * (lib/sort.ts, lib/monitor-sort.ts) and passes the rows already filtered and
- * ordered. The component only renders the columns, so the two screens cannot
- * drift apart when a column or a badge changes.
+ * ordered. The component only renders the columns, so a column or a badge
+ * changes in one place.
  */
 export type MonitorTableAction = 'detail' | 'edit' | 'clone' | 'check' | 'toggle' | 'remove'
 
@@ -73,6 +73,15 @@ const showActions = computed(() => props.actions.length > 0)
 
 function shows(action: MonitorTableAction): boolean {
   return props.actions.includes(action)
+}
+
+/**
+ * targetLink returns the probe target when it is a web URL, so the name cell can
+ * render an anchor; an empty string keeps the `v-if`/`:href` pair happy without a
+ * non-null assertion inside the template.
+ */
+function targetLink(monitor: Monitor): string {
+  return monitorTargetURL(monitor) ?? ''
 }
 </script>
 
@@ -155,12 +164,39 @@ function shows(action: MonitorTableAction): boolean {
         <tbody>
           <tr v-for="monitor in props.monitors" :key="monitor.id">
             <td>
-              <button class="text-start hover:underline" @click="emit('detail', monitor)">
-                {{ monitor.name }}
-              </button>
-              <Badge v-if="monitor.template_name" variant="outline" class="ms-1">
-                {{ monitor.template_name }}
-              </Badge>
+              <div class="flex flex-col">
+                <div class="flex flex-wrap items-center gap-1">
+                  <button class="text-start hover:underline" @click="emit('detail', monitor)">
+                    {{ monitor.name }}
+                  </button>
+                  <Badge v-if="monitor.template_name" variant="outline">
+                    {{ monitor.template_name }}
+                  </Badge>
+                </div>
+                <!--
+                  The probe target under the name. A URL is a link that opens in a
+                  new tab (rel=noopener keeps the new page from reaching back
+                  through window.opener); a host, host:port or DNS record is plain
+                  text. Both share the tooltip in case the cell truncates.
+                -->
+                <a
+                  v-if="targetLink(monitor)"
+                  :href="targetLink(monitor)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="mt-0.5 block max-w-[26rem] truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                  :title="monitorTarget(monitor)"
+                >
+                  {{ monitorTarget(monitor) }}
+                </a>
+                <span
+                  v-else-if="monitorTarget(monitor)"
+                  class="mt-0.5 block max-w-[26rem] truncate text-xs text-muted-foreground"
+                  :title="monitorTarget(monitor)"
+                >
+                  {{ monitorTarget(monitor) }}
+                </span>
+              </div>
             </td>
             <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
             <td>

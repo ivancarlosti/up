@@ -4,12 +4,11 @@ import { loadTableSort, toggleTableSort } from './table-sort'
 import type { TableSortState } from './table-sort'
 
 /**
- * State of the monitors tables (dashboard and Admin > Monitors).
+ * State of the dashboard monitors table.
  *
- * The dashboard and Admin > Monitors share one preference on purpose: they show
- * the same rows, so the operator should not have to sort twice. The rules of the
- * remembered state (validation, fallback, persistence) live in `lib/table-sort.ts`
- * with the other admin tables.
+ * The dashboard is the one monitors screen since 2026-09-27, so there is a single
+ * preference to remember. The rules of the remembered state (validation,
+ * fallback, persistence) live in `lib/table-sort.ts` with the other admin tables.
  */
 
 /** The key the tables remember their sort in. */
