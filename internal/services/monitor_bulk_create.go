@@ -29,9 +29,8 @@ func (s *MonitorService) BulkCreate(ctx context.Context, opts BulkOptions, templ
 		return nil, nil, ErrBadRequest(i18n.CodeMonitorBulkInvalid,
 			"no row found: paste one monitor per line as name,target")
 	}
-	if len(rows) > maxBulkRows {
-		return nil, nil, ErrBadRequest(i18n.CodeMonitorBulkInvalid,
-			fmt.Sprintf("too many rows: %d, the limit is %d", len(rows), maxBulkRows))
+	if err := bulkRowLimitError(len(rows)); err != nil {
+		return nil, nil, err
 	}
 
 	existingNames, existingTargets, err := s.existingMonitorKeys(ctx)
@@ -101,6 +100,18 @@ func (s *MonitorService) BulkCreate(ctx context.Context, opts BulkOptions, templ
 			"duplicates", report.Skipped, "failed", report.Failed)
 	}
 	return report, createdIDs, nil
+}
+
+// bulkRowLimitError reports a paste that exceeds maxBulkRows, or nil.
+//
+// It is split out of BulkCreate so the ceiling (and the message the operator
+// reads in the dialog) is documented by a unit test that needs no database.
+func bulkRowLimitError(count int) error {
+	if count <= maxBulkRows {
+		return nil
+	}
+	return ErrBadRequest(i18n.CodeMonitorBulkInvalid,
+		fmt.Sprintf("too many rows: %d, the limit is %d", count, maxBulkRows))
 }
 
 // monitorFromBulkRow builds the monitor of one row: the template provides the type

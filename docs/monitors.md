@@ -352,7 +352,10 @@ What the importer does for you:
   same paste** — is reported as a **duplicate** and skipped;
 - a dry run (`dry_run: true`) returns the same report without writing anything,
   which is what the dialog shows while you type;
-- 500 rows maximum per request.
+- 2000 rows maximum per request. The ceiling bounds one paste (memory, one
+  transaction per row, one scheduler hand-off): it is not a data import pipeline.
+  A larger import must be split, or the limit raised together with a batched
+  insert and a streaming parser.
 
 The target mapping per type is in `monitorFromBulkRow`: `url` for HTTP and
 Keyword, `host`/`port` for TCP and SSL (the port of the template is the fallback,

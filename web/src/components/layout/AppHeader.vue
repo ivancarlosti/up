@@ -82,9 +82,13 @@ async function signOut(): Promise<void> {
       <Menu v-else class="h-4 w-4" aria-hidden="true" />
     </Button>
 
+    <!-- On phones the instance name is dropped: the header must keep its room
+         for the locale switcher, the theme toggle and the account button. The
+         logo stays as the home link and its alt text keeps the name available
+         to screen readers. -->
     <RouterLink to="/" class="flex items-center gap-2">
       <img src="/logo.svg" :alt="appName" class="h-7 w-7" />
-      <span class="text-sm font-semibold tracking-tight">{{ appName }}</span>
+      <span class="hidden text-sm font-semibold tracking-tight sm:inline">{{ appName }}</span>
     </RouterLink>
 
     <span

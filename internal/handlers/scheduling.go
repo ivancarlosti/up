@@ -10,6 +10,30 @@ func (h *Container) scheduleUpsert(monitorID uint) {
 	}
 }
 
+// bulkScheduleThreshold is the batch size above which the created monitors are
+// reconciled with one scheduler reload instead of one upsert per monitor.
+//
+// The scheduler command channel buffers 64 commands and drops what does not fit
+// (the periodic reconciliation is the safety net), so enqueueing one command per
+// row of a 2k import leaves most of the new monitors unscheduled until the next
+// pass. A single reload walks the database once and configures them all.
+const bulkScheduleThreshold = 64
+
+// scheduleUpserts configures a freshly created batch: one upsert per monitor
+// while they fit in the scheduler buffer, a single reload when they do not.
+func (h *Container) scheduleUpserts(monitorIDs []uint) {
+	if h.Scheduler == nil {
+		return
+	}
+	if len(monitorIDs) > bulkScheduleThreshold {
+		h.Scheduler.Reload()
+		return
+	}
+	for _, id := range monitorIDs {
+		h.Scheduler.Upsert(id)
+	}
+}
+
 func (h *Container) scheduleRemove(monitorID uint) {
 	if h.Scheduler != nil {
 		h.Scheduler.Remove(monitorID)

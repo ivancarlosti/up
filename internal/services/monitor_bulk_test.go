@@ -1,9 +1,11 @@
 package services
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
 )
 
@@ -89,6 +91,37 @@ func TestParseBulkTextErrors(t *testing.T) {
 	}
 	if !strings.Contains(rows[3].Error, "unknown type planet") {
 		t.Fatalf("unknown type: got %q", rows[3].Error)
+	}
+}
+
+// TestBulkRowLimit documents the ceiling of one paste. The 1700 URL import that
+// motivated the change is inside it; one row past 2k is the "Invalid bulk
+// request" the dialog shows.
+func TestBulkRowLimit(t *testing.T) {
+	if maxBulkRows != 2000 {
+		t.Fatalf("maxBulkRows = %d, want 2000", maxBulkRows)
+	}
+	if err := bulkRowLimitError(maxBulkRows); err != nil {
+		t.Fatalf("a paste of exactly %d rows must be accepted, got %v", maxBulkRows, err)
+	}
+
+	err := bulkRowLimitError(maxBulkRows + 1)
+	if err == nil {
+		t.Fatalf("a paste of %d rows must be rejected", maxBulkRows+1)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != i18n.CodeMonitorBulkInvalid {
+		t.Fatalf("the rejection must carry %s, got %v", i18n.CodeMonitorBulkInvalid, err)
+	}
+
+	// The reported case: 1700 rows are parsed one by one and accepted.
+	text := strings.Repeat("site,https://example.com\n", 1700)
+	rows := ParseBulkText(text)
+	if len(rows) != 1700 {
+		t.Fatalf("parsed %d rows, want 1700", len(rows))
+	}
+	if err := bulkRowLimitError(len(rows)); err != nil {
+		t.Fatalf("a paste of %d rows must be accepted, got %v", len(rows), err)
 	}
 }
 

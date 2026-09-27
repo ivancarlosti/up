@@ -31,9 +31,7 @@ func (h *Container) bulkCreateMonitors(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	for _, id := range createdIDs {
-		h.scheduleUpsert(id)
-	}
+	h.scheduleUpserts(createdIDs)
 	api.OK(c, report)
 }
 

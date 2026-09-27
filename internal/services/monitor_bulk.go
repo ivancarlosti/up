@@ -9,7 +9,16 @@ import (
 
 // maxBulkRows caps a single bulk request: it is a paste of a spreadsheet, not a
 // data import pipeline.
-const maxBulkRows = 500
+//
+// The ceiling is deliberate, even at 2k. The whole paste is held in memory,
+// validated in one pass and written as one transaction per row, and the created
+// monitors are then reconciled by the scheduler whose command channel buffers 64
+// commands. An unbounded request would let a single paste monopolise the process
+// (memory, the write path and the reconcile pass) for as long as it runs. 2000
+// covers a real spreadsheet export with room to spare while keeping the request
+// short-lived: raise it only together with a batched insert, a streaming parser
+// and a scheduler hand-off that does not enqueue one command per row.
+const maxBulkRows = 2000
 
 // BulkRow is one parsed line of the bulk text.
 type BulkRow struct {
