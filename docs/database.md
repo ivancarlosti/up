@@ -56,6 +56,7 @@ FLUSH PRIVILEGES;
 | `whois_parsers` | per-TLD rules that read an expiry date from a raw WHOIS response | few |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
+| `heartbeat_rollups` | hourly aggregate of the heartbeats, per monitor: what the uptime and latency windows read | monitors x hours |
 | `notifications` | notification channels (SMTP, Webhook, Slack, Discord, Telegram) | few |
 | `notification_logs` | delivery history (success/failure + reason); kept forever unless `NOTIFICATION_LOG_RETENTION_DAYS` is set | thousands |
 | `notification_locks` | de-duplication lock for ANY_WITH_LOCK; pruned after 24 h | thousands (60 s window) |
@@ -198,7 +199,24 @@ CREATE TABLE `heartbeats` (
   PRIMARY KEY (`id`),
   KEY `idx_hb_monitor_time` (`monitor_id`,`created_at`),
   KEY `idx_hb_monitor_node` (`monitor_id`,`node_id`,`created_at`),
-  KEY `idx_heartbeats_status` (`status`)
+  KEY `idx_hb_stats` (`monitor_id`,`created_at`,`status`,`latency_ms`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `heartbeat_rollups` (
+  `monitor_id` bigint(20) unsigned NOT NULL,
+  `bucket_at` datetime(3) NOT NULL,
+  `up` bigint(20) NOT NULL DEFAULT 0,
+  `down` bigint(20) NOT NULL DEFAULT 0,
+  `pending` bigint(20) NOT NULL DEFAULT 0,
+  `maintenance` bigint(20) NOT NULL DEFAULT 0,
+  `total` bigint(20) NOT NULL DEFAULT 0,
+  `up_latency_sum` bigint(20) NOT NULL DEFAULT 0,
+  `up_latency_count` bigint(20) NOT NULL DEFAULT 0,
+  `latency_min` bigint(20) NOT NULL DEFAULT 0,
+  `latency_max` bigint(20) NOT NULL DEFAULT 0,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`monitor_id`,`bucket_at`),
+  KEY `idx_rollup_bucket` (`bucket_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `ip_rules` (
@@ -647,26 +665,65 @@ Notes on the generated DDL:
 
 The dashboard avoids N+1 queries; these are the statements behind it.
 
-**24h/7d/30d windows + latency, one query for the whole list**
-(`internal/services/stats.go`):
+**Uptime and latency windows** (`internal/services/stats.go`). The 24 h / 7 d /
+30 d percentages of the public API and the window selected in Admin > Settings
+are still computed in a single pass, but the heartbeats are not scanned any
+more: the hourly `heartbeat_rollups` hold the reduction of every elapsed hour,
+and only the two partial hours of each window - the hour the window starts in
+and the hour in progress - are read from the raw table.
+
+The rollups, at most 720 rows per monitor for 30 days:
 
 ```sql
-SELECT monitor_id,
-       SUM(CASE WHEN status = 1 AND created_at >= ? THEN 1 ELSE 0 END)   AS up_24h,
-       SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END)                  AS total_24h,
-       SUM(CASE WHEN status = 0 AND created_at >= ? THEN 1 ELSE 0 END)   AS down_24h,
-       SUM(CASE WHEN status = 2 AND created_at >= ? THEN 1 ELSE 0 END)   AS pending_24h,
-       SUM(CASE WHEN status = 1 AND created_at >= ? THEN 1 ELSE 0 END)   AS up_7d,
-       SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END)                  AS total_7d,
-       SUM(CASE WHEN status = 1 AND created_at >= ? THEN 1 ELSE 0 END)   AS up_30d,
-       SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END)                  AS total_30d,
-       AVG(CASE WHEN status = 1 AND created_at >= ? THEN latency_ms END) AS avg_ms_24h,
-       MIN(CASE WHEN created_at >= ? THEN latency_ms END)                AS min_ms_24h,
-       MAX(CASE WHEN created_at >= ? THEN latency_ms END)                AS max_ms_24h
-FROM heartbeats
-WHERE created_at >= ? AND monitor_id IN (?)
-GROUP BY monitor_id;
+SELECT monitor_id, bucket_at, up, down, pending, maintenance, total,
+       up_latency_sum, up_latency_count, latency_min, latency_max
+FROM heartbeat_rollups
+WHERE monitor_id IN (?) AND bucket_at >= ? AND bucket_at < ?;
 ```
+
+The boundary hours, whose ranges are disjoint by construction so a heartbeat can
+never be counted twice (one range per window for the hour it starts in, plus the
+hour in progress):
+
+```sql
+SELECT monitor_id, status, latency_ms, created_at
+FROM heartbeats
+WHERE monitor_id IN (?)
+  AND ((created_at >= ? AND created_at < ?)   -- the hour the window starts in
+    OR (created_at >= ?));                    -- the hour in progress
+```
+
+The counters are then summed in Go. The latency figures keep the shape of the
+aggregate they replace: the average is the one of the `up` checks, rounded to the
+four fractional digits MySQL returns for a division, and the minimum and the
+maximum cover every heartbeat of the window.
+
+Why the numbers are identical: a rollup row is the exact reduction of its hour,
+so adding whole hours and completing the partial ones reproduces the single
+`SUM/AVG/MIN/MAX` over the raw range. The equivalence is pinned by
+`internal/database/rollup_integration_test.go`, which runs both paths against a
+real engine and compares them row by row.
+
+Measured on a fixture of one monitor checked every 60 s for 30 days (MariaDB
+11.8, 86 400 heartbeats, `SHOW SESSION STATUS` row counters rather than wall
+time, so the numbers do not depend on the buffer pool):
+
+| Path | Plan | Rows touched |
+|---|---|---|
+| Before: raw aggregate, no covering index | `type=ALL` | 86 401 clustered rows (`Handler_read_rnd_next`) |
+| Raw aggregate on `idx_hb_stats` | `type=range`, `Using index` | 43 199 index entries, zero row fetch |
+| Rollup read | `type=range`, `key=PRIMARY` | 720 index entries |
+| Boundary hour read | `type=range` | 119 index entries |
+
+**Keeping the rollups true.** Every stored heartbeat folds itself into its
+bucket with one `INSERT ... ON DUPLICATE KEY UPDATE` (`up = up + ?`, `total =
+total + 1`, `LEAST`/`GREATEST` for the extremes). The increments are additive,
+so two nodes of a shared-mode cluster updating the same bucket simply sum. The
+boot reconciles the table with the heartbeats (`internal/database/rollup.go`):
+the first boot after this release rebuilds the whole 30 day horizon, every later
+boot recomputes only the trailing hours. Both writers are idempotent (they write
+absolute values, never increments) and both are checked against the raw
+aggregate by the integration test.
 
 **Current status and last check** (`internal/services/monitor.go`): the newest
 heartbeat of a monitor is *not* looked up any more: `heartbeats` is indexed on
@@ -716,8 +773,14 @@ GROUP BY monitor_id, bucket;
 a deployment that never opened Admin > Settings):
 
 ```sql
+DELETE FROM heartbeat_rollups WHERE bucket_at < ?;
 DELETE FROM heartbeats WHERE created_at < ?;
 ```
+
+The two statements carry the same cut-off, and the rollups are deleted first: a
+rollup outliving the heartbeats it was computed from would keep reporting a
+period the retention policy already dropped. Deleting a monitor removes its
+rollups with everything else it owns.
 
 The retention defaults to **180 days** (`0` disables the purge and keeps every
 row). Admin > Settings shows the stored count, the age of the oldest heartbeat and
@@ -726,3 +789,26 @@ what the current policy would delete, and offers an explicit *purge now* action
 
 Choosing the window: a monitor stores one row per check **per node**, so a 60 s
 interval produces ~1 440 rows/day and a cluster of two nodes doubles that.
+
+### Sizing the server
+
+`innodb_buffer_pool_size` is the setting that decides whether the statistics
+answer from memory or from disk. MariaDB ships 128 MB, which is smaller than the
+30 day history of a single monitor checked every minute (~43 200 rows, and one
+row is far wider than its index entry), so a cold buffer pool turns every
+dashboard load into random reads. Give the database as much as the host can
+spare - a database-only machine can give two thirds of its RAM; the bundled
+MariaDB of `docker/docker-compose-bundle.yml` takes it from
+`DB_BUFFER_POOL_SIZE` (default `256M`), while an external server is tuned on its
+own:
+
+```sql
+SET GLOBAL innodb_buffer_pool_size = 2 * 1024 * 1024 * 1024;   -- 2 GiB
+-- persist it in the server configuration ([mysqld] innodb_buffer_pool_size=2G)
+```
+
+Measure it rather than guess: `SHOW VARIABLES LIKE 'innodb_buffer_pool_size';`
+and `SELECT table_name, data_length, index_length FROM
+information_schema.tables WHERE table_schema = DATABASE() ORDER BY
+data_length DESC;`. Once the buffer pool holds `heartbeats` and
+`heartbeat_rollups`, the window queries are memory reads whatever their plan.

@@ -394,6 +394,7 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 func deleteMonitorCascade(tx *gorm.DB, id uint) error {
 	for _, model := range []any{
 		&models.Heartbeat{},
+		&models.HeartbeatRollup{},
 		&models.MonitorState{},
 		&models.MonitorNotification{},
 		&models.MonitorGroupMember{},

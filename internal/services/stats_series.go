@@ -108,8 +108,16 @@ func (s *StatsService) List(ctx context.Context, monitorID uint, hours, limit in
 	return heartbeats, err
 }
 
-// Purge deletes heartbeats older than the given date (retention job).
+// Purge deletes heartbeats older than the given date (retention job) together
+// with the hourly rollups of the same period: History reads the rollups, so a
+// rollup that outlives the heartbeats it was computed from would keep reporting
+// a period the retention policy already dropped.
 func (s *StatsService) Purge(ctx context.Context, before time.Time) (int64, error) {
+	if err := s.db.WithContext(ctx).
+		Where("bucket_at < ?", before).
+		Delete(&models.HeartbeatRollup{}).Error; err != nil {
+		return 0, fmt.Errorf("purging the heartbeat rollups: %w", err)
+	}
 	result := s.db.WithContext(ctx).
 		Where("created_at < ?", before).
 		Delete(&models.Heartbeat{})

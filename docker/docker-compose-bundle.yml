@@ -92,10 +92,18 @@ services:
       MARIADB_DATABASE: ${DB_DATABASE:-up}
       MARIADB_USER: ${DB_USERNAME:-up}
       MARIADB_PASSWORD: ${DB_PASSWORD:-secret}
-    # Same charset/collation as the provisioning snippet of docs/database.md.
+    # Same charset/collation as the provisioning snippet of docs/database.md,
+    # plus a buffer pool that fits a heartbeat table. MariaDB defaults to 128 MB,
+    # which is smaller than a single 30 day history of a busy monitor: the
+    # statistics then read from disk on every dashboard load. Raise it to as much
+    # as the host can spare (a dedicated host can give two thirds of its RAM).
+    #
+    # The application never touches this setting: it only counts for the bundled
+    # MariaDB. Against your own server, set it there instead.
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=${DB_BUFFER_POOL_SIZE:-256M}
     # Up reaches the database through the compose network by the service name,
     # so the port stays private by default. Uncomment to connect a client on
     # the host (DB_HOST_PORT defaults to 3306, which must then be free):

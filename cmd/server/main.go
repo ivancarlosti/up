@@ -64,6 +64,13 @@ func run() error {
 	if err := database.BackfillTemplateAuth(ctx, db, log); err != nil {
 		return err
 	}
+	// The hourly rollups of the window statistics are reconciled with the raw
+	// heartbeats: the first boot after the upgrade rolls up the whole 30 day
+	// horizon, every later boot only heals the trailing hours (see
+	// internal/database/rollup.go). Idempotent as well.
+	if err := database.BackfillHeartbeatRollups(ctx, db, log); err != nil {
+		return err
+	}
 	if err := database.Seed(ctx, db, cfg, log); err != nil {
 		return err
 	}

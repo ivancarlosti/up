@@ -101,6 +101,7 @@ func MigrationModels() []any {
 		&models.WhoisParser{},
 		&models.MonitorState{},
 		&models.Heartbeat{},
+		&models.HeartbeatRollup{},
 		&models.Notification{},
 		&models.NotificationLog{},
 		&models.NotificationLock{},
@@ -127,6 +128,38 @@ func Migrate(db *gorm.DB, log *slog.Logger) error {
 	if err := db.AutoMigrate(MigrationModels()...); err != nil {
 		return fmt.Errorf("running automatic migrations: %w", err)
 	}
+	if err := dropLegacyIndexes(db, log); err != nil {
+		return err
+	}
 	log.Info("database schema up to date", "tables", len(MigrationModels()))
+	return nil
+}
+
+// legacyIndexes are the indexes an older schema carried and the current models
+// no longer declare. AutoMigrate only ever ADDS what is missing - it never drops
+// anything, so a rename or a merge of two indexes has to be spelled out.
+var legacyIndexes = []struct {
+	model any
+	name  string
+}{
+	// idx_heartbeats_status indexed `status` on its own. No query filters on a
+	// status without a monitor and a time range, so the index was never picked
+	// by the optimizer and only made every insert more expensive. idx_hb_stats
+	// now carries `status` as its third column, where it is actually read.
+	{model: &models.Heartbeat{}, name: "idx_heartbeats_status"},
+}
+
+// dropLegacyIndexes removes the indexes AutoMigrate would leave behind.
+// Idempotent: an index that is already gone is skipped.
+func dropLegacyIndexes(db *gorm.DB, log *slog.Logger) error {
+	for _, legacy := range legacyIndexes {
+		if !db.Migrator().HasIndex(legacy.model, legacy.name) {
+			continue
+		}
+		if err := db.Migrator().DropIndex(legacy.model, legacy.name); err != nil {
+			return fmt.Errorf("dropping legacy index %s: %w", legacy.name, err)
+		}
+		log.Info("legacy index dropped", "index", legacy.name)
+	}
 	return nil
 }
