@@ -495,7 +495,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "Encabezados",
     "webhookBody": "Cuerpo (plantilla)",
-    "webhookBodyHelp": "Plantilla Go con las variables de la alerta, por ejemplo {'{{'}.Event{'}}'} o {'{{'}.MonitorName{'}}'}. Déjalo vacío para usar el cuerpo JSON predeterminado.",
+    "webhookBodyHelp": "Plantilla Go con las variables de la alerta, por ejemplo {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} o {'{{'}.MonitorTags{'}}'}. Déjalo vacío para usar el cuerpo JSON predeterminado.",
     "webhookHeadersHelp": "Se envían en cada solicitud: úsalos para un token Authorization o una firma.",
     "headerName": "Encabezado",
     "headerValue": "Valor",

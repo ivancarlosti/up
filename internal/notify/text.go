@@ -17,6 +17,12 @@ func (m Message) Text() string {
 	if m.Message != "" {
 		fmt.Fprintf(&b, "Detail  : %s\n", m.Message)
 	}
+	if tags := m.TagsCSV(); tags != "" {
+		fmt.Fprintf(&b, "Tags    : %s\n", tags)
+	}
+	if groups := m.GroupsCSV(); groups != "" {
+		fmt.Fprintf(&b, "Groups  : %s\n", groups)
+	}
 	fmt.Fprintf(&b, "Latency : %d ms\n", m.LatencyMS)
 	if m.NodeID != "" {
 		fmt.Fprintf(&b, "Node    : %s\n", m.NodeID)
@@ -40,6 +46,8 @@ func (m Message) HTML() string {
 		{"Target", m.MonitorURL},
 		{"Status", strings.ToUpper(m.Status)},
 		{"Detail", m.Message},
+		{"Tags", m.TagsCSV()},
+		{"Groups", m.GroupsCSV()},
 		{"Latency", fmt.Sprintf("%d ms", m.LatencyMS)},
 		{"Node", m.NodeID},
 		{"Time", m.Timestamp.Format(time.RFC1123)},

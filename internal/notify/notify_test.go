@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/url"
@@ -141,6 +142,132 @@ func TestRenderBody(t *testing.T) {
 
 	if _, err := message.RenderBody("{{.Event"); err == nil {
 		t.Fatal("an invalid template must fail instead of sending garbage")
+	}
+}
+
+// TestMessageTagsAndGroups pins the two shapes the tags and the groups of a
+// monitor take in a notification: arrays, which are what a webhook consumer
+// parses, and one comma separated string, which is what a human reads in a log
+// line or an e-mail.
+func TestMessageTagsAndGroups(t *testing.T) {
+	monitor := &models.Monitor{
+		Name:   "API health",
+		Type:   models.MonitorTypeHTTP,
+		Tags:   "web, api,prod",
+		Config: models.MonitorConfig{URL: "https://api.example.com/health"},
+	}
+	// The groups arrive already ordered (sort order, then name) and a name may
+	// contain a space, so neither the array nor the flat form may reorder or
+	// split them.
+	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
+		"connection refused", 42, "up-node-1", "https://up.example.com",
+		[]string{"Public", "Prod EU"})
+
+	if got := strings.Join(message.MonitorTags, ","); got != "web,api,prod" {
+		t.Errorf("MonitorTags = %q, want the trimmed tags in the stored order", got)
+	}
+	if got := message.TagsCSV(); got != "web,api,prod" {
+		t.Errorf("TagsCSV() = %q, want %q", got, "web,api,prod")
+	}
+	if got := message.GroupsCSV(); got != "Public,Prod EU" {
+		t.Errorf("GroupsCSV() = %q, want %q", got, "Public,Prod EU")
+	}
+
+	body, err := message.RenderBody(
+		`{"tags":{{json .MonitorTags}},"groups":{{json .MonitorGroups}},"flat":"{{.TagsCSV}}|{{.GroupsCSV}}"}`)
+	if err != nil {
+		t.Fatalf("render the body template: %v", err)
+	}
+	want := `{"tags":["web","api","prod"],"groups":["Public","Prod EU"],"flat":"web,api,prod|Public,Prod EU"}`
+	if body != want {
+		t.Errorf("rendered body =\n%s\nwant\n%s", body, want)
+	}
+
+	if text := message.Text(); !strings.Contains(text, "Tags    : web,api,prod") ||
+		!strings.Contains(text, "Groups  : Public,Prod EU") {
+		t.Errorf("the text body must list the tags and the groups:\n%s", text)
+	}
+	html := message.HTML()
+	if !strings.Contains(html, ">Tags</td><td><strong>web,api,prod</strong></td>") ||
+		!strings.Contains(html, ">Groups</td><td><strong>Public,Prod EU</strong></td>") {
+		t.Errorf("the HTML body must list the tags and the groups:\n%s", html)
+	}
+}
+
+// TestMessageWithoutTagsOrGroups is the empty counterpart: an untagged monitor in
+// no group must render empty arrays, never null (a consumer that walks
+// `body.tags` chokes on null), and must not print empty rows.
+func TestMessageWithoutTagsOrGroups(t *testing.T) {
+	monitor := &models.Monitor{
+		Name:   "Bare",
+		Type:   models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{URL: "https://bare.example.com"},
+	}
+	message := NewMessage(models.EventUp, monitor, models.AggregateUp, "", 5, "", "", nil)
+
+	body, err := message.RenderBody(
+		`{"tags":{{json .MonitorTags}},"groups":{{json .MonitorGroups}},"tags_csv":"{{.TagsCSV}}","groups_csv":"{{.GroupsCSV}}"}`)
+	if err != nil {
+		t.Fatalf("render the body template: %v", err)
+	}
+	want := `{"tags":[],"groups":[],"tags_csv":"","groups_csv":""}`
+	if body != want {
+		t.Errorf("rendered body = %s, want %s", body, want)
+	}
+
+	if text := message.Text(); strings.Contains(text, "Tags") || strings.Contains(text, "Groups") {
+		t.Errorf("the text body must omit the lines when there is nothing to show:\n%s", text)
+	}
+	if html := message.HTML(); strings.Contains(html, ">Tags<") || strings.Contains(html, ">Groups<") {
+		t.Errorf("the HTML body must omit the rows when there is nothing to show:\n%s", html)
+	}
+}
+
+// TestWebhookPayloadCarriesTagsAndGroups covers the two default payloads of the
+// Webhook channel: the one the API sends when no body template is configured
+// (jsonPayload) and the one pre-filled in the dialog (DefaultWebhookBodyTemplate,
+// applied by the API when the field is empty). Both must stay valid JSON.
+func TestWebhookPayloadCarriesTagsAndGroups(t *testing.T) {
+	monitor := &models.Monitor{
+		Name:   "API",
+		Type:   models.MonitorTypeHTTP,
+		Tags:   "web",
+		Config: models.MonitorConfig{URL: "https://api.example.com"},
+	}
+	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
+		"boom", 12, "up-node-1", "https://up.example.com", []string{"Prod"})
+
+	for name, bodyTemplate := range map[string]string{
+		"default payload": "",
+		"dialog template": models.DefaultWebhookBodyTemplate,
+	} {
+		body, err := message.RenderBody(bodyTemplate)
+		if err != nil {
+			t.Fatalf("%s: render: %v", name, err)
+		}
+		var payload struct {
+			Tags   []string `json:"tags"`
+			Groups []string `json:"groups"`
+		}
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("%s: must stay valid JSON: %v (%s)", name, err, body)
+		}
+		if len(payload.Tags) != 1 || payload.Tags[0] != "web" {
+			t.Errorf("%s: tags = %v, want [web] (%s)", name, payload.Tags, body)
+		}
+		if len(payload.Groups) != 1 || payload.Groups[0] != "Prod" {
+			t.Errorf("%s: groups = %v, want [Prod] (%s)", name, payload.Groups, body)
+		}
+	}
+
+	// The payload sent when no template is configured also carries the flat
+	// forms, for the receivers that cannot parse JSON.
+	defaultBody, err := message.RenderBody("")
+	if err != nil {
+		t.Fatalf("render the default payload: %v", err)
+	}
+	if !strings.Contains(defaultBody, `"tags_csv":"web"`) || !strings.Contains(defaultBody, `"groups_csv":"Prod"`) {
+		t.Errorf("the default payload must carry the comma separated forms: %s", defaultBody)
 	}
 }
 

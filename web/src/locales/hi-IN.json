@@ -495,7 +495,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "हेडर",
     "webhookBody": "बॉडी (टेम्पलेट)",
-    "webhookBodyHelp": "अलर्ट चरों के साथ Go टेम्पलेट, उदाहरण {'{{'}.Event{'}}'} या {'{{'}.MonitorName{'}}'}. डिफ़ॉल्ट JSON बॉडी के लिए इसे खाली छोड़ें।",
+    "webhookBodyHelp": "अलर्ट चरों के साथ Go टेम्पलेट, उदाहरण {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} या {'{{'}.MonitorTags{'}}'}. डिफ़ॉल्ट JSON बॉडी के लिए इसे खाली छोड़ें।",
     "webhookHeadersHelp": "हर अनुरोध के साथ भेजा जाता है: Authorization टोकन या हस्ताक्षर हेडर के लिए इसका उपयोग करें।",
     "headerName": "हेडर",
     "headerValue": "मान",

@@ -495,7 +495,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "Headers",
     "webhookBody": "Body (template)",
-    "webhookBodyHelp": "Go template with the alert variables, for example {'{{'}.Event{'}}'} or {'{{'}.MonitorName{'}}'}. Leave it empty to use the default JSON body.",
+    "webhookBodyHelp": "Go template with the alert variables, for example {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} or {'{{'}.MonitorTags{'}}'}. Leave it empty to use the default JSON body.",
     "webhookHeadersHelp": "Sent with every request: use it for an Authorization token or a signature header.",
     "headerName": "Header",
     "headerValue": "Value",

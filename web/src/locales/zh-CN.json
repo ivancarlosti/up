@@ -495,7 +495,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "请求头",
     "webhookBody": "正文（模板）",
-    "webhookBodyHelp": "包含提醒变量的 Go 模板，例如 {'{{'}.Event{'}}'} 或 {'{{'}.MonitorName{'}}'}。留空则使用默认 JSON 正文。",
+    "webhookBodyHelp": "包含提醒变量的 Go 模板，例如 {'{{'}.Event{'}}'}、{'{{'}.MonitorName{'}}'} 或 {'{{'}.MonitorTags{'}}'}。留空则使用默认 JSON 正文。",
     "webhookHeadersHelp": "随每次请求发送：可用于 Authorization 令牌或签名请求头。",
     "headerName": "请求头",
     "headerValue": "值",

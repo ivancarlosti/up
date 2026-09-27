@@ -21,7 +21,8 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *models.Moni
 		return nil
 	}
 
-	message := notify.NewMessage(event, monitor, status, detail, latencyMS, nodeID, s.cfg.AppURL)
+	message := notify.NewMessage(event, monitor, status, detail, latencyMS, nodeID, s.cfg.AppURL,
+		s.groupNames(ctx, monitor.ID))
 	logs := make([]models.NotificationLog, 0, len(links))
 
 	for _, link := range links {
@@ -56,7 +57,7 @@ func (s *NotificationService) Test(ctx context.Context, id uint) (*models.Notifi
 		},
 	}
 	message := notify.NewMessage(models.EventTest, sample, models.AggregateDown,
-		"Test message sent from Admin > Notifications", 123, s.cfg.NodeID, s.cfg.AppURL)
+		"Test message sent from Admin > Notifications", 123, s.cfg.NodeID, s.cfg.AppURL, nil)
 	entry := s.deliver(ctx, notification, sample, models.EventTest, message, s.cfg.NodeID)
 	return &entry, nil
 }
@@ -103,6 +104,29 @@ func (s *NotificationService) Logs(ctx context.Context, limit int) ([]models.Not
 		return nil, ErrInternal(fmt.Errorf("listing notification logs: %w", err))
 	}
 	return logs, nil
+}
+
+// groupNames returns the names of the groups a monitor belongs to, ordered the
+// way the UI lists them (sort order, then name) so the notification shows the
+// groups in the same order the operator sees.
+//
+// The lookup is resolved once per Dispatch, not once per channel. A failure is
+// logged and ignored: an alert must still be delivered without its groups rather
+// than not at all.
+func (s *NotificationService) groupNames(ctx context.Context, monitorID uint) []string {
+	var names []string
+	err := s.db.WithContext(ctx).
+		Table("monitor_groups").
+		Joins("JOIN monitor_group_members ON monitor_group_members.group_id = monitor_groups.id").
+		Where("monitor_group_members.monitor_id = ?", monitorID).
+		Order("monitor_groups.sort_order ASC, monitor_groups.name ASC").
+		Pluck("monitor_groups.name", &names).Error
+	if err != nil {
+		s.log.Warn("could not load the groups of a monitor for a notification",
+			"monitor_id", monitorID, "error", err)
+		return nil
+	}
+	return names
 }
 
 // links loads the monitor -> notification links.

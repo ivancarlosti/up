@@ -117,6 +117,8 @@ const DefaultWebhookBodyTemplate = `{
   "target": "{{.MonitorURL}}",
   "status": "{{.Status}}",
   "message": "{{.Message}}",
+  "tags": {{json .MonitorTags}},
+  "groups": {{json .MonitorGroups}},
   "latency_ms": {{.LatencyMS}},
   "node": "{{.NodeID}}",
   "timestamp": "{{.Timestamp}}"
