@@ -209,6 +209,15 @@ try {
     .then((channel) => channel.config.webhook?.url ?? '')`)
   check('edited url stored', updated === `${endpoint}-edited`, updated)
 
+  // The card of the edited channel must survive the save. A create/update response
+  // without `monitor_ids` (the payload does not carry the links) made the card
+  // render throw on `null.length`, and Vue answers a failed render with an empty
+  // placeholder, so the box disappeared from the page while the delivery history
+  // stayed. Asserting the page - not just the API - is what pins that regression.
+  const editedTarget = `${endpoint}-edited`
+  const editedListed = await page.evaluate(`document.body.innerText.includes(${JSON.stringify(editedTarget)})`)
+  check('edited channel still listed after save', editedListed)
+
   const consoleErrors = [...page.consoleMessages, ...page.exceptions].filter((line) =>
     /\[up\] unexpected error|ReferenceError|SyntaxError|TypeError|Uncaught/.test(line),
   )

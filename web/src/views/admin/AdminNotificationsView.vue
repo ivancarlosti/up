@@ -155,6 +155,18 @@ function channelTarget(channel: Notification): string {
   return ''
 }
 
+/**
+ * linkedMonitors is how many monitors a channel is attached to. The API computes
+ * the field for its responses, but the template reads it unguarded: a response
+ * without it (the create/update payload does not carry the links, so the API used
+ * to answer `null`) threw `null.length` inside the card render, and Vue answers a
+ * failed render with an empty placeholder - the card simply disappeared. The
+ * count degrades to 0 instead of taking the card down with it.
+ */
+function linkedMonitors(channel: Notification): number {
+  return channel.monitor_ids?.length ?? 0
+}
+
 async function load(): Promise<void> {
   loading.value = true
   try {
@@ -254,8 +266,16 @@ async function save(): Promise<void> {
       ? await api.updateNotification(editing.value.id, payload)
       : await api.createNotification(payload)
     const index = channels.value.findIndex((item) => item.id === saved.id)
-    if (index >= 0) channels.value.splice(index, 1, saved)
-    else channels.value.push(saved)
+    // The links live on the monitor side and this dialog never writes them (see
+    // channelPayload), so they are carried over when the response does not spell
+    // them out: a missing field must not turn "3 linked monitors" into "0" on the
+    // card that was just saved.
+    const merged: Notification = {
+      ...saved,
+      monitor_ids: saved.monitor_ids ?? (index >= 0 ? channels.value[index].monitor_ids : []),
+    }
+    if (index >= 0) channels.value.splice(index, 1, merged)
+    else channels.value.push(merged)
     dialogOpen.value = false
     toasts.success(t('common.saved'))
   } catch (error) {
@@ -334,7 +354,7 @@ onMounted(load)
                  turns a silent installation into a fixable one. The links are made from
                  the monitor editor. -->
             <p
-              v-if="!channel.monitor_ids.length"
+              v-if="linkedMonitors(channel) === 0"
               class="mt-1 text-[11px] text-muted-foreground opacity-80"
             >
               {{ t('notifications.linkedMonitorsHelp') }}
@@ -344,7 +364,7 @@ onMounted(load)
             <Badge :variant="channel.active ? 'success' : 'secondary'">
               {{ channel.active ? t('common.enabled') : t('common.disabled') }}
             </Badge>
-            <Badge variant="outline">{{ t('notifications.linkedMonitors') }}: {{ channel.monitor_ids.length }}</Badge>
+            <Badge variant="outline">{{ t('notifications.linkedMonitors') }}: {{ linkedMonitors(channel) }}</Badge>
           </div>
         </div>
 

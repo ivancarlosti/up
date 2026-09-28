@@ -47,7 +47,16 @@ func (h *Container) createNotification(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	api.Created(c, notification)
+	// The response carries the computed fields, `monitor_ids` included (an array,
+	// `[]` when the channel is linked to nothing, never null): the card of the
+	// admin page reads that field unguarded, and a null threw `null.length` inside
+	// its render, which Vue answers with an empty placeholder (the card vanished).
+	created, err := h.Notifications.Get(c.Request.Context(), notification.ID)
+	if err != nil {
+		api.Created(c, notification)
+		return
+	}
+	api.Created(c, created)
 }
 
 // updateNotification saves an existing channel.
@@ -65,7 +74,15 @@ func (h *Container) updateNotification(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	api.OK(c, notification)
+	// Same contract as the create: the write never touches the links (they are
+	// stored on the monitor side), so the saved channel is read back instead of
+	// echoing a payload that carries no `monitor_ids` (see createNotification).
+	saved, err := h.Notifications.Get(c.Request.Context(), id)
+	if err != nil {
+		api.OK(c, notification)
+		return
+	}
+	api.OK(c, saved)
 }
 
 // deleteNotification removes a channel.

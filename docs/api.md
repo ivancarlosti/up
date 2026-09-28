@@ -362,6 +362,11 @@ monitor (`PUT /api/monitors/:id`), not to this endpoint. Numbers are numbers on
 the wire too (`{"port": 587}`, never `{"port": "587"}`: the numeric inputs of the
 UI emit strings, the API does not accept them).
 
+The response of both endpoints is the stored channel with the read-only fields
+computed, exactly like the two `GET`s: `monitor_ids` is an array (`[]` when the
+channel is linked to nothing, never `null`) and `created_at`/`updated_at` carry
+the persisted timestamps.
+
 Validation problems answer `400` with `ERR_NOTIFICATION_CONFIG_INVALID` and the
 offending field in `message` (`config.webhook.url must start with http:// or
 https://`, `config.telegram.token must look like <bot id>:<secret>`); the UI
