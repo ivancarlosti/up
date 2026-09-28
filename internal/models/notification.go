@@ -115,6 +115,7 @@ const DefaultWebhookBodyTemplate = `{
   "monitor": "{{.MonitorName}}",
   "type": "{{.MonitorType}}",
   "target": "{{.MonitorURL}}",
+  "dashboard_url": "{{.DashboardURL}}",
   "status": "{{.Status}}",
   "message": "{{.Message}}",
   "tags": {{json .MonitorTags}},

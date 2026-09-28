@@ -489,6 +489,124 @@ func TestMonitorTarget(t *testing.T) {
 	}
 }
 
+// TestDashboardLink pins the page a notification points at: the detail page of
+// the monitor for a status event, the expiry worklist for a certificate or
+// domain reminder (which is about a shared target, not about one monitor).
+func TestDashboardLink(t *testing.T) {
+	cases := []struct {
+		name        string
+		event       models.NotificationEvent
+		monitorID   uint
+		instanceURL string
+		want        string
+	}{
+		{"down http", models.EventDown, 445, "https://br01.up.icc.gg", "https://br01.up.icc.gg/monitors/445"},
+		{"up dns", models.EventUp, 7, "https://br01.up.icc.gg", "https://br01.up.icc.gg/monitors/7"},
+		{"app url with a trailing slash", models.EventDown, 445, "https://br01.up.icc.gg/", "https://br01.up.icc.gg/monitors/445"},
+		{"certificate reminder", models.EventCertExpiring, 445, "https://br01.up.icc.gg", "https://br01.up.icc.gg/admin/expiry"},
+		{"certificate expired", models.EventCertExpired, 445, "https://br01.up.icc.gg", "https://br01.up.icc.gg/admin/expiry"},
+		{"domain reminder", models.EventDomainExpiring, 445, "https://br01.up.icc.gg/", "https://br01.up.icc.gg/admin/expiry"},
+		{"domain expired", models.EventDomainExpired, 445, "https://br01.up.icc.gg", "https://br01.up.icc.gg/admin/expiry"},
+		// A test message is rendered for a sample monitor that is not stored:
+		// /monitors/0 would be a dead link, so it keeps the instance root.
+		{"test", models.EventTest, 0, "https://br01.up.icc.gg", "https://br01.up.icc.gg"},
+		// No monitor to point at (defensive: every stored monitor has an id).
+		{"no monitor id", models.EventDown, 0, "https://br01.up.icc.gg", "https://br01.up.icc.gg"},
+		// Without APP_URL there is no link to build, and a bare path would be
+		// unresolvable on the receiving side.
+		{"no app url", models.EventDown, 445, "", ""},
+		{"blank app url", models.EventCertExpiring, 445, "  ", ""},
+	}
+	for _, tc := range cases {
+		if got := DashboardLink(tc.event, tc.monitorID, tc.instanceURL); got != tc.want {
+			t.Errorf("%s: DashboardLink(%q, %d, %q) = %q, want %q",
+				tc.name, tc.event, tc.monitorID, tc.instanceURL, got, tc.want)
+		}
+	}
+}
+
+// TestMessageCarriesTheEventPage checks that the derived link reaches every
+// surface of a notification: the struct field (so a body template can use it),
+// the default JSON payload, the template pre-filled in the dialog and the plain
+// text / HTML bodies used by SMTP and the chat channels.
+func TestMessageCarriesTheEventPage(t *testing.T) {
+	monitor := &models.Monitor{
+		ID:     445,
+		Name:   "API health",
+		Type:   models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{URL: "https://api.example.com/health"},
+	}
+	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
+		"connection refused", 42, "up-node-1", "https://br01.up.icc.gg", nil)
+
+	want := "https://br01.up.icc.gg/monitors/445"
+	if message.DashboardURL != want || message.Link() != want {
+		t.Errorf("DashboardURL = %q, Link() = %q, want %q", message.DashboardURL, message.Link(), want)
+	}
+
+	body, err := message.RenderBody("")
+	if err != nil {
+		t.Fatalf("render the default payload: %v", err)
+	}
+	var payload struct {
+		DashboardURL string `json:"dashboard_url"`
+		InstanceURL  string `json:"instance_url"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("the default payload must stay valid JSON: %v (%s)", err, body)
+	}
+	if payload.DashboardURL != want {
+		t.Errorf("dashboard_url = %q, want the monitor page (%s)", payload.DashboardURL, body)
+	}
+	// The instance root stays available for the receivers that want it.
+	if payload.InstanceURL != "https://br01.up.icc.gg" {
+		t.Errorf("instance_url = %q, want the instance root (%s)", payload.InstanceURL, body)
+	}
+
+	templated, err := message.RenderBody(models.DefaultWebhookBodyTemplate)
+	if err != nil {
+		t.Fatalf("render the dialog template: %v", err)
+	}
+	if !strings.Contains(templated, `"dashboard_url": "https://br01.up.icc.gg/monitors/445"`) {
+		t.Errorf("the dialog template must render the event page: %s", templated)
+	}
+
+	if text := message.Text(); !strings.Contains(text, "Dashboard: https://br01.up.icc.gg/monitors/445") {
+		t.Errorf("the text body must print the event page:\n%s", text)
+	}
+	if html := message.HTML(); !strings.Contains(html, `<a href="https://br01.up.icc.gg/monitors/445">`+want+`</a>`) {
+		t.Errorf("the HTML body must link the event page:\n%s", html)
+	}
+
+	// The certificate counterpart: the same monitor, a different page, because
+	// the target (not the monitor) is what the operator has to act on.
+	expiring := NewMessage(models.EventCertExpiring, monitor, models.AggregateUp,
+		"certificate expires in 7 days", 0, "up-node-1", "https://br01.up.icc.gg", nil)
+	if got := expiring.Link(); got != "https://br01.up.icc.gg/admin/expiry" {
+		t.Errorf("Link() = %q, want the expiry worklist", got)
+	}
+	if text := expiring.Text(); !strings.Contains(text, "Dashboard: https://br01.up.icc.gg/admin/expiry") {
+		t.Errorf("the text body must print the expiry worklist:\n%s", text)
+	}
+	if html := expiring.HTML(); !strings.Contains(html, `href="https://br01.up.icc.gg/admin/expiry"`) {
+		t.Errorf("the HTML body must link the expiry worklist:\n%s", html)
+	}
+
+	// No APP_URL: the bodies render exactly as they did before the link existed
+	// (no "Dashboard:" line at all).
+	unlinked := NewMessage(models.EventDown, monitor, models.AggregateDown,
+		"connection refused", 42, "up-node-1", "", nil)
+	if unlinked.Link() != "" {
+		t.Errorf("Link() = %q without APP_URL, want an empty string", unlinked.Link())
+	}
+	if text := unlinked.Text(); strings.Contains(text, "Dashboard") {
+		t.Errorf("the text body must omit the link line without APP_URL:\n%s", text)
+	}
+	if html := unlinked.HTML(); strings.Contains(html, "<a href=") {
+		t.Errorf("the HTML body must omit the link without APP_URL:\n%s", html)
+	}
+}
+
 func TestBuildSlackURL(t *testing.T) {
 	config := &models.SlackConfig{
 		Token:    slackBotToken(),

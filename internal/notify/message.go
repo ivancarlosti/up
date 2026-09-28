@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -57,7 +58,22 @@ type Message struct {
 	Timestamp time.Time
 	// InstanceURL is APP_URL, used to build links inside the notifications.
 	InstanceURL string
+	// DashboardURL is the page of the instance the notification is about: the
+	// detail page of the monitor for a status event (/monitors/<id>), or the
+	// expiry worklist for a certificate/domain reminder (/admin/expiry). It is
+	// empty when APP_URL is not configured; InstanceURL stays the instance root.
+	DashboardURL string
 }
+
+// SPA routes the notifications link to. They mirror web/src/router/index.ts: the
+// monitor detail route and the expiry worklist that lists every deduplicated
+// certificate/domain target.
+const (
+	monitorsPathPrefix = "/monitors/"
+	// ExpiryPath is the page that shows the certificates and the domains Up
+	// watches, with the monitors that share each of them.
+	ExpiryPath = "/admin/expiry"
+)
 
 // NewMessage builds the message of a status change.
 //
@@ -88,7 +104,54 @@ func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status 
 		NodeID:             nodeID,
 		Timestamp:          time.Now().UTC(),
 		InstanceURL:        instanceURL,
+		DashboardURL:       DashboardLink(event, monitor.ID, instanceURL),
 	}
+}
+
+// DashboardLink returns the page of the instance that shows what a notification
+// is about, so an alert links to its own subject instead of the instance root:
+//
+//   - a status event (down, up) links to the detail page of its monitor
+//     (/monitors/<id>), which is where the statistics, the event log and the
+//     heartbeats of the alerting monitor live whatever its type is (http, dns,
+//     tcp, ...);
+//   - a certificate or domain reminder links to the expiry worklist
+//     (/admin/expiry), because the notification is about a host or a domain and
+//     not about one monitor: the worklist deduplicates the targets, so the same
+//     certificate can back many monitors and no single detail page shows them
+//     all;
+//   - a test message is rendered for a sample monitor that is not stored (id 0),
+//     so it keeps the dashboard root - /monitors/0 would be a dead link.
+//
+// instanceURL is APP_URL; its trailing slash, if any, is tolerated. An empty
+// instanceURL yields an empty link rather than a path a receiver could not
+// resolve.
+func DashboardLink(event models.NotificationEvent, monitorID uint, instanceURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(instanceURL), "/")
+	if base == "" {
+		return ""
+	}
+	switch event {
+	case models.EventCertExpiring, models.EventCertExpired,
+		models.EventDomainExpiring, models.EventDomainExpired:
+		return base + ExpiryPath
+	case models.EventTest:
+		return base
+	}
+	if monitorID == 0 {
+		return base
+	}
+	return base + monitorsPathPrefix + strconv.FormatUint(uint64(monitorID), 10)
+}
+
+// Link is the URL a notification should print: the specific page of the event
+// when it could be built, the instance root otherwise. It is empty when APP_URL
+// is not configured.
+func (m Message) Link() string {
+	if m.DashboardURL != "" {
+		return m.DashboardURL
+	}
+	return m.InstanceURL
 }
 
 // TagsCSV is the monitor's tags as one comma separated string, the flat form of
@@ -178,6 +241,10 @@ func (m Message) jsonPayload() map[string]any {
 		"node":         m.NodeID,
 		"timestamp":    m.Timestamp.Format(time.RFC3339),
 		"instance_url": m.InstanceURL,
+		// dashboard_url is the page of the instance the alert is about: the
+		// monitor detail for a status event, the expiry worklist for a
+		// certificate/domain reminder. Empty when APP_URL is not configured.
+		"dashboard_url": m.DashboardURL,
 	}
 }
 

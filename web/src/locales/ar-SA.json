@@ -495,7 +495,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "الترويسات",
     "webhookBody": "النص (قالب)",
-    "webhookBodyHelp": "قالب Go مع متغيرات التنبيه، مثل {'{{'}.Event{'}}'} أو {'{{'}.MonitorName{'}}'} أو {'{{'}.MonitorTags{'}}'}. اتركه فارغًا لاستخدام نص JSON الافتراضي.",
+    "webhookBodyHelp": "قالب Go مع متغيرات التنبيه، مثل {'{{'}.Event{'}}'} أو {'{{'}.MonitorName{'}}'} أو {'{{'}.MonitorTags{'}}'} أو {'{{'}.DashboardURL{'}}'}. اتركه فارغًا لاستخدام نص JSON الافتراضي.",
     "webhookHeadersHelp": "يُرسل مع كل طلب: استخدمه لرمز Authorization أو ترويسة توقيع.",
     "headerName": "الترويسة",
     "headerValue": "القيمة",

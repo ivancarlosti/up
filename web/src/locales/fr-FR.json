@@ -495,7 +495,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "En-têtes",
     "webhookBody": "Corps (modèle)",
-    "webhookBodyHelp": "Modèle Go avec les variables d'alerte, par exemple {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} ou {'{{'}.MonitorTags{'}}'}. Laissez vide pour utiliser le corps JSON par défaut.",
+    "webhookBodyHelp": "Modèle Go avec les variables d'alerte, par exemple {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'}, {'{{'}.MonitorTags{'}}'} ou {'{{'}.DashboardURL{'}}'}. Laissez vide pour utiliser le corps JSON par défaut.",
     "webhookHeadersHelp": "Envoyé à chaque requête : utilisez-le pour un jeton Authorization ou un en-tête de signature.",
     "headerName": "En-tête",
     "headerValue": "Valeur",

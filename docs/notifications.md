@@ -51,6 +51,10 @@ and the same `on_down` link flag, and the transport is deduplicated per day and
 per threshold, so several cluster nodes watching the same certificate or domain
 produce a single message.
 
+Every message also carries the URL of the page it is about - the monitor detail
+for a status event, the expiry worklist for these reminders - see
+*Where a notification links to* in §2.
+
 ## 2. Channels
 
 ### SMTP (e-mail)
@@ -92,6 +96,7 @@ what a channel created from the UI uses):
   "monitor": "{{.MonitorName}}",
   "type": "{{.MonitorType}}",
   "target": "{{.MonitorURL}}",
+  "dashboard_url": "{{.DashboardURL}}",
   "status": "{{.Status}}",
   "message": "{{.Message}}",
   "tags": {{json .MonitorTags}},
@@ -105,9 +110,13 @@ what a channel created from the UI uses):
 The API fills `body_template` with the block above whenever it is left empty
 (`Notification.Normalize`), so this is what a channel created or saved from the
 dialog renders. A row with no template at all falls back to
-`Message.jsonPayload()`: the same fields plus `instance_url`, `tags_csv` and
-`groups_csv`, which a template can reach through `{{.InstanceURL}}`,
-`{{.TagsCSV}}` and `{{.GroupsCSV}}`.
+`Message.jsonPayload()`: the same fields plus `instance_url`, `dashboard_url`,
+`tags_csv` and `groups_csv`, which a template can reach through
+`{{.InstanceURL}}`, `{{.DashboardURL}}`, `{{.TagsCSV}}` and `{{.GroupsCSV}}`.
+Adding `dashboard_url` to the block only affects the channels saved after it
+appeared: a row that already stored a template keeps it verbatim (the dialog
+textarea has no *reset* button), so an existing channel picks the new field up
+only when the line is added by hand or the field is emptied before saving.
 
 ### Slack
 
@@ -180,7 +189,30 @@ Available template data (the `notify.Message` struct):
 | `{{.LatencyMS}}` | latency in milliseconds (number) |
 | `{{.NodeID}}` | node that produced the heartbeat |
 | `{{.Timestamp}}` | event time (UTC, RFC3339 with `Format`) |
-| `{{.InstanceURL}}` | `APP_URL` (useful for links) |
+| `{{.InstanceURL}}` | `APP_URL`, the root of the instance (useful to build your own link) |
+| `{{.DashboardURL}}` | the page of the instance the alert is about (see *Where a notification links to* below): the monitor detail for a status event, the expiry worklist for a certificate/domain reminder. Empty when `APP_URL` is not set |
+
+### Where a notification links to
+
+Every notification carries the URL of the page that shows the thing it is about,
+so an operator (or a chat client that renders links) can jump straight to it
+instead of landing on the instance root and searching:
+
+| Notification | `DashboardURL` | Why |
+|---|---|---|
+| `down`, `up` (and any other status event) | `<APP_URL>/monitors/<id>` | The monitor detail page holds the statistics, the event log and the heartbeats of the alerting monitor - whatever its type is (`http`, `keyword`, `tcp`, `dns`, `ssl`) |
+| `cert_expiring`, `cert_expired`, `domain_expiring`, `domain_expired` | `<APP_URL>/admin/expiry` | The reminder is about a *target*: the expiry worklist deduplicates the certificates and the domains, and the same entry can back many monitors, so no single monitor page shows the whole story |
+| `test` | `<APP_URL>` | The sample monitor of a test message is not stored, so there is no detail page to open (`/monitors/0` would be a dead link) |
+
+`APP_URL` is the instance origin (`https://br01.up.icc.gg`). It is trimmed of a
+trailing slash and the path is appended, so `https://br01.up.icc.gg` and
+`https://br01.up.icc.gg/` both produce `https://br01.up.icc.gg/monitors/445`.
+With no `APP_URL` the field is empty (the link is simply absent) and
+`{{.DashboardURL}}` renders `""` - never a bare path, which a receiver could not
+resolve. The plain text and HTML bodies used by SMTP, Slack, Discord and
+Telegram print the same URL as a `Dashboard:` line (or an `<a href>` in HTML)
+when it is not empty; `{{.InstanceURL}}` stays available for a template that
+wants the instance root itself.
 
 Template helpers: `json`, `urlquery`, `upper`, `lower`, `trim`,
 `default "fallback" .Value`.
@@ -191,7 +223,7 @@ to embed them in a JSON body or `{{range .MonitorTags}}…{{end}}` to walk them.
 those keep the same order as the arrays (a monitor with no tag renders `[]` and
 `""`, never `null`). The tags and groups of the monitor are also listed in the
 plain text/HTML body used by SMTP, Slack, Discord and Telegram, when they are not
-empty.
+empty, followed by the `Dashboard:` link of the event when `APP_URL` is set.
 
 Example: Slack-compatible payload
 

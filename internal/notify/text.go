@@ -28,8 +28,10 @@ func (m Message) Text() string {
 		fmt.Fprintf(&b, "Node    : %s\n", m.NodeID)
 	}
 	fmt.Fprintf(&b, "Time    : %s\n", m.Timestamp.Format(time.RFC1123))
-	if m.InstanceURL != "" {
-		fmt.Fprintf(&b, "\nDashboard: %s\n", m.InstanceURL)
+	if link := m.Link(); link != "" {
+		// The specific page of the event: the monitor detail for a status alert,
+		// the expiry worklist for a certificate/domain reminder.
+		fmt.Fprintf(&b, "\nDashboard: %s\n", link)
 	}
 	return b.String()
 }
@@ -60,9 +62,9 @@ func (m Message) HTML() string {
 			template.HTMLEscapeString(row[0]), template.HTMLEscapeString(row[1]))
 	}
 	b.WriteString(`</table>`)
-	if m.InstanceURL != "" {
+	if link := m.Link(); link != "" {
 		fmt.Fprintf(&b, `<p><a href="%s">%s</a></p>`,
-			template.HTMLEscapeString(m.InstanceURL), template.HTMLEscapeString(m.InstanceURL))
+			template.HTMLEscapeString(link), template.HTMLEscapeString(link))
 	}
 	b.WriteString(`</div>`)
 	return b.String()
