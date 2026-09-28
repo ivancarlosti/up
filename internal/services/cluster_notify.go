@@ -65,15 +65,17 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 			// It cannot become a storm: dispatching sets NotifiedAt, after which the resend
 			// rule below takes over.
 			notify = true
-		case monitor.ResendIntervalSeconds > 0 &&
-			now.Sub(*state.NotifiedAt) >= time.Duration(monitor.ResendIntervalSeconds)*time.Second:
-			// The owner re-notifies while the monitor keeps the same status.
-			notify = true
+		default:
+			// The owner re-notifies while the monitor keeps the same status, at the
+			// larger of the monitor's interval and the largest interval of the linked
+			// channels: a channel that asks to repeat more often than its monitor does
+			// is finally honoured (models.EffectiveResendInterval).
+			notify = shouldResend(monitor.ResendIntervalSeconds, s.channelResendInterval(ctx, monitor.ID), *state.NotifiedAt, now)
 		}
 	}
 
-	// dispatched is true only on the node that actually sent the notification:
-	// only that node may advance the notification bookkeeping (see
+	// dispatched is true only when the incident ended up being reported by this
+	// node: only then may the notification bookkeeping advance (see
 	// stateUpdateColumns).
 	dispatched := false
 	if notify && s.notifications != nil {
@@ -86,9 +88,20 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 			s.log.Info("notification event processed",
 				"monitor_id", monitor.ID, "monitor", monitor.Name,
 				"from", previous, "to", status, "channels", len(logs))
-			state.Notified = status
-			state.NotifiedAt = &now
-			dispatched = true
+			// The clock only advances when a channel was actually attempted. With no
+			// link, with an inactive channel or with an event the links opted out of,
+			// Dispatch returns nothing, and marking the incident as reported would keep
+			// it silent for the whole outage: the operator who links a channel while the
+			// monitor is down must get the alert on the next check, not never.
+			dispatched = len(logs) > 0
+			if dispatched {
+				state.Notified = status
+				state.NotifiedAt = &now
+			} else {
+				s.log.Warn("no notification channel accepted the event",
+					"monitor_id", monitor.ID, "monitor", monitor.Name,
+					"from", previous, "to", status, "event", event)
+			}
 		}
 	}
 
@@ -127,6 +140,19 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 //	               (monitor_id, event, bucket) elects a single sender.
 func (s *ClusterService) claimNotification(ctx context.Context, monitorID uint, event models.NotificationEvent) (bool, error) {
 	return s.claimEvent(ctx, monitorID, event, time.Now().UTC().Unix()/models.NotificationLockWindowSeconds)
+}
+
+// channelResendInterval returns the largest re-notification interval configured on
+// the channels linked to a monitor, or 0 when it cannot be read.
+//
+// It is only called on the resend path of EvaluateAndNotify: a transition must not
+// pay for an extra query, while an established incident is re-evaluated at most
+// once per claim window anyway.
+func (s *ClusterService) channelResendInterval(ctx context.Context, monitorID uint) int {
+	if s.notifications == nil {
+		return 0
+	}
+	return s.notifications.MaxResendInterval(ctx, monitorID)
 }
 
 // ClaimCertificateEvent elects the node that sends a certificate notification.
@@ -311,6 +337,18 @@ func (s *ClusterService) PurgeExpiredLocks(ctx context.Context, before time.Time
 		return 0, ErrInternal(result.Error)
 	}
 	return result.RowsAffected, nil
+}
+
+// shouldResend tells whether an incident that was already reported owes a new
+// alert, now that `now` is later than the moment it was reported.
+//
+// The effective interval is the larger of the monitor's and of the channel's, so a
+// channel configured to repeat more often than its monitor does is honoured (see
+// models.EffectiveResendInterval). An interval of 0 means "notify on transitions
+// only" and never repeats.
+func shouldResend(monitorSeconds, channelSeconds int, notifiedAt, now time.Time) bool {
+	interval := models.EffectiveResendInterval(monitorSeconds, channelSeconds)
+	return interval > 0 && now.Sub(notifiedAt) >= time.Duration(interval)*time.Second
 }
 
 // stateUpdateColumns is the pure core of saveState: it lists the columns the

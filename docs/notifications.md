@@ -28,8 +28,18 @@ flowchart LR
 - `up -> down`, `down -> up` and `degraded` transitions notify.
 - Retries mark the heartbeat `important=false` and notifications are only
   evaluated after the retry budget is exhausted.
-- `resend_interval_seconds` (monitor level and channel level, the larger value
-  wins) repeats an alert while the monitor stays `down`/`degraded`.
+- `resend_interval_seconds` exists at the monitor level and at the channel level,
+  and the **larger** value wins (`models.EffectiveResendInterval`): a channel can
+  ask to repeat more often than its monitor does, never less often. Only the
+  channels that can actually receive a "down" alert count (active ones whose link
+  has `on_down`), because the interval decides whether *they* are attempted again.
+- The re-notification clock (`monitor_states.notified_at`) advances only when at
+  least one channel was attempted. An incident evaluated while the monitor has no
+  eligible channel therefore stays re-evaluable, so linking a channel while the
+  monitor is down sends the alert on the next check (at most one attempt per
+  notification-lock window, see `NotificationLockWindowSeconds`). A channel that was
+  attempted and **failed** does advance the clock: the error is in the delivery log,
+  and re-sending a broken endpoint on every check is what the resend interval is for.
 
 ### Certificate and domain events
 
@@ -67,7 +77,7 @@ smtp://user:pass@host:port/?fromaddress=up@example.com&toaddresses=a@x,b@y&subje
 
 | Field | Notes |
 |---|---|
-| `url` | `http://` or `https://` (plain HTTP sets `disabletls=yes` on the shoutrrr side) |
+| `url` | `http://` or `https://` (plain HTTP sets `disabletls=yes` on the shoutrrr side). The URL reaches the target **unchanged**: a token in the query (`https://target/hook?token=…`) and userinfo Basic auth (`https://user:pass@target/…`) are both delivered, so targets that authenticate through the URL keep working. A query parameter named after a shoutrrr generic setting (`method`, `contenttype`, `template`, `title`, `titlekey`, `messagekey`, `disabletls`) is escaped with the `__` prefix (`format.EscapeKey`) and restored by shoutrrr, so `?method=GET` arrives at the target as `method=GET` while the `method` field keeps controlling the request verb. Parameters prefixed with `@` or `$` are shoutrrr's own syntax for headers and template data: they arrive as request headers (or as template data), not as query parameters |
 | `method` | GET, POST, PUT, PATCH, DELETE (default POST) |
 | `content_type` | default `application/json` |
 | `headers[]` | extra headers (`@Header` query parameters internally); the dialog has a name/value editor for them |
@@ -324,7 +334,11 @@ without the matching block only for `smtp`/`webhook`: for the other three the
 API answers `config.slack is required for Slack notifications` (and the
 equivalents).
 
-Link channels to a monitor through the monitor payload (`notification_ids`).
+Link channels to a monitor through the monitor payload (`notification_ids`), or
+with the channel checkboxes of the monitor editor in the UI: that is the **only**
+place a link is created (besides the cluster sync). A channel write ignores
+`monitor_ids`, and `GET /api/notifications` computes it from the links, which is
+what the "linked monitors" badge on each card counts.
 
 Only the writable fields belong in the body: `name`, `type`, `active`,
 `is_default`, `resend_interval_seconds` and `config`. `id`, `created_at`,
@@ -390,7 +404,7 @@ failing configuration can be diagnosed without reading the application log.
 | `smtp: error connecting to server: dial tcp ... connection refused` | wrong host/port, or `127.0.0.1` from inside a container (use `host.docker.internal`) |
 | `smtp: ... x509: certificate signed by unknown authority` | self-signed relay: enable `skip_tls_verify` |
 | `smtp: error applying params ...` | unknown parameter sent to the smtp service (a bug: only `title` is forwarded) |
-| `generic: failed to send notification ... server returned unexpected response status code` | the webhook answered 4xx/5xx (the status is in the error) |
+| `generic: failed to send notification ... server returned unexpected response status code` | the webhook answered 4xx/5xx (the status is in the error); with a credential in the URL, check that it is in the query the target expects (`?token=…`) - the whole query is forwarded |
 | `slack: failed to send slack notification: invalid_auth` | wrong/revoked bot token, or the app was removed from the channel |
 | `slack: ... channel_not_found` | `channel` is not the id of a channel the bot can post to (invite the app first) |
 | `discord: 404 Not Found` | `webhook_id` or `token` truncated (copy both halves of the webhook URL) |
@@ -398,4 +412,5 @@ failing configuration can be diagnosed without reading the application log.
 | `telegram: invalid telegram token: ...` | `token` is not `<bot id>:<secret>` (the value from @BotFather, including the colon) |
 | `telegram: ... chat not found` | bad `chats` entry, or the bot was never started/added to that chat |
 | `telegram: ... can't parse entities` | a Markdown parse mode with unescaped characters in the check detail: use `None` |
+| `no notification channel accepted the event` (warning, logged with `channels=0`) | the incident was evaluated with no eligible channel: no link, the channel is disabled, or the link has `on_down` off. Nothing is recorded as reported, so the alert is sent as soon as a channel becomes eligible |
 | Notification sent but not received and no log row | the monitor was never linked to the channel (`notification_ids`) |

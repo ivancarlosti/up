@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nicholas-fedor/shoutrrr/pkg/format"
+	"github.com/nicholas-fedor/shoutrrr/pkg/services/specialized/generic"
+
 	"github.com/ivancarlosti/up/internal/models"
 )
 
@@ -47,13 +50,41 @@ func buildSMTPURL(cfg *models.SMTPConfig, msg Message) string {
 	return serviceURL.String()
 }
 
+// webhookServiceProps names the query keys the shoutrrr "generic" service reads as
+// settings instead of forwarding them to the target. The set is derived from the
+// service itself (the struct tags of generic.Config) rather than hardcoded, so a
+// shoutrrr upgrade that adds a setting escapes it here instead of silently eating
+// an operator parameter. TestWebhookServicePropsAreStable pins the current keys.
+var webhookServiceProps = func() map[string]bool {
+	_, resolver := generic.DefaultConfig()
+	props := make(map[string]bool, len(resolver.QueryFields()))
+	for _, key := range resolver.QueryFields() {
+		props[key] = true
+	}
+	return props
+}()
+
 // buildWebhookURL translates the webhook settings into the shoutrrr "generic"
 // service URL:
 //
 //	generic://host[:port]/path?method=POST&contenttype=application/json&@Header=value
 //
+// The operator's URL is carried over, not replaced: its userinfo (Basic auth), port,
+// path and every query parameter reach the target. A target that authenticates with
+// a query token (https://target/hook?token=…) therefore keeps working, which is the
+// whole point of the passthrough.
+//
+// A query parameter whose name is one of webhookServiceProps is prefixed with "__"
+// (shoutrrr's own escaping convention, format.EscapeKey) so that the service does not
+// consume it: shoutrrr restores the name before building the request, so the target
+// receives the operator's spelling and value while the settings below stay in charge
+// of the request itself. The "@" and "$" prefixes are shoutrrr's own syntax for
+// request headers and template data, so those parameters arrive as headers (or as
+// template data) rather than as query parameters.
+//
 // Notes:
-//   - "disabletls=yes" switches the request to plain HTTP.
+//   - "disabletls=yes" switches the request to plain HTTP (the URL scheme is the
+//     ground truth).
 //   - custom headers are passed with the "@" prefix.
 //   - "@Content-Type" is set explicitly because shoutrrr would otherwise use
 //     "text/plain" for a raw (template-less) body.
@@ -76,6 +107,20 @@ func buildWebhookURL(cfg *models.WebhookConfig) (string, error) {
 	}
 
 	query := url.Values{}
+	for key, values := range parsed.Query() {
+		switch {
+		case webhookServiceProps[key]:
+			// The service prop keeps its own value below; the operator's parameter
+			// is escaped so that it is forwarded to the target unchanged.
+			query[format.EscapeKey(key)] = values
+		case strings.HasPrefix(key, "@") && strings.EqualFold(strings.TrimPrefix(key, "@"), "content-type"):
+			// The content type is Up's to decide: a variant carried in the URL would
+			// race the header set below, because Go folds the header names together.
+		default:
+			query[key] = values
+		}
+	}
+
 	query.Set("method", method)
 	query.Set("contenttype", contentType)
 	query.Set("@Content-Type", contentType)
@@ -93,12 +138,9 @@ func buildWebhookURL(cfg *models.WebhookConfig) (string, error) {
 		query.Set("@"+key, header.Value)
 	}
 
-	serviceURL := url.URL{
-		Scheme:   "generic",
-		Host:     parsed.Host,
-		Path:     parsed.Path,
-		RawQuery: query.Encode(),
-	}
+	serviceURL := *parsed
+	serviceURL.Scheme = "generic"
+	serviceURL.RawQuery = query.Encode()
 	return serviceURL.String(), nil
 }
 

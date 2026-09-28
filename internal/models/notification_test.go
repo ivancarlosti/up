@@ -110,6 +110,34 @@ func TestNotificationValidateChatChannels(t *testing.T) {
 	}
 }
 
+// TestEffectiveResendInterval pins the rule behind the re-notification clock: a
+// channel may ask to repeat more often than its monitor does, never less often.
+// The value is what shouldResend (services/cluster_notify.go) compares against the
+// time that passed since the incident was reported.
+func TestEffectiveResendInterval(t *testing.T) {
+	cases := []struct {
+		name           string
+		monitorSeconds int
+		channelSeconds int
+		want           int
+	}{
+		{name: "transitions only when neither asks to repeat", monitorSeconds: 0, channelSeconds: 0, want: 0},
+		{name: "the monitor interval applies when the channel is silent", monitorSeconds: 300, channelSeconds: 0, want: 300},
+		{name: "the channel interval applies when the monitor is silent", monitorSeconds: 0, channelSeconds: 300, want: 300},
+		{name: "the larger value wins", monitorSeconds: 600, channelSeconds: 300, want: 600},
+		{name: "an equal interval is kept", monitorSeconds: 300, channelSeconds: 300, want: 300},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EffectiveResendInterval(tc.monitorSeconds, tc.channelSeconds); got != tc.want {
+				t.Errorf("EffectiveResendInterval(%d, %d) = %d, want %d",
+					tc.monitorSeconds, tc.channelSeconds, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNotificationNormalizeChatChannels(t *testing.T) {
 	telegram := Notification{Name: "ops", Type: NotificationTelegram}
 	telegram.Normalize()

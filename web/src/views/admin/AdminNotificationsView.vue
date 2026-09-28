@@ -86,6 +86,8 @@ function blankChannel(): Notification {
     resend_interval_seconds: 0,
     created_at: '',
     updated_at: '',
+    // Computed by the API for its responses (the links are stored on the monitor
+    // side): it is only read here, never written back.
     monitor_ids: [],
     config: { smtp: blankSMTP() },
   }
@@ -237,7 +239,9 @@ function channelPayload(): Partial<Notification> {
     active: channel.active,
     is_default: channel.is_default,
     resend_interval_seconds: Number(channel.resend_interval_seconds) || 0,
-    monitor_ids: channel.monitor_ids ?? [],
+    // monitor_ids is deliberately not sent: the links belong to the monitor side
+    // (the monitor editor picks the channels) and the API computes the field for its
+    // responses, so a channel write never persisted it.
     config,
   }
 }
@@ -325,6 +329,15 @@ onMounted(load)
             </h2>
             <p class="mt-1 text-[11px] text-muted-foreground">
               {{ channelTarget(channel) }}
+            </p>
+            <!-- A channel with no link cannot receive anything: saying it here is what
+                 turns a silent installation into a fixable one. The links are made from
+                 the monitor editor. -->
+            <p
+              v-if="!channel.monitor_ids.length"
+              class="mt-1 text-[11px] text-muted-foreground opacity-80"
+            >
+              {{ t('notifications.linkedMonitorsHelp') }}
             </p>
           </div>
           <div class="flex shrink-0 flex-col items-end gap-1">

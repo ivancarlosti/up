@@ -1,6 +1,9 @@
 package services
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // stateColumnIn reports whether a column list contains name.
 func stateColumnIn(columns []string, name string) bool {
@@ -46,6 +49,64 @@ func TestStateUpdateColumns(t *testing.T) {
 				if !stateColumnIn(columns, column) {
 					t.Errorf("column %q must always be refreshed", column)
 				}
+			}
+		})
+	}
+}
+
+// TestShouldResend pins the re-notification decision of an established incident: the
+// interval is the larger of the monitor's and of the channel's, so a channel
+// configured to repeat more often than its monitor does is honoured, and an interval
+// of 0 (the default everywhere) means "transitions only".
+func TestShouldResend(t *testing.T) {
+	reported := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name           string
+		monitorSeconds int
+		channelSeconds int
+		elapsed        time.Duration
+		want           bool
+	}{
+		{
+			name:    "no interval configured never repeats",
+			elapsed: 24 * time.Hour, want: false,
+		},
+		{
+			name:           "the monitor interval repeats once it is due",
+			monitorSeconds: 3600, elapsed: time.Hour, want: true,
+		},
+		{
+			name:           "the monitor interval waits when it is the larger one",
+			monitorSeconds: 3600, channelSeconds: 60, elapsed: 30 * time.Minute, want: false,
+		},
+		{
+			name:           "a channel can repeat more often than its monitor",
+			channelSeconds: 60, elapsed: time.Minute, want: true,
+		},
+		{
+			name:           "a channel can also stretch the cadence",
+			monitorSeconds: 300, channelSeconds: 600, elapsed: 5 * time.Minute, want: false,
+		},
+		{
+			name:           "the stretched cadence fires when it is due",
+			monitorSeconds: 300, channelSeconds: 600, elapsed: 10 * time.Minute, want: true,
+		},
+		{
+			name:           "the boundary is inclusive",
+			monitorSeconds: 300, elapsed: 5 * time.Minute, want: true,
+		},
+		{
+			name:           "a little short of the boundary is not enough",
+			monitorSeconds: 300, elapsed: 5*time.Minute - time.Second, want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldResend(tc.monitorSeconds, tc.channelSeconds, reported, reported.Add(tc.elapsed))
+			if got != tc.want {
+				t.Errorf("shouldResend(%d, %d, +%s) = %t, want %t",
+					tc.monitorSeconds, tc.channelSeconds, tc.elapsed, got, tc.want)
 			}
 		})
 	}

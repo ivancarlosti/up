@@ -129,6 +129,39 @@ func (s *NotificationService) groupNames(ctx context.Context, monitorID uint) []
 	return names
 }
 
+// MaxResendInterval returns the largest re-notification interval configured on the
+// channels that can actually receive a "down" alert for a monitor (0 when no such
+// channel is linked, or when it cannot be read).
+//
+// Only the channels that would be attempted count: Dispatch skips an inactive
+// channel and a link that opted out of the event, so letting one of those set the
+// cadence of an incident would re-alert the channels that did not ask for it.
+// A read failure is logged and reported as 0: the monitor level interval still
+// applies, and a notification must not be dropped because a preference could not
+// be read.
+func (s *NotificationService) MaxResendInterval(ctx context.Context, monitorID uint) int {
+	var intervals []int
+	err := s.db.WithContext(ctx).
+		Table("notifications").
+		Joins("JOIN monitor_notifications ON monitor_notifications.notification_id = notifications.id").
+		Where("monitor_notifications.monitor_id = ?", monitorID).
+		Where("monitor_notifications.on_down = ?", true).
+		Where("notifications.active = ?", true).
+		Pluck("notifications.resend_interval_seconds", &intervals).Error
+	if err != nil {
+		s.log.Warn("could not load the resend interval of the linked channels",
+			"monitor_id", monitorID, "error", err)
+		return 0
+	}
+	largest := 0
+	for _, interval := range intervals {
+		if interval > largest {
+			largest = interval
+		}
+	}
+	return largest
+}
+
 // links loads the monitor -> notification links.
 func (s *NotificationService) links(ctx context.Context, monitorID uint) ([]models.MonitorNotification, error) {
 	var links []models.MonitorNotification

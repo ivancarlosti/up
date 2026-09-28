@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -105,6 +107,11 @@ func TestBuildWebhookURL(t *testing.T) {
 	if query.Get("@Content-Type") != "application/json" {
 		t.Fatalf("the content type must be forced on the header, otherwise shoutrrr sends text/plain: %s", raw)
 	}
+	// The parameters of the operator's URL are what a token in the query lives in:
+	// they must survive the translation into the service URL.
+	if query.Get("existing") != "1" {
+		t.Fatalf("the query of the webhook URL must be kept: %s", raw)
+	}
 
 	httpsConfig := *config
 	httpsConfig.URL = "https://hooks.example.com/up"
@@ -118,6 +125,201 @@ func TestBuildWebhookURL(t *testing.T) {
 
 	if _, err := buildWebhookURL(&models.WebhookConfig{URL: "not a url"}); err == nil {
 		t.Fatal("an invalid webhook URL must be rejected")
+	}
+}
+
+// TestBuildWebhookURLCarriesOperatorURL pins the invariant of the passthrough: every
+// query parameter of the operator's URL reaches the target, and the ones that collide
+// with a shoutrrr generic setting are escaped with the prefix shoutrrr itself restores
+// (format.EscapeKey), so neither side loses its value.
+func TestBuildWebhookURLCarriesOperatorURL(t *testing.T) {
+	cases := []struct {
+		name       string
+		rawURL     string
+		wantQuery  map[string]string
+		absentKeys []string
+		wantUser   string
+		wantPass   string
+	}{
+		{
+			name:      "token in the query",
+			rawURL:    "https://hooks.example.com/up?token=abc123&mode=fast",
+			wantQuery: map[string]string{"token": "abc123", "mode": "fast"},
+		},
+		{
+			name:      "userinfo and port",
+			rawURL:    "https://up:hooksecret@hooks.example.com:8443/up?token=abc",
+			wantQuery: map[string]string{"token": "abc"},
+			wantUser:  "up",
+			wantPass:  "hooksecret",
+		},
+		{
+			name:   "the service settings of the URL are escaped, not consumed",
+			rawURL: "https://hooks.example.com/up?method=GET&template=json&title=custom&disabletls=yes&contenttype=text/csv&titlekey=t&messagekey=m",
+			wantQuery: map[string]string{
+				// The settings Up owns keep their value...
+				"method":      "POST",
+				"contenttype": "application/json",
+				// ...while the operator's parameters are restored for the target.
+				"__method":      "GET",
+				"__template":    "json",
+				"__title":       "custom",
+				"__disabletls":  "yes",
+				"__contenttype": "text/csv",
+				"__titlekey":    "t",
+				"__messagekey":  "m",
+			},
+		},
+		{
+			name:       "a header variant of the content type is dropped",
+			rawURL:     "https://hooks.example.com/up?@content-type=text/csv&token=abc",
+			wantQuery:  map[string]string{"@Content-Type": "application/json", "token": "abc"},
+			absentKeys: []string{"@content-type"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := buildWebhookURL(&models.WebhookConfig{URL: tc.rawURL, ContentType: "application/json"})
+			if err != nil {
+				t.Fatalf("build webhook URL: %v", err)
+			}
+			parsed := mustParse(t, raw)
+			query := parsed.Query()
+			for key, want := range tc.wantQuery {
+				if got := query.Get(key); got != want {
+					t.Errorf("query %q = %q, want %q (%s)", key, got, want, raw)
+				}
+			}
+			for _, key := range tc.absentKeys {
+				if _, found := query[key]; found {
+					t.Errorf("query %q must be dropped: %s", key, raw)
+				}
+			}
+			if tc.wantUser != "" {
+				if parsed.User == nil || parsed.User.Username() != tc.wantUser {
+					t.Fatalf("the userinfo must survive: %s", raw)
+				}
+				if password, _ := parsed.User.Password(); password != tc.wantPass {
+					t.Errorf("the password must survive: %s", raw)
+				}
+				if parsed.Host != "hooks.example.com:8443" {
+					t.Errorf("the port must survive: %s", raw)
+				}
+			}
+		})
+	}
+
+	// Repeated parameters are kept in order: a target may rely on the repeated form.
+	raw, err := buildWebhookURL(&models.WebhookConfig{URL: "https://hooks.example.com/up?tag=a&tag=b"})
+	if err != nil {
+		t.Fatalf("build webhook URL: %v", err)
+	}
+	if tags := mustParse(t, raw).Query()["tag"]; len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
+		t.Errorf("repeated parameters must be kept, got %v (%s)", tags, raw)
+	}
+}
+
+// TestWebhookServicePropsAreStable pins the derived reserved set: a shoutrrr upgrade that
+// adds a generic setting fails here instead of silently eating an operator parameter.
+func TestWebhookServicePropsAreStable(t *testing.T) {
+	want := []string{"contenttype", "disabletls", "messagekey", "method", "template", "title", "titlekey"}
+	if len(webhookServiceProps) != len(want) {
+		t.Fatalf("webhookServiceProps = %v, want %v", webhookServiceProps, want)
+	}
+	for _, key := range want {
+		if !webhookServiceProps[key] {
+			t.Errorf("%q must be escaped: the generic service reads it as a setting", key)
+		}
+	}
+}
+
+// TestWebhookRequestCarriesOperatorURL is the regression test of the reported symptom: a
+// target that authenticates with a query token must receive that token. The request is a
+// real one (engine, shoutrrr and an HTTP client are all involved), because the request is
+// the only thing that proves what the target sees after shoutrrr has rebuilt the URL.
+func TestWebhookRequestCarriesOperatorURL(t *testing.T) {
+	type received struct {
+		method  string
+		query   url.Values
+		headers http.Header
+		user    string
+		pass    string
+		body    string
+	}
+
+	requests := make(chan received, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, _ := r.BasicAuth()
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+		}
+		requests <- received{
+			method:  r.Method,
+			query:   r.URL.Query(),
+			headers: r.Header.Clone(),
+			user:    user,
+			pass:    pass,
+			body:    string(body),
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	webhook := &models.WebhookConfig{
+		// The http scheme of the test server is what keeps the request in plain HTTP.
+		URL:         strings.Replace(server.URL, "http://", "http://up:hooksecret@", 1) + "/hook?token=abc123&method=GET&mode=fast",
+		Method:      "PUT",
+		ContentType: "application/json",
+		Headers:     []models.Header{{Key: "X-Token", Value: "header-token"}},
+	}
+	channel := &models.Notification{
+		Name:   "ops webhook",
+		Type:   models.NotificationWebhook,
+		Config: models.NotificationConfig{Webhook: webhook},
+	}
+
+	engine := NewEngine(slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second)
+	message := sampleMessage()
+	if err := engine.SendWebhook(channel, message); err != nil {
+		t.Fatalf("send the webhook: %v", err)
+	}
+
+	select {
+	case got := <-requests:
+		if got.query.Get("token") != "abc123" {
+			t.Errorf("the target must receive the token, got %q", got.query.Get("token"))
+		}
+		if got.query.Get("mode") != "fast" {
+			t.Errorf("every parameter must be forwarded, got %q", got.query.Get("mode"))
+		}
+		// The dialog's method drives the request while the operator's parameter of the
+		// same name still reaches the target.
+		if got.method != "PUT" {
+			t.Errorf("request method = %q, want PUT", got.method)
+		}
+		if got.query.Get("method") != "GET" {
+			t.Errorf("the escaped method parameter must be restored for the target, got %q", got.query.Get("method"))
+		}
+		if got.user != "up" || got.pass != "hooksecret" {
+			t.Errorf("the userinfo must be sent as Basic auth, got %q/%q", got.user, got.pass)
+		}
+		if got.headers.Get("X-Token") != "header-token" {
+			t.Errorf("the custom header is missing: %v", got.headers)
+		}
+		if contentType := got.headers.Get("Content-Type"); contentType != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", contentType)
+		}
+		body, err := message.RenderBody(webhook.BodyTemplate)
+		if err != nil {
+			t.Fatalf("render the body: %v", err)
+		}
+		if got.body != body {
+			t.Errorf("the body must be sent verbatim:\ngot  %s\nwant %s", got.body, body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the target received no request")
 	}
 }
 
