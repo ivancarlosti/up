@@ -163,6 +163,14 @@ const linkScopeOptions = computed(() => [
 /** linkScopeNeedsGroups is true when the operator must pick at least one group. */
 const linkScopeNeedsGroups = computed(() => linkScope.value === 'groups' && linkGroupIDs.value.length === 0)
 
+/**
+ * linkReleasesFollowers is true when the scope the operator selected replaces
+ * the scope of the template, so the monitors that follow it from outside the
+ * selection stop following it. The dialog words the preview differently in that
+ * case because the run is not only additive.
+ */
+const linkReleasesFollowers = computed(() => linkScope.value === 'groups')
+
 const type = computed(() => (form.type ?? 'http') as MonitorType)
 const config = computed(() => form.config ?? {})
 
@@ -313,13 +321,24 @@ function toggleLinkGroup(id: number, value: boolean): void {
 async function confirmLink(): Promise<void> {
   if (!linkTarget.value || linkScopeNeedsGroups.value) return
   linking.value = true
+  // The scope is captured before the request: the toast must word the run the
+  // way the dialog did, even if the operator switches the selector afterwards.
+  const scope = linkScope.value
   try {
     const result = await api.linkAllMonitorTemplate(
       linkTarget.value.id,
       false,
-      linkScope.value === 'groups' ? linkGroupIDs.value : [],
+      scope === 'groups' ? linkGroupIDs.value : [],
     )
-    toasts.success(t('templates.linkAllDone', { linked: result.linked, updated: result.updated }))
+    toasts.success(
+      scope === 'groups'
+        ? t('templates.linkAllDoneGroups', {
+            linked: result.linked,
+            updated: result.updated,
+            unlinked: result.unlinked,
+          })
+        : t('templates.linkAllDone', { linked: result.linked, updated: result.updated }),
+    )
     linkOpen.value = false
     await load()
   } catch (error) {
@@ -597,7 +616,11 @@ onMounted(load)
       </template>
     </Dialog>
 
-    <Dialog v-model="linkOpen" :title="t('templates.linkAllTitle')" :description="t('templates.linkAllWarning')">
+    <Dialog
+      v-model="linkOpen"
+      :title="t('templates.linkAllTitle')"
+      :description="linkReleasesFollowers ? t('templates.linkAllWarningGroups') : t('templates.linkAllWarning')"
+    >
       <div class="grid gap-3 text-xs">
         <p v-if="linkTarget" class="font-mono">{{ linkTarget.name }} · {{ linkTarget.type }}</p>
 
@@ -631,11 +654,18 @@ onMounted(load)
         <p v-else-if="linkScopeNeedsGroups" class="text-muted-foreground">{{ t('templates.linkScopePick') }}</p>
         <p v-else-if="linkPreview">
           {{
-            t('templates.linkAllPreview', {
-              monitors: linkPreview.monitors,
-              linked: linkPreview.linked,
-              updated: linkPreview.updated,
-            })
+            linkReleasesFollowers
+              ? t('templates.linkAllPreviewGroups', {
+                  monitors: linkPreview.monitors,
+                  linked: linkPreview.linked,
+                  updated: linkPreview.updated,
+                  unlinked: linkPreview.unlinked,
+                })
+              : t('templates.linkAllPreview', {
+                  monitors: linkPreview.monitors,
+                  linked: linkPreview.linked,
+                  updated: linkPreview.updated,
+                })
           }}
         </p>
       </div>

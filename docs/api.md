@@ -238,7 +238,7 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
-| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{group_ids?, dry_run?}` -> `{monitors, linked, updated, dry_run}` |
+| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{group_ids?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run}` |
 | POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_ids?, active?, dry_run?}` |
 
 A **template** is a monitor without a target: `type`, `config` and `defaults`
@@ -260,6 +260,24 @@ The `apply` endpoint only writes the fields listed in `fields` (empty = every
 default field) and returns the diff per monitor; it **never touches the target**
 of a monitor, not even when `config` is applied. `monitor_ids` and an unknown
 field answer `400 ERR_MONITOR_TEMPLATE_INVALID`.
+
+`link-all` attaches the monitors in scope to the template and applies the defaults
+to them. The scope is the monitors of `group_ids` when the field carries at least
+one id (a monitor is in scope when it belongs to at least one of those groups), or
+every monitor of the template type when it is omitted or empty. A run that selects
+**groups is authoritative**: the selection replaces the scope of the template, so
+the monitors that follow it from outside stop following it and are reported as
+`unlinked` (they keep their row, their target, their groups and their tags; the
+detach is a normal edit, so their revision advances and the cluster propagates it).
+A template trimmed to one group therefore stops pushing its defaults into the
+monitors of another, which is what keeps the scope true — an additive run would
+re-link them on the next click and the selection would mean nothing. The scope over
+**every monitor of the type** has no outside and detaches nobody. The response is
+`{monitors, linked, updated, unlinked, dry_run}`: `monitors` is the size of the
+scope, `linked` the monitors that did not follow the template yet, `updated` the
+monitors the run wrote (a fresh link or a default that differed) and `unlinked` the
+followers released by an authoritative run. `dry_run: true` writes nothing at all
+and returns the same counts, which is the preview the dialog shows.
 
 The **bulk importer** parses `name,target[,type,keyword,tags,interval]` (comma,
 semicolon or tab; header, `#` comments and blank lines ignored), validates every

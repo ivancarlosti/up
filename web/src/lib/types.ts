@@ -280,6 +280,14 @@ export interface TemplateLinkResult {
   monitors: number
   linked: number
   updated: number
+  /**
+   * The monitors that follow the template from outside the scope of the run.
+   * A "specific groups" run makes the selection the authoritative scope of the
+   * template, so those monitors stop following it (they keep their row, their
+   * address and their groups); the "every monitor of this type" scope has no
+   * outside and detaches nobody, which is why this is 0 there.
+   */
+  unlinked: number
   dry_run: boolean
 }
 

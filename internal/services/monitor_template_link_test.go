@@ -56,3 +56,38 @@ func TestGroupScope(t *testing.T) {
 		t.Fatalf("a group without members must scope out every monitor: %v", empty)
 	}
 }
+
+// TestUnlinkScope documents the other half of the scope rule: a group-scoped run
+// replaces the scope of the template, so the monitors that follow it from
+// outside the selection are detached. The type scope has no outside, and a
+// monitor that is not following the template is never touched (it is not in the
+// follower list at all).
+func TestUnlinkScope(t *testing.T) {
+	followers := []*models.Monitor{{ID: 1, TemplateUUID: "t"}, {ID: 2, TemplateUUID: "t"}, {ID: 3, TemplateUUID: "t"}}
+
+	partial := unlinkScope(followers, []*models.Monitor{{ID: 2}})
+	if len(partial) != 2 || partial[0].ID != 1 || partial[1].ID != 3 {
+		t.Fatalf("the followers outside the scope must be detached: %v", partial)
+	}
+
+	// The whole scope: a run over a group that holds every follower detaches
+	// nobody.
+	none := unlinkScope(followers, followers)
+	if len(none) != 0 {
+		t.Fatalf("a scope that covers every follower must detach nobody: %v", none)
+	}
+
+	// A group with no member is an empty scope: it detaches every follower,
+	// exactly like the group with no member that links nothing.
+	all := unlinkScope(followers, nil)
+	if len(all) != len(followers) {
+		t.Fatalf("an empty scope must detach every follower: %v", all)
+	}
+
+	// The monitor that is not following the template is not a follower, so a run
+	// over a group it does not belong to leaves it alone.
+	untouched := unlinkScope([]*models.Monitor{{ID: 1, TemplateUUID: "t"}}, nil)
+	if len(untouched) != 1 || untouched[0].ID != 1 {
+		t.Fatalf("only the followers can be detached: %v", untouched)
+	}
+}

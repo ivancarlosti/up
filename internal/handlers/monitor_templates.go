@@ -140,9 +140,11 @@ func (h *Container) applyMonitorTemplate(c *gin.Context) {
 }
 
 // linkAllMonitorTemplate attaches the monitors of the template type (or of the
-// selected groups) to the template and applies its defaults to them. dry_run
-// returns the same counts without writing, which is what the confirmation
-// dialog shows.
+// selected groups) to the template and applies its defaults to them, and a run
+// that selects groups also detaches the monitors that follow the template from
+// outside the selection (the scope of the run is the scope of the template).
+// dry_run returns the same counts without writing, which is what the
+// confirmation dialog shows.
 func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {

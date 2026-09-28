@@ -3,8 +3,9 @@
  * End to end check of the monitor templates, the bulk importer and the bulk edit.
  *
  * It drives the real UI: creates a template, adds two monitors by pasting
- * "name,url" in the bulk dialog, applies the template to one of them and cleans
- * up everything it created.
+ * "name,url" in the bulk dialog, applies the template to one of them, narrows the
+ * template to the monitors of one group (which releases the followers left outside
+ * it) and cleans up everything it created.
  *
  * Usage:
  *   npm run build && npm run e2e:templates -- --url http://localhost:3000
@@ -91,7 +92,7 @@ const chrome = findChrome()
 const stamp = Date.now()
 const templateName = `e2e template ${stamp}`
 const monitorNames = [`e2e bulk ${stamp} a`, `e2e bulk ${stamp} b`]
-const created = { monitors: [], templates: [] }
+const created = { monitors: [], templates: [], groups: [] }
 
 const browser = await launch({ chrome, width: 1440, height: 1000 })
 const page = await newPage(browser, { width: 1440, height: 1000 })
@@ -264,12 +265,22 @@ try {
   await page.goto(`${url}/admin/monitors`, { settle: 1500 })
   check('bulk dialog opens', await clickButton(page, /add in bulk|adicionar em lote|agregar en lote/i))
   await sleep(600)
+  // The dialog preselects the first template of the list, whatever the database
+  // holds: a template left behind by a failed run can be of another type and the
+  // pasted rows would be rejected as "invalid port". The operator says which
+  // template the rows are for, so does the run.
+  await setValue(page, '#bulk-template', String(template?.id ?? ''), 'change')
+  await sleep(300)
   const text = `${monitorNames[0]},http://127.0.0.1:8099/${stamp}-a,,,,30\n${monitorNames[1]},http://127.0.0.1:8099/${stamp}-b,,,,30\n`
   await setValue(page, '#bulk-text', text)
   check('preview requested', await clickButton(page, /preview|pré-visualizar|vista previa/i))
   await sleep(1500)
-  const preview = await api(`document.body.innerText`)
-  check('preview reports two ready rows', /(Ready|Prontas|Listas): 2/.test(preview))
+  const preview = await api(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+  check(
+    'preview reports two ready rows',
+    /(Ready|Prontas|Listas): 2/.test(preview),
+    preview.replace(/\s+/g, ' ').slice(0, 200),
+  )
   check('monitors created', await clickButton(page, /^(create|criar|crear)$/i))
   await sleep(2000)
   const bulk = await api(`fetch('/api/monitors?decorate=false')
@@ -291,6 +302,10 @@ try {
   // --- apply the template to the new monitors ------------------------------
   check('apply dialog opens', await clickButton(page, /apply template|aplicar template|aplicar plantilla/i))
   await sleep(600)
+  // Same as the bulk dialog: the first template of the list is whichever one the
+  // database sorts first, not necessarily the one the run created.
+  await setValue(page, '#apply-template', String(template?.id ?? ''), 'change')
+  await sleep(200)
   const selected = await api(`(() => {
     const prefix = ${JSON.stringify(monitorNames[0].replace(/ b$| a$/, ''))}
     const labels = [...document.querySelectorAll('[role="dialog"] label')]
@@ -327,6 +342,12 @@ try {
   const sslTemplateName = `e2e ssl template ${stamp}`
   const sslMonitorName = `e2e ssl ${stamp}`
   const overrideName = `e2e override ${stamp}`
+  // The two rows below are the only ones of the run that are not a URL, so their
+  // target is a host and a port: deriving the port from the run stamp keeps them
+  // unique, because the importer reports a row whose target already exists (a
+  // monitor of an earlier run) as a duplicate instead of creating it.
+  const sslPort = 20000 + (stamp % 10000)
+  const tcpPort = 30000 + (stamp % 10000)
 
   await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
   // The follower count column must render exactly what the API reports (the
@@ -361,9 +382,10 @@ try {
   await sleep(600)
   if (sslTemplate) {
     await setValue(page, '#bulk-template', String(sslTemplate.id), 'change')
-    await setValue(page, '#bulk-text', `${sslMonitorName},127.0.0.1:8443\n`)
+    await setValue(page, '#bulk-text', `${sslMonitorName},127.0.0.1:${sslPort}\n`)
     await sleep(500)
-    check('the ssl row is ready', /(Ready|Prontas|Listas): 1/.test(await api(`document.body.innerText`)))
+    const sslRow = await api(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+    check('the ssl row is ready', /(Ready|Prontas|Listas): 1/.test(sslRow), sslRow.replace(/\s+/g, ' ').slice(0, 200))
     check('the ssl monitor is created', await clickButton(page, /^(create|criar|crear)$/i))
     await sleep(1500)
   }
@@ -374,9 +396,14 @@ try {
   check('bulk dialog opens for the override', await clickButton(page, /add in bulk|adicionar em lote|agregar en lote/i))
   await sleep(600)
   await setValue(page, '#bulk-template', String(template?.id ?? ''), 'change')
-  await setValue(page, '#bulk-text', `${overrideName},127.0.0.1:9000,tcp\n`)
+  await setValue(page, '#bulk-text', `${overrideName},127.0.0.1:${tcpPort},tcp\n`)
   await sleep(500)
-  check('the tcp override row is ready', /(Ready|Prontas|Listas): 1/.test(await api(`document.body.innerText`)))
+  const overrideRow = await api(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+  check(
+    'the tcp override row is ready',
+    /(Ready|Prontas|Listas): 1/.test(overrideRow),
+    overrideRow.replace(/\s+/g, ' ').slice(0, 200),
+  )
   check('the override monitor is created', await clickButton(page, /^(create|criar|crear)$/i))
   await sleep(2000)
   const imported = await api(`fetch('/api/monitors?decorate=false')
@@ -385,13 +412,180 @@ try {
       .map((m) => ({ id: m.id, name: m.name, type: m.type, template_uuid: m.template_uuid, host: m.config.host, port: m.config.port })))`)
   const sslMonitor = imported.find((m) => m.name === sslMonitorName)
   const overrideMonitor = imported.find((m) => m.name === overrideName)
-  check('the ssl monitor was imported', sslMonitor?.type === 'ssl' && sslMonitor?.port === 8443, JSON.stringify(sslMonitor))
+  check(
+    'the ssl monitor was imported',
+    sslMonitor?.type === 'ssl' && Number(sslMonitor?.port) === sslPort,
+    JSON.stringify(sslMonitor),
+  )
   check('the ssl monitor follows its template', Boolean(sslMonitor?.template_uuid), String(sslMonitor?.template_uuid))
-  check('the overridden monitor was imported', overrideMonitor?.type === 'tcp' && overrideMonitor?.port === 9000, JSON.stringify(overrideMonitor))
+  check(
+    'the overridden monitor was imported',
+    overrideMonitor?.type === 'tcp' && Number(overrideMonitor?.port) === tcpPort,
+    JSON.stringify(overrideMonitor),
+  )
   check('an overridden row is not linked to the template', !overrideMonitor?.template_uuid, String(overrideMonitor?.template_uuid))
   created.monitors.push(...imported.map((m) => m.id))
   check('bulk dialog closed', await clickButton(page, /^(close|fechar|cerrar)$/i))
   await sleep(400)
+
+  // --- a group-scoped link run is the scope of the template -----------------
+  // Regression guard: linking "only the monitors in the selected groups" used to be
+  // purely additive, so a template trimmed to one team's group kept pushing its
+  // defaults into the monitors of another and the selection meant nothing. The run
+  // now makes the selection the scope of the template and releases the followers
+  // left outside it (the dialog warns, the preview counts them).
+  const linkGroupName = `e2e link group ${stamp}`
+  const scopedName = `e2e scoped ${stamp}`
+  const releasedName = `e2e released ${stamp}`
+  const scope = await api(`(async () => {
+    const make = async (name) => {
+      const response = await fetch('/api/monitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          type: 'http',
+          active: false,
+          interval_seconds: 60,
+          timeout_seconds: 10,
+          template_uuid: ${JSON.stringify(template?.uuid ?? '')},
+          config: { url: 'https://127.0.0.1:8099/${stamp}/' + name.replace(/ /g, '-'), method: 'GET' },
+        }),
+      })
+      return response.json()
+    }
+    const scoped = await make(${JSON.stringify(scopedName)})
+    const released = await make(${JSON.stringify(releasedName)})
+    const group = await fetch('/api/monitor-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: ${JSON.stringify(linkGroupName)}, monitor_ids: [scoped.id] }),
+    }).then((r) => r.json())
+    return { scoped, released, group }
+  })()`)
+  check(
+    'the scope setup created two followers and a group',
+    scope?.scoped?.template_uuid === template?.uuid &&
+      scope?.released?.template_uuid === template?.uuid &&
+      scope?.group?.monitor_ids?.includes(scope?.scoped?.id),
+    JSON.stringify(scope),
+  )
+  created.monitors.push(scope?.scoped?.id, scope?.released?.id)
+  if (scope?.group?.id) created.groups.push(scope.group.id)
+
+  // The two rows as the API sees them, so the assertions can compare the whole
+  // row before and after the run instead of guessing the values.
+  const scopeIds = [scope?.scoped?.id, scope?.released?.id].filter(Boolean)
+  const scopeRows = () => api(`Promise.all([${scopeIds}].map((id) =>
+    fetch('/api/monitors/' + id).then((r) => r.json()).then((m) => ({
+      id: m.id,
+      name: m.name,
+      template_uuid: m.template_uuid,
+      interval: m.interval_seconds,
+      timeout: m.timeout_seconds,
+      active: m.active,
+      method: (m.config || {}).method,
+      url: (m.config || {}).url,
+      groups: (m.group_ids || []).join(','),
+    }))))`)
+  await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
+  check('the link dialog opens', await clickInRow(page, editedName, /link every monitor|vincular/i))
+  await sleep(1200)
+  const dialogText = () => api(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+  const allScopeText = await dialogText()
+  check('the whole type scope previews a link', allScopeText.length > 0)
+
+  // Step one, the scope the operator starts from: every monitor of the type,
+  // which by definition has no outside and therefore releases nobody.
+  check('the type scope links in the dialog', await clickButton(page, /^(link and apply|vincular e aplicar|vincular y aplicar)$/i))
+  await sleep(2500)
+  const allFollowers = await api(`fetch('/api/monitors?decorate=false')
+    .then((r) => r.json())
+    .then((list) => list.filter((m) => m.template_uuid === ${JSON.stringify(template?.uuid ?? '')}).map((m) => m.id))`)
+  const typeCount = await api(`fetch('/api/monitors?decorate=false')
+    .then((r) => r.json())
+    .then((list) => list.filter((m) => m.type === 'http').length)`)
+  check(
+    'the type scope linked every monitor of the type',
+    allFollowers.length === typeCount && typeCount >= 4,
+    `${allFollowers.length} of ${typeCount} http monitors follow`,
+  )
+  // The state the operator sees before narrowing: both new monitors follow the
+  // template, and every field of those rows is what the next step compares with.
+  const before = await scopeRows()
+  check(
+    'both new monitors follow the template before the narrowing',
+    before.length === 2 && before.every((m) => m.template_uuid === template?.uuid),
+    JSON.stringify(before),
+  )
+  // What the group run must release: every follower of the template outside the
+  // group. The count comes from the API and not from a hardcoded 1, because the
+  // monitors of the earlier sections follow this template too.
+  const expectedReleased = allFollowers.filter((id) => id !== scope?.scoped?.id).length
+
+  // Step two, the operator narrows the link to the monitors of one group.
+  check('the link dialog reopens', await clickInRow(page, editedName, /link every monitor|vincular/i))
+  await sleep(1200)
+  await setValue(page, '#link-scope', 'groups', 'change')
+  await sleep(500)
+  const picked = await api(`(() => {
+    const label = [...document.querySelectorAll('[role="dialog"] label')]
+      .find((el) => el.innerText.trim().startsWith(${JSON.stringify(linkGroupName)}))
+    if (!label) return false
+    label.querySelector('button[role="checkbox"], button')?.click()
+    return true
+  })()`)
+  check('the group is selected in the link dialog', picked)
+  await sleep(1200)
+  const groupScopeText = await dialogText()
+  check(
+    'the group scope words the warning and the preview differently',
+    groupScopeText !== allScopeText && groupScopeText.includes(String(expectedReleased)),
+    `${JSON.stringify(groupScopeText.slice(0, 80))} vs ${JSON.stringify(allScopeText.slice(0, 80))}`,
+  )
+  check('the group scope links in the dialog', await clickButton(page, /^(link and apply|vincular e aplicar|vincular y aplicar)$/i))
+  await sleep(2500)
+  const afterScope = await scopeRows()
+  const keptScoped = afterScope.find((m) => m.id === scope?.scoped?.id)
+  const releasedBefore = before.find((m) => m.id === scope?.released?.id)
+  const releasedRow = afterScope.find((m) => m.id === scope?.released?.id)
+  check('the monitor of the group still follows the template', keptScoped?.template_uuid === template?.uuid, JSON.stringify(keptScoped))
+  check('the follower outside the group was released', releasedRow?.template_uuid === '', JSON.stringify(releasedRow))
+  // The detach is the link and nothing else: the row, its address, its schedule
+  // and its state survive, so a released monitor keeps watching what it watched.
+  const changed = (from = {}, to = {}) =>
+    Object.keys({ ...from, ...to }).filter((key) => from[key] !== to[key])
+  check(
+    'the released monitor lost the link and nothing else',
+    changed(releasedBefore, releasedRow).join() === 'template_uuid',
+    JSON.stringify({ before: releasedBefore, after: releasedRow, changed: changed(releasedBefore, releasedRow) }),
+  )
+  // The link is not a way to repoint a monitor: the address of the follower is
+  // its own, the template only ever sets the fields it owns.
+  check(
+    'the link kept the per monitor address',
+    String(keptScoped?.url) === String(before.find((m) => m.id === scope?.scoped?.id)?.url) &&
+      String(keptScoped?.url).includes(`/${stamp}/`),
+    JSON.stringify({ before: before.find((m) => m.id === scope?.scoped?.id), after: keptScoped }),
+  )
+  const remaining = await api(`fetch('/api/monitors?decorate=false')
+    .then((r) => r.json())
+    .then((list) => list.filter((m) => m.template_uuid === ${JSON.stringify(template?.uuid ?? '')}).map((m) => m.id))`)
+  check(
+    'only the group still follows the template',
+    remaining.length === 1 && remaining[0] === scope?.scoped?.id,
+    JSON.stringify(remaining),
+  )
+  const groupsAfter = await api(`fetch('/api/monitor-groups')
+    .then((r) => r.json())
+    .then((list) => (list.groups || list).filter((g) => g.id === ${scope?.group?.id}).map((g) => g.monitor_ids))`)
+  check(
+    'the link kept the monitor in its group',
+    (groupsAfter[0] || []).includes(scope?.scoped?.id),
+    JSON.stringify(groupsAfter),
+  )
+  await page.screenshot('/tmp/up-e2e-link-scope.png')
+
 
   const consoleErrors = [...page.consoleMessages, ...page.exceptions].filter((line) =>
     /\[up\] unexpected error|ReferenceError|SyntaxError|TypeError|Uncaught/.test(line),
@@ -400,18 +594,21 @@ try {
 
   // --- cleanup -------------------------------------------------------------
   const cleanup = await api(`(async () => {
-    const status = { monitors: [], templates: [] }
+    const status = { monitors: [], templates: [], groups: [] }
     for (const id of ${JSON.stringify(created.monitors)}) {
       status.monitors.push(await fetch('/api/monitors/' + id, { method: 'DELETE' }).then((r) => r.status))
     }
     for (const id of ${JSON.stringify(created.templates)}) {
       status.templates.push(await fetch('/api/monitor-templates/' + id, { method: 'DELETE' }).then((r) => r.status))
     }
+    for (const id of ${JSON.stringify(created.groups)}) {
+      status.groups.push(await fetch('/api/monitor-groups/' + id, { method: 'DELETE' }).then((r) => r.status))
+    }
     return status
   })()`)
   check(
     'cleanup removed everything',
-    [...cleanup.monitors, ...cleanup.templates].every((code) => code === 204 || code === 404),
+    [...cleanup.monitors, ...cleanup.templates, ...cleanup.groups].every((code) => code === 204 || code === 404),
     JSON.stringify(cleanup),
   )
 } finally {

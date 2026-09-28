@@ -324,6 +324,20 @@ the template a monitor follows.
   installation is gathered under a newly created template, or only the part of it
   that belongs to a team. A group with no member is an empty scope, never
   "everything".
+- A **group-scoped run is authoritative**: the selection becomes the scope of the
+  template, so the monitors that follow it from outside the selection **stop
+  following it**. The preview and the answer report them as `unlinked`, and the
+  dialog words both the warning and the counts for it. This is what makes the
+  choice mean something over time: a template trimmed to one team's group stops
+  pushing its defaults into the monitors of another, while an additive run would
+  simply link them all back on the next click.
+- A detach is a **normal monitor edit**, not a hidden `UPDATE`: the monitor keeps
+  its row, its target, its groups and its tags (only `template_uuid` is cleared),
+  its revision advances so the cluster propagates the change, and a follower whose
+  row no longer validates keeps following the template (the failure is logged and
+  never counted as a release) instead of failing the whole run. The scope is the
+  type of the template, so no monitor of another type is ever affected, and a run
+  over **every monitor of the type** has no outside and detaches nobody.
 
 ### The bulk text format
 

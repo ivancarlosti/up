@@ -179,8 +179,13 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > interval override), preview the bulk edit and apply it, checking that the
 > targets survive. It reads the *Monitors* column of the table and compares it
 > with the `monitor_count` the API reports for the template (the monitors that
-> follow its `template_uuid`), so the column cannot drift from the rows. It also
-> cleans up after itself.
+> follow its `template_uuid`), so the column cannot drift from the rows. It then
+> links the template twice through the dialog: once to every monitor of the type
+> and once to the monitors of one group it creates on the fly, checking that the
+> second run words the warning and the preview differently and that the follower
+> left outside the selection ends up with its link cleared and **nothing else**
+> changed (the row, its address, its schedule, its state and its groups survive).
+> It also cleans up after itself.
 >
 > `npm run e2e:table-sort` covers the widget the three admin tables share
 > (`SortHeader.vue` plus `lib/table-sort.ts`) instead of a single page: it seeds

@@ -15,6 +15,10 @@ type TemplateLinkResult struct {
 	Linked int `json:"linked"`
 	// Updated is how many received a different value for at least one field.
 	Updated int `json:"updated"`
+	// Unlinked is how many monitors stopped following the template because the
+	// run left them outside its scope. Only a group-scoped run detaches: the
+	// "every monitor of this type" scope has no outside.
+	Unlinked int `json:"unlinked"`
 	// DryRun is true when nothing was written: the counts are the preview.
 	DryRun bool `json:"dry_run"`
 }
@@ -107,6 +111,27 @@ func groupScope(monitors []*models.Monitor, memberIDs map[uint]bool) []*models.M
 	return scoped
 }
 
+// unlinkScope returns the monitors that follow the template but are outside the
+// scope of the run, i.e. the ones a group-scoped run detaches.
+//
+// It is the counterpart of groupScope: that one keeps the members, this one
+// keeps everybody else. Only a group scope has an outside, so the callers only
+// reach it with one. It is pure so the rule can be unit tested without a
+// database.
+func unlinkScope(followers, scoped []*models.Monitor) []*models.Monitor {
+	inScope := make(map[uint]bool, len(scoped))
+	for _, monitor := range scoped {
+		inScope[monitor.ID] = true
+	}
+	detached := make([]*models.Monitor, 0, len(followers))
+	for _, follower := range followers {
+		if !inScope[follower.ID] {
+			detached = append(detached, follower)
+		}
+	}
+	return detached
+}
+
 // groupMembers resolves the set of monitor ids that belong to any of the given
 // groups.
 func (s *MonitorTemplateService) groupMembers(ctx context.Context, groupIDs []uint) (map[uint]bool, error) {
@@ -122,11 +147,58 @@ func (s *MonitorTemplateService) groupMembers(ctx context.Context, groupIDs []ui
 	return members, nil
 }
 
+// unlinkOutOfScope detaches the monitors that follow the template and fall
+// outside the scope of a group-scoped run, which is what makes the scope of the
+// run the scope of the template. The "every monitor of this type" scope never
+// reaches this method: everything of the type is inside it.
+//
+// A detach is an edit of a monitor column (the link), so it goes through
+// MonitorService.Update: the revision advances and the cluster is told, instead
+// of a silent UPDATE that every peer would keep applying the template from. The
+// rows are written one by one because that is what validates and publishes them;
+// a follower whose row no longer validates keeps following the template, and the
+// failure is logged instead of counted. With DryRun the monitors are only
+// counted, so the dialog can warn before the link disappears.
+func (s *MonitorTemplateService) unlinkOutOfScope(ctx context.Context, template *models.MonitorTemplate, scoped []*models.Monitor, dryRun bool) (int, error) {
+	var followers []*models.Monitor
+	if err := s.db.WithContext(ctx).Where("template_uuid = ?", template.UUID).
+		Order("id ASC").Find(&followers).Error; err != nil {
+		return 0, ErrInternal(fmt.Errorf("listing the monitors of template %d: %w", template.ID, err))
+	}
+	detached := unlinkScope(followers, scoped)
+	if dryRun || len(detached) == 0 {
+		return len(detached), nil
+	}
+	cleared := 0
+	for _, monitor := range detached {
+		// A copy, exactly like applyTemplate does for the attach: the follower is
+		// what it was, minus the link. The channels and the groups are passed as
+		// nil (keep them): they are never part of the template.
+		next := *monitor
+		next.TemplateUUID = ""
+		if err := s.mono.Update(ctx, &next, nil, nil); err != nil {
+			s.log.Warn("could not detach the monitor from the template",
+				"template", template.ID, "monitor_id", monitor.ID, "error", err)
+			continue
+		}
+		cleared++
+	}
+	if cleared > 0 {
+		s.log.Info("monitors detached from a template", "template", template.ID, "monitors", cleared)
+	}
+	return cleared, nil
+}
+
 // LinkAll attaches the monitors in scope to the template and applies the
 // defaults, which is how an existing installation is gathered under a template
 // without clicking through every monitor. The scope is either every monitor of
 // the template type or the monitors of the selected groups. With DryRun it only
 // reports what would happen, so the UI can ask for a confirmation first.
+//
+// The scope of a run is the scope of the template: a run that selects groups
+// also detaches the monitors that follow the template from outside the selection
+// (see unlinkOutOfScope). The type scope never detaches anybody, because it
+// covers every monitor of the type.
 func (s *MonitorTemplateService) LinkAll(ctx context.Context, opts LinkOptions) (*TemplateLinkResult, error) {
 	if s.mono == nil {
 		return nil, fmt.Errorf("the monitor service is not wired into the template service")
@@ -176,13 +248,25 @@ func (s *MonitorTemplateService) LinkAll(ctx context.Context, opts LinkOptions) 
 		}
 		result.Updated++
 	}
+	// The scope of the run replaces the scope of the template: a group-scoped run
+	// detaches the monitors that follow the template from outside the selected
+	// groups, so the operator ends up with exactly the monitors the dialog
+	// previewed. The type scope has no outside and never detaches.
+	if len(opts.GroupIDs) > 0 {
+		unlinked, err := s.unlinkOutOfScope(ctx, template, monitors, opts.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		result.Unlinked = unlinked
+	}
 	if !opts.DryRun {
 		s.log.Info("monitors linked to a template",
 			"template", template.ID, "name", template.Name, "type", template.Type,
 			"groups", len(opts.GroupIDs), "monitors", result.Monitors,
-			"linked", result.Linked, "updated", result.Updated)
+			"linked", result.Linked, "updated", result.Updated, "unlinked", result.Unlinked)
 		s.publish("monitor.template.linked", map[string]any{
-			"template_id": template.ID, "linked": result.Linked, "updated": result.Updated,
+			"template_id": template.ID, "linked": result.Linked,
+			"updated": result.Updated, "unlinked": result.Unlinked,
 		})
 	}
 	return result, nil
