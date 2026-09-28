@@ -5,6 +5,8 @@ import type {
   ApplyTemplateOptions,
   BulkOptions,
   BulkReport,
+  BulkTagOptions,
+  BulkTagReport,
   DashboardResponse,
   Heartbeat,
   Identity,
@@ -16,7 +18,10 @@ import type {
   MonitorPayload,
   MonitorTemplate,
   MonitorTemplatePayload,
+  MonitorType,
+  TagUsage,
   TemplateLinkResult,
+  TemplateLinkScope,
   Notification,
   NotificationLog,
   PublicSettings,
@@ -79,13 +84,29 @@ export const coreApi = {
   applyMonitorTemplate: (id: number, options: ApplyTemplateOptions) =>
     post<{ dry_run: boolean; results: ApplyResult[] }>(`/api/monitor-templates/${id}/apply`, options),
   /**
-   * linkAllMonitorTemplate attaches the monitors of the template type to it.
-   * `groupIds` narrows the scope to the monitors of those groups (empty = every
-   * monitor of the type).
+   * linkAllMonitorTemplate attaches the monitors in scope to the template.
+   *
+   * `scope` is the selection of the run: every monitor of the type, some groups
+   * (by uuid) or some tags. It is remembered on the template, so the dialog
+   * reopens on it. A scope with an outside (groups, tags) also detaches the
+   * followers of the template that fall outside the selection.
    */
-  linkAllMonitorTemplate: (id: number, dryRun = false, groupIds: number[] = []) =>
-    post<TemplateLinkResult>(`/api/monitor-templates/${id}/link-all`, { dry_run: dryRun, group_ids: groupIds }),
+  linkAllMonitorTemplate: (id: number, dryRun = false, scope?: TemplateLinkScope) =>
+    post<TemplateLinkResult>(`/api/monitor-templates/${id}/link-all`, { dry_run: dryRun, scope }),
+  /**
+   * monitorTags returns the tags in use with the number of monitors carrying
+   * each of them, optionally narrowed to one monitor type. It is the vocabulary
+   * the tag pickers offer (tags are a free form list on the monitor).
+   */
+  monitorTags: (type?: MonitorType) => get<TagUsage[]>('/api/monitors/tags', type ? { type } : undefined),
   bulkCreateMonitors: (options: BulkOptions) => post<BulkReport>('/api/monitors/bulk', options),
+  /**
+   * bulkUpdateMonitorTags adds and removes tags on a set of monitors. The
+   * selection is the union of the ids, the groups and the tag it names, and
+   * `dry_run` previews the before/after of every row without writing.
+   */
+  bulkUpdateMonitorTags: (options: BulkTagOptions) =>
+    post<BulkTagReport>('/api/monitors/bulk/tags', options),
 
   notifications: () => get<Notification[]>('/api/notifications'),
   notification: (id: number) => get<Notification>(`/api/notifications/${id}`),

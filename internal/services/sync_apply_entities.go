@@ -293,6 +293,12 @@ func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload mo
 	defaults.GroupIDs = groupIDs
 	defaults.NotificationIDs = notificationIDs
 
+	// The scope of the last link run. It is written only when the payload carries
+	// one: an older peer does not know the field, and a template whose scope came
+	// from a local run must not lose it because a peer edited the defaults.
+	linkScope := payload.LinkScope
+	linkScope.Normalize()
+
 	if localID != 0 {
 		defaultsJSON, err := json.Marshal(defaults)
 		if err != nil {
@@ -320,6 +326,13 @@ func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload mo
 			"defaults":       string(defaultsJSON),
 			"updated_at":     payload.UpdatedAt,
 		}
+		if !payload.LinkScope.IsZero() {
+			scopeJSON, err := json.Marshal(linkScope)
+			if err != nil {
+				return 0, false, fmt.Errorf("encoding the link scope of template %s: %w", payload.UUID, err)
+			}
+			columns["link_scope"] = string(scopeJSON)
+		}
 		if err := tx.WithContext(ctx).Model(&models.MonitorTemplate{}).
 			Where("id = ?", localID).Updates(columns).Error; err != nil {
 			return 0, false, fmt.Errorf("updating template %s: %w", payload.UUID, err)
@@ -336,6 +349,7 @@ func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload mo
 		Type:         payload.Type,
 		Config:       payload.Config.WithoutAuth(),
 		Defaults:     defaults,
+		LinkScope:    linkScope,
 		UpdatedAt:    payload.UpdatedAt,
 	}
 	if err := tx.WithContext(ctx).Create(&row).Error; err != nil {

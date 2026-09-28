@@ -104,10 +104,17 @@ const chrome = findChrome()
 const browser = await launch({ chrome, width: 1440, height: 1000 })
 const page = await newPage(browser, { width: 1440, height: 1000 })
 
-/** clickHeader clicks the sort button of a column (the index is a literal). */
+/**
+ * clickHeader clicks the sort button of a column.
+ *
+ * The index is the one of the header CELL, which is also the one the checks read
+ * back: a table can carry a column that is not sortable (the *Scope* column of the
+ * templates table), so counting the buttons would shift every index after it.
+ */
 const clickHeader = (index) =>
   page.evaluate(`(() => {
-    const button = [...document.querySelectorAll('table thead th button')][${index}]
+    const cell = [...document.querySelectorAll('table thead th')][${index}]
+    const button = cell?.querySelector('button')
     if (!button) return false
     button.click()
     return true
@@ -314,7 +321,9 @@ try {
     placeholder: locale.templates.filterPlaceholder,
     defaultIndex: 0,
     defaultLabel: locale.common.name,
-    targetIndex: 3,
+    // The templates table carries one column the others do not (the scope of the
+    // last link run, between Monitors and Interval), so Interval is index 4.
+    targetIndex: 4,
     targetLabel: locale.common.interval,
     targetKey: 'interval',
     asc: [b, c, a],

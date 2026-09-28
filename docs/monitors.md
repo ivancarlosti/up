@@ -21,7 +21,7 @@
 | `run_on` | `all` | all, primary, node, some | which cluster nodes execute it (`some` = the subset in `run_on_nodes`) |
 | `node_id` | - | - | required when `run_on=node` |
 | `run_on_nodes` | - | - | comma separated node ids, required when `run_on=some` |
-| `tags` | - | 255 chars | comma separated, used by filters and status pages |
+| `tags` | - | 255 chars | comma separated, used by filters, status pages and tag scopes |
 
 ### Retries and the `pending` status
 
@@ -214,7 +214,46 @@ current links, send `[]` to clear them.
 | Heartbeats | `GET /api/monitors/:id/heartbeats?hours=24&limit=500` |
 | Statistics + bars | `GET /api/monitors/:id/stats?hours=24&limit=60` |
 | Clone | `POST /api/monitors/:id/clone` (see below) |
+| Tags in use | `GET /api/monitors/tags?type=http` |
+| Tags in bulk | `POST /api/monitors/bulk/tags` (see below) |
 | Delete | `DELETE /api/monitors/:id` (removes heartbeats, state, links) |
+
+### Tags
+
+The tags of a monitor are one comma separated column (`255` characters), not a
+join table: they travel with the row, they are typed in one box and the listing
+filter is a plain substring match (`?tag=`, `LIKE %term%`). Three rules make that
+list usable as a *selection* (a bulk tag operation, the tag scope of a template)
+instead of a decoration:
+
+- Every write **canonicalizes** the list (`models.CleanTags`, called by the
+  monitor validation): trimmed, de-duplicated case insensitively, order
+  preserved, first spelling wins. `"prod, prod"` is stored as `"prod"` and a
+  monitor never compares differently from one save to the next. A list longer
+  than the column is a `400` with a message instead of a driver error.
+- A **selection** matches whole tags, case insensitively
+  (`models.HasAnyTag`): a scope on `prod` never selects `production`, which the
+  substring filter of the listing would.
+- `GET /api/monitors/tags` answers the tags in use with the number of monitors
+  carrying each of them (most used first, then alphabetical, `Ops` and `ops`
+  reported once). It is the vocabulary the tag pickers offer, because the row
+  column cannot be turned into a `SELECT DISTINCT`.
+
+`POST /api/monitors/bulk/tags` adds and removes tags on a selection of monitors:
+`{monitor_ids?, group_ids?, tag?, add?, remove?, dry_run?}`. The three selectors
+are a **union** of what is ticked, the monitors of those groups and the monitors
+carrying that tag (one of them is required: an empty selection is never
+"everything", so a request that forgot a field cannot retag the installation).
+Naming a tag is what makes a **rename** possible — `tag: "prod"`, `remove:
+["prod"]`, `add: ["production"]` retags every monitor that carried `prod`, and
+nothing else. The answer is
+`{selected, updated, unchanged, failed, dry_run, changes: [{monitor_id, name,
+tags_before, tags_after, status, error?}]}`: a row that already carries exactly
+those tags is **not rewritten** (its revision does not move), a row that would
+overflow the column fails alone with a message, and `dry_run: true` returns the
+same before/after per row without writing. Every written row goes through the
+ordinary monitor write path, so the revision advances, the cluster is told and
+nothing else in the row (target, groups, channels, template link) moves.
 
 ### Clone
 
@@ -318,19 +357,32 @@ the template a monitor follows.
 - Deleting a template clears the links: the monitors keep working, they simply stop
   following it.
 - **Link monitors to this template** (the link icon on the templates page) attaches
-  the monitors in one action and applies the defaults, after a dry-run preview. The
-  scope is either **every monitor of the template type** or the monitors of one or
-  more **selected groups** (`group_ids` in the request): that is how an existing
-  installation is gathered under a newly created template, or only the part of it
-  that belongs to a team. A group with no member is an empty scope, never
-  "everything".
-- A **group-scoped run is authoritative**: the selection becomes the scope of the
-  template, so the monitors that follow it from outside the selection **stop
-  following it**. The preview and the answer report them as `unlinked`, and the
-  dialog words both the warning and the counts for it. This is what makes the
-  choice mean something over time: a template trimmed to one team's group stops
-  pushing its defaults into the monitors of another, while an additive run would
-  simply link them all back on the next click.
+  the monitors in scope and applies the defaults, after a dry-run preview. The
+  scope is one of three: **every monitor of the template type**, the monitors of
+  one or more **selected groups**, or the monitors carrying one or more **selected
+  tags** (`scope: {kind: type|groups|tags, group_uuids?, tags?}` in the request).
+  That is how an existing installation is gathered under a newly created template,
+  or only the part of it that belongs to a team or to a tag. A group with no member
+  is an empty scope, never "everything", and a tag matches a **whole tag**, case
+  insensitively (`prod` never selects `production`).
+- The scope of a run is **remembered on the template** (`link_scope`): re-opening
+  the dialog shows the selection of the last run instead of falling back to
+  "everything of this type", the templates table shows it in its *Scope* column,
+  and the row action re-applies it. Groups are stored as **uuids** and never as
+  local ids, because the template is synchronised between the cluster nodes, where
+  the ids differ and the uuids do not. A scope whose groups were deleted elsewhere
+  is pruned of the missing ones; a scope that names no group that exists is
+  refused (`400`) instead of running over the whole type. The scope is also
+  **preserved** by an edit that does not carry one (the template dialog does not
+  send it), so only a link run replaces it.
+- A run with an outside (groups, tags) is **authoritative**: the selection becomes
+  the scope of the template, so the monitors that follow it from outside the
+  selection **stop following it**. The preview and the answer report them as
+  `unlinked`, and the dialog words both the warning and the counts for it, with a
+  call-out when the selection resolves to **no monitor at all** while followers
+  exist. This is what makes the choice mean something over time: a template trimmed
+  to one team's group stops pushing its defaults into the monitors of another,
+  while an additive run would simply link them all back on the next click.
 - A detach is a **normal monitor edit**, not a hidden `UPDATE`: the monitor keeps
   its row, its target, its groups and its tags (only `template_uuid` is cleared),
   its revision advances so the cluster propagates the change, and a follower whose
@@ -602,6 +654,7 @@ exist.
 | Form (all five types) | `web/src/components/monitors/MonitorForm.vue` |
 | Templates (type aware defaults) | `web/src/views/admin/AdminMonitorTemplatesView.vue` |
 | Bulk add / bulk edit dialogs | `web/src/components/monitors/BulkAddDialog.vue` (`ApplyTemplateDialog.vue`) |
+| Bulk tag dialog | `web/src/components/monitors/BulkTagsDialog.vue` |
 | Target fields per type | `web/src/components/monitors/MonitorConfigFields.vue` |
 | Type aware payload pruning | `web/src/lib/monitor-config.ts` |
 | Status badge | `web/src/components/monitors/StatusBadge.vue` |
@@ -633,8 +686,18 @@ the types that have a registrable target, and the hidden switches are dropped
 before the save — a template never carries a switch its own monitors would be
 rejected for.
 
+The **link dialog** of the templates page (`AdminMonitorTemplatesView.vue`) is
+opened on the scope stored on the template, offered as three radio cards (every
+monitor of the type, some groups by uuid, some tags), and every change re-runs the
+server side dry run: the counts, the released followers and the warning come from
+the same code path that will write them, never from a rule re-implemented in the
+browser. The tag picker reads its vocabulary from `GET /api/monitors/tags?type=`
+(so it suggests tags that exist), still lets the operator type one that does not,
+and the bulk tag dialog (`BulkTagsDialog.vue`, opened from the dashboard toolbar)
+reuses the same read to offer the tags a rename can start from.
+
 All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
-`certificate.*`, `domain.*`, `expiry.*`).
+`certificate.*`, `domain.*`, `expiry.*`, `templates.*`, `bulkTags.*`).
 
 ### Sorting the monitors table
 

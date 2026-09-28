@@ -174,12 +174,17 @@ func templateUpdateColumns(template *models.MonitorTemplate) (map[string]any, er
 	if err != nil {
 		return nil, fmt.Errorf("encoding the template defaults: %w", err)
 	}
+	scopeJSON, err := json.Marshal(template.LinkScope)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the template link scope: %w", err)
+	}
 	return map[string]any{
 		"name":        template.Name,
 		"description": template.Description,
 		"type":        template.Type,
 		"config":      string(configJSON),
 		"defaults":    string(defaultsJSON),
+		"link_scope":  string(scopeJSON),
 		"propagate":   template.Propagate,
 		// Every edit advances the revision: it is the primary component of the
 		// merge order (see the group update).
@@ -190,6 +195,18 @@ func templateUpdateColumns(template *models.MonitorTemplate) (map[string]any, er
 
 // Update saves an existing template.
 func (s *MonitorTemplateService) Update(ctx context.Context, template *models.MonitorTemplate) error {
+	// The scope of the last link run belongs to the template, not to the edit:
+	// a request that carries none (the template dialog, an API client that only
+	// rewrites the defaults) keeps the stored one instead of silently reverting
+	// the template to "every monitor of this type". Only a link run replaces it.
+	if template.LinkScope.IsZero() {
+		var stored models.MonitorTemplate
+		if err := s.db.WithContext(ctx).Select("id", "link_scope").First(&stored, template.ID).Error; err == nil {
+			template.LinkScope = stored.LinkScope
+		} else if err != gorm.ErrRecordNotFound {
+			return ErrInternal(fmt.Errorf("loading the link scope of monitor template %d: %w", template.ID, err))
+		}
+	}
 	template.Normalize()
 	if problem := template.Validate(); problem != "" {
 		return ErrBadRequest(i18n.CodeMonitorTemplateInvalid, problem)

@@ -37,6 +37,11 @@ type MonitorTemplate struct {
 	// Propagate pushes the defaults to every monitor that follows this template
 	// each time it is edited (see MonitorTemplateService.Propagate).
 	Propagate bool `gorm:"not null;default:true" json:"propagate"`
+	// LinkScope is the scope of the last link run (see TemplateLinkScope). It is
+	// stored so the link dialog reopens on the decision the operator made instead
+	// of falling back to "every monitor of this type", and so the admin table can
+	// show what each template governs without running anything.
+	LinkScope TemplateLinkScope `gorm:"serializer:json;type:json" json:"link_scope"`
 	// MonitorCount is how many monitors follow this template (the link is the
 	// template_uuid of a monitor). It is not a column: the list fills it with one
 	// grouped count, so the admin table can show and sort by it.
@@ -116,6 +121,103 @@ func TemplateDefaultFields() []string {
 	}
 }
 
+// TemplateLinkScopeKind is what a link run treats as "the monitors of the
+// template".
+type TemplateLinkScopeKind string
+
+const (
+	// TemplateScopeType covers every monitor of the template type. It is the
+	// default and the only scope without an outside.
+	TemplateScopeType TemplateLinkScopeKind = "type"
+	// TemplateScopeGroups covers the monitors of the selected groups (a monitor
+	// is in scope when it belongs to at least one of them).
+	TemplateScopeGroups TemplateLinkScopeKind = "groups"
+	// TemplateScopeTags covers the monitors carrying at least one of the
+	// selected tags.
+	TemplateScopeTags TemplateLinkScopeKind = "tags"
+)
+
+// TemplateLinkScope is the scope of the link runs of a template: which monitors
+// are meant to follow it.
+//
+// It is persisted on the template (see MonitorTemplate.LinkScope) for one
+// reason: a scope that is not remembered is not a decision. The dialog reopens
+// on it, the admin table shows it, and "link the monitors of these groups" keeps
+// meaning the same groups on the next visit instead of silently reverting to
+// "every monitor of this type".
+//
+// Two rules are load bearing:
+//
+//   - The groups travel as uuids, never as local ids. The row is synchronised
+//     between the cluster nodes (docs/clustering-modes.md), so a local id would
+//     be meaningless — or worse, silently wrong — on the receiver, while a uuid
+//     is the global identity and the JSON column federates verbatim.
+//   - Tags are compared one at a time and exactly, case insensitively (see
+//     models.HasAnyTag), because the stored form is a free form comma separated
+//     list.
+//
+// The kind decides whether the run detaches: a group or a tag scope has an
+// outside, the type scope does not (see HasOutside).
+type TemplateLinkScope struct {
+	Kind       TemplateLinkScopeKind `json:"kind"`
+	GroupUUIDs []string              `json:"group_uuids,omitempty"`
+	Tags       []string              `json:"tags,omitempty"`
+}
+
+// Normalize fills an unset scope with the default ("every monitor of the type")
+// and drops the tags an empty string left behind.
+func (s *TemplateLinkScope) Normalize() {
+	if s.Kind == "" {
+		s.Kind = TemplateScopeType
+	}
+	s.GroupUUIDs = NormalizeTags(strings.Join(s.GroupUUIDs, ","))
+	if s.Kind != TemplateScopeGroups {
+		s.GroupUUIDs = []string{}
+	}
+	s.Tags = NormalizeTags(strings.Join(s.Tags, ","))
+	if s.Kind != TemplateScopeTags {
+		s.Tags = []string{}
+	}
+}
+
+// IsZero reports whether nothing was ever stored, which is how the update path
+// tells "the request did not carry a scope" from "the operator chose one".
+func (s TemplateLinkScope) IsZero() bool {
+	return s.Kind == ""
+}
+
+// HasOutside reports whether the scope leaves followers of the template out.
+// Only "every monitor of the type" covers everything, so only a group or tag
+// scope is authoritative and detaches.
+func (s TemplateLinkScope) HasOutside() bool {
+	return s.Kind == TemplateScopeGroups || s.Kind == TemplateScopeTags
+}
+
+// Valid checks the kind and the selection it requires (empty string means
+// "valid"): a scope that selects nothing is not a scope.
+//
+// An empty kind is valid: it is the state of a template that was never linked, and
+// Normalize turns it into the type scope. What is refused is a kind that selects
+// nothing (groups or tags without a selection), because such a run would detach
+// every follower instead of covering a subset.
+func (s TemplateLinkScope) Valid() string {
+	switch s.Kind {
+	case "", TemplateScopeType:
+		return ""
+	case TemplateScopeGroups:
+		if len(s.GroupUUIDs) == 0 {
+			return "link_scope.group_uuids is required when link_scope.kind=groups"
+		}
+	case TemplateScopeTags:
+		if len(s.Tags) == 0 {
+			return "link_scope.tags is required when link_scope.kind=tags"
+		}
+	default:
+		return "link_scope.kind must be type, groups or tags"
+	}
+	return ""
+}
+
 // Normalize fills the defaults of a template.
 //
 // It also enforces the one rule a template cannot break: authentication belongs
@@ -145,6 +247,7 @@ func (t *MonitorTemplate) Normalize() {
 	if t.Defaults.GroupIDs == nil {
 		t.Defaults.GroupIDs = []uint{}
 	}
+	t.LinkScope.Normalize()
 	t.Config.Normalize(t.Type)
 	t.Config = t.Config.WithoutAuth()
 }
@@ -160,6 +263,9 @@ func (t *MonitorTemplate) Validate() string {
 			types = append(types, string(candidate))
 		}
 		return "type must be " + strings.Join(types, ", ")
+	}
+	if problem := t.LinkScope.Valid(); problem != "" {
+		return problem
 	}
 	// The run_on rules mirror the monitor ones (MonitorService.Validate): a
 	// template must not describe a monitor the API would refuse to create.

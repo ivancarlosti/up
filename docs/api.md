@@ -238,8 +238,10 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
-| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{group_ids?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run}` |
+| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{scope?, group_ids?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run, scope}` |
 | POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_ids?, active?, dry_run?}` |
+| GET | `/api/monitors/tags` | the tags in use with their monitor count (`?type=http` to narrow) |
+| POST | `/api/monitors/bulk/tags` | tags in bulk: `{monitor_ids?, group_ids?, tag?, add?, remove?, dry_run?}` |
 
 A **template** is a monitor without a target: `type`, `config` and `defaults`
 (interval, timeout, retries, re-notification, `run_on`, channels and the
@@ -262,22 +264,60 @@ of a monitor, not even when `config` is applied. `monitor_ids` and an unknown
 field answer `400 ERR_MONITOR_TEMPLATE_INVALID`.
 
 `link-all` attaches the monitors in scope to the template and applies the defaults
-to them. The scope is the monitors of `group_ids` when the field carries at least
-one id (a monitor is in scope when it belongs to at least one of those groups), or
-every monitor of the template type when it is omitted or empty. A run that selects
-**groups is authoritative**: the selection replaces the scope of the template, so
-the monitors that follow it from outside stop following it and are reported as
-`unlinked` (they keep their row, their target, their groups and their tags; the
-detach is a normal edit, so their revision advances and the cluster propagates it).
-A template trimmed to one group therefore stops pushing its defaults into the
-monitors of another, which is what keeps the scope true — an additive run would
-re-link them on the next click and the selection would mean nothing. The scope over
-**every monitor of the type** has no outside and detaches nobody. The response is
-`{monitors, linked, updated, unlinked, dry_run}`: `monitors` is the size of the
-scope, `linked` the monitors that did not follow the template yet, `updated` the
-monitors the run wrote (a fresh link or a default that differed) and `unlinked` the
-followers released by an authoritative run. `dry_run: true` writes nothing at all
-and returns the same counts, which is the preview the dialog shows.
+to them. The scope is `{kind: "type" | "groups" | "tags", group_uuids?:
+[<uuid>], tags?: [...]}`: every monitor of the template type, the monitors of
+those groups (a monitor is in scope when it belongs to at least one of them) or
+the monitors carrying at least one of those tags (whole tag, case insensitive). A
+payload without a scope falls back to the deprecated `group_ids` (a non-empty list
+of local ids is translated to the uuids of those groups) and then to the type
+scope, so an older client keeps linking exactly what it asked for. `groups` and
+`tags` are selections by **uuid** and by **whole tag** on purpose: the template is
+synchronised between the cluster nodes, where the local ids of the groups differ,
+and a substring match on a comma separated column would silently select
+`production` along with `prod`.
+A run whose scope has an **outside** (groups or tags) is authoritative: the
+selection replaces the scope of the template, so the monitors that follow it from
+outside stop following it and are reported as `unlinked` (they keep their row,
+their target, their groups and their tags; the detach is a normal edit, so their
+revision advances and the cluster propagates it). A template trimmed to one group
+therefore stops pushing its defaults into the monitors of another, which is what
+keeps the scope true — an additive run would re-link them on the next click and
+the selection would mean nothing. The scope over **every monitor of the type** has
+no outside and detaches nobody.
+The scope of a successful run is **stored on the template** (`link_scope`) and
+returned, with the groups pruned of the ones that no longer exist; a scope naming
+no existing group is a `400 ERR_MONITOR_TEMPLATE_INVALID` instead of a silent run
+over the whole type. A `PUT /api/monitor-templates/:id` that does not carry
+`link_scope` **keeps** the stored one (the template dialog does not send it), so
+only a link run replaces it.
+The response is `{monitors, linked, updated, unlinked, dry_run, scope}`:
+`monitors` is the size of the scope, `linked` the monitors that did not follow the
+template yet, `updated` the monitors the run wrote (a fresh link or a default that
+differed), `unlinked` the followers released by an authoritative run and `scope`
+the normalized selection that was stored. `dry_run: true` writes nothing at all
+(neither the monitors nor the scope) and returns the same counts, which is the
+preview the dialog shows.
+
+The **tag vocabulary** (`GET /api/monitors/tags`) answers
+`[{tag, monitors}]`, most used first then alphabetical, with `Ops` and `ops`
+counted once under the spelling of the first monitor that used it: the tags live in
+one comma separated column, so the API has to be the place that splits and counts
+them.
+
+`POST /api/monitors/bulk/tags` adds (`add`) and removes (`remove`) tags on a
+selection of monitors, and answers
+`{selected, updated, unchanged, failed, dry_run, changes: [{monitor_id, name,
+tags_before, tags_after, status, error?}]}`. The selection is the **union** of
+`monitor_ids`, the monitors of `group_ids` and the monitors carrying `tag` (at
+least one of the three is required: an empty selection is never everything). Both
+`add` and `remove` may be given at once, which is what a **rename** is (`tag:
+"prod"`, `remove: ["prod"]`, `add: ["production"]`), and a run with neither is a
+`400 ERR_MONITOR_BULK_INVALID`. A row that already carries exactly those tags is
+reported as `unchanged` and **not rewritten** (its revision does not move), a row
+that would push the list past the 255 character column fails alone with a message,
+and every written row goes through the ordinary monitor edit path (validation,
+revision bump, cluster propagation). `dry_run: true` returns the same before/after
+without writing.
 
 The **bulk importer** parses `name,target[,type,keyword,tags,interval]` (comma,
 semicolon or tab; header, `#` comments and blank lines ignored), validates every

@@ -139,10 +139,11 @@ func (h *Container) applyMonitorTemplate(c *gin.Context) {
 	api.OK(c, gin.H{"dry_run": payload.DryRun, "results": results})
 }
 
-// linkAllMonitorTemplate attaches the monitors of the template type (or of the
-// selected groups) to the template and applies its defaults to them, and a run
-// that selects groups also detaches the monitors that follow the template from
-// outside the selection (the scope of the run is the scope of the template).
+// linkAllMonitorTemplate attaches the monitors in scope to the template and
+// applies its defaults to them, and a run whose scope has an outside (groups,
+// tags) also detaches the monitors that follow the template from outside the
+// selection — the scope of the run is the scope of the template, and it is
+// remembered on it so the dialog reopens on the same decision.
 // dry_run returns the same counts without writing, which is what the
 // confirmation dialog shows.
 func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
@@ -151,8 +152,12 @@ func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 		return
 	}
 	var payload struct {
-		GroupIDs []uint `json:"group_ids"`
-		DryRun   bool   `json:"dry_run"`
+		// Scope is the selection of the run. An omitted scope falls back to
+		// group_ids (the pre-scope payload) and then to "every monitor of the
+		// type", so an older client keeps meaning what it meant.
+		Scope    models.TemplateLinkScope `json:"scope"`
+		GroupIDs []uint                   `json:"group_ids"`
+		DryRun   bool                     `json:"dry_run"`
 	}
 	// A wet run may be sent with an empty body.
 	if c.Request.ContentLength > 0 {
@@ -162,6 +167,7 @@ func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 	}
 	result, err := h.MonitorTemplates.LinkAll(c.Request.Context(), services.LinkOptions{
 		TemplateID: id,
+		Scope:      payload.Scope,
 		GroupIDs:   payload.GroupIDs,
 		DryRun:     payload.DryRun,
 	})

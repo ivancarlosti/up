@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ListPlus, Plus, RefreshCw, Wand2 } from 'lucide-vue-next'
+import { ListPlus, Plus, RefreshCw, Tags, Wand2 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import Alert from '@/components/ui/Alert.vue'
 import Button from '@/components/ui/Button.vue'
@@ -13,6 +13,7 @@ import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import ApplyTemplateDialog from '@/components/monitors/ApplyTemplateDialog.vue'
 import BulkAddDialog from '@/components/monitors/BulkAddDialog.vue'
+import BulkTagsDialog from '@/components/monitors/BulkTagsDialog.vue'
 import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import MonitorTable from '@/components/monitors/MonitorTable.vue'
 import { api } from '@/lib/api'
@@ -51,6 +52,9 @@ const templates = ref<MonitorTemplate[]>([])
 const groups = ref<MonitorGroup[]>([])
 const formOpen = ref(false)
 const bulkOpen = ref(false)
+// The bulk tag dialog works on what is on screen (the filtered rows) or on a
+// group / a tag, so it is opened from the toolbar next to the other bulk actions.
+const bulkTagsOpen = ref(false)
 const applyOpen = ref(false)
 const editing = ref<Monitor | null>(null)
 const saving = ref(false)
@@ -468,6 +472,10 @@ onMounted(async () => {
           <ListPlus class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('bulk.button') }}
         </Button>
+        <Button variant="outline" size="sm" @click="bulkTagsOpen = true">
+          <Tags class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('bulkTags.button') }}
+        </Button>
         <Button v-if="templates.length" variant="outline" size="sm" @click="applyOpen = true">
           <Wand2 class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('apply.button') }}
@@ -514,6 +522,12 @@ onMounted(async () => {
     />
 
     <BulkAddDialog v-model="bulkOpen" :templates="templates" :groups="groups" @created="refresh" />
+    <!--
+      The tags of the bulk dialog are applied to what the table shows, so the
+      dialog receives the filtered rows (not the whole installation): the operator
+      narrows with the filters, then retags exactly what is on screen.
+    -->
+    <BulkTagsDialog v-model="bulkTagsOpen" :monitors="sorted" :groups="groups" @updated="refresh" />
     <ApplyTemplateDialog v-model="applyOpen" :templates="templates" :monitors="list" @applied="refresh" />
 
     <Dialog v-model="cloneOpen" :title="t('monitor.cloneTitle')" :description="t('monitor.cloneHelp')">

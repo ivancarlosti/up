@@ -261,6 +261,12 @@ export interface MonitorTemplate {
   type: MonitorType
   config: MonitorConfig
   defaults: TemplateDefaults
+  /**
+   * The scope of the last link run (see TemplateLinkScope). It is stored on the
+   * template, so the link dialog reopens on the selection the operator last made
+   * instead of falling back to "every monitor of this type".
+   */
+  link_scope: TemplateLinkScope
   /** Push the defaults to the linked monitors whenever the template is edited. */
   propagate: boolean
   /**
@@ -275,20 +281,85 @@ export interface MonitorTemplate {
 
 export type MonitorTemplatePayload = Partial<MonitorTemplate>
 
-/** What a "link every monitor of this type" run reports. */
+/** The three ways a link run can select "the monitors of a template". */
+export type TemplateLinkScopeKind = 'type' | 'groups' | 'tags'
+
+/**
+ * TemplateLinkScope is the selection of the last link run of a template.
+ *
+ * `groups` are stored as UUIDs and never as local ids: the template is
+ * synchronised between the nodes of a cluster, where the ids of the groups differ
+ * and the UUIDs do not. `tags` are compared as whole tags, case insensitively
+ * ("prod" never matches "production").
+ *
+ * Both `groups` and `tags` have an outside, so a run with one of them also
+ * detaches the followers of the template that fall outside the selection.
+ */
+export interface TemplateLinkScope {
+  kind: TemplateLinkScopeKind
+  group_uuids?: string[]
+  tags?: string[]
+}
+
+/** What a "link the monitors of a template" run reports. */
 export interface TemplateLinkResult {
   monitors: number
   linked: number
   updated: number
   /**
    * The monitors that follow the template from outside the scope of the run.
-   * A "specific groups" run makes the selection the authoritative scope of the
-   * template, so those monitors stop following it (they keep their row, their
-   * address and their groups); the "every monitor of this type" scope has no
-   * outside and detaches nobody, which is why this is 0 there.
+   * A run with an outside (groups, tags) makes the selection the authoritative
+   * scope of the template, so those monitors stop following it (they keep their
+   * row, their address, their tags and their groups); the "every monitor of this
+   * type" scope has no outside and detaches nobody, which is why this is 0 there.
    */
   unlinked: number
   dry_run: boolean
+  /**
+   * The scope the run applied, with the groups and the tags normalized and pruned
+   * of what no longer exists. A dry run reports the scope it would store.
+   */
+  scope: TemplateLinkScope
+}
+
+/** TagUsage is one tag in use and how many monitors carry it. */
+export interface TagUsage {
+  tag: string
+  monitors: number
+}
+
+/**
+ * Options of a bulk tag edit. The three selectors are a union: the ids the
+ * operator ticked, the monitors of the given groups, or the monitors carrying the
+ * given tag (which is what makes a rename possible).
+ */
+export interface BulkTagOptions {
+  monitor_ids?: number[]
+  group_ids?: number[]
+  tag?: string
+  add?: string[]
+  remove?: string[]
+  dry_run?: boolean
+}
+
+/** BulkTagChange is what a bulk tag run did (or would do) on one monitor. */
+export interface BulkTagChange {
+  monitor_id: number
+  name: string
+  tags_before: string
+  tags_after: string
+  status: 'dry_run' | 'updated' | 'failed'
+  error?: string
+}
+
+/** BulkTagReport is the answer of a bulk tag run. */
+export interface BulkTagReport {
+  selected: number
+  updated: number
+  unchanged: number
+  failed: number
+  dry_run: boolean
+  changes: BulkTagChange[]
 }
 
 /** FieldChange is one difference between a monitor and a template. */

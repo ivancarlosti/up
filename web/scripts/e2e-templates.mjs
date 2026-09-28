@@ -87,6 +87,31 @@ function setValue(page, selector, value, event = 'input') {
   })()`)
 }
 
+/**
+ * clickScopeCard selects one of the three scope cards of the link dialog. The
+ * radios carry the API kind as their value (`type`, `groups`, `tags`), which is
+ * also what the template stores.
+ */
+function clickScopeCard(page, kind) {
+  return page.evaluate(`(() => {
+    const radio = document.querySelector(${JSON.stringify(`[role="dialog"] input[type="radio"][value="${kind}"]`)})
+    if (!radio) return false
+    radio.click()
+    return true
+  })()`)
+}
+
+/** dialogState reads the selected scope card and the checked group of the link dialog. */
+function dialogState(page) {
+  return page.evaluate(`(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    if (!dialog) return null
+    const checked = dialog.querySelector('input[type="radio"]:checked')
+    const boxes = [...dialog.querySelectorAll('button[role="checkbox"]')].map((box) => box.getAttribute('aria-checked'))
+    return { scope: checked?.value ?? '', checked: boxes.filter((value) => value === 'true').length }
+  })()`)
+}
+
 const url = parseArgs(process.argv.slice(2))
 const chrome = findChrome()
 const stamp = Date.now()
@@ -523,11 +548,12 @@ try {
   // monitors of the earlier sections follow this template too.
   const expectedReleased = allFollowers.filter((id) => id !== scope?.scoped?.id).length
 
-  // Step two, the operator narrows the link to the monitors of one group.
+  // Step two, the operator narrows the link to the monitors of one group. The
+  // scope is the radio card whose value is the kind the API stores.
   check('the link dialog reopens', await clickInRow(page, editedName, /link every monitor|vincular/i))
   await sleep(1200)
-  await setValue(page, '#link-scope', 'groups', 'change')
-  await sleep(500)
+  check('the groups scope is picked in the link dialog', await clickScopeCard(page, 'groups'))
+  await sleep(800)
   const picked = await api(`(() => {
     const label = [...document.querySelectorAll('[role="dialog"] label')]
       .find((el) => el.innerText.trim().startsWith(${JSON.stringify(linkGroupName)}))
@@ -585,6 +611,156 @@ try {
     JSON.stringify(groupsAfter),
   )
   await page.screenshot('/tmp/up-e2e-link-scope.png')
+
+  // --- the scope of the last run is remembered on the template --------------
+  // Regression guard: the dialog used to open on "every monitor of this type"
+  // whatever the operator had chosen, because the scope lived only in the request.
+  // An admin who re-opened the dialog could not tell (and could not re-run) the
+  // selection, and the admin table could not show what a template governs.
+  const remembered = await api(`fetch('/api/monitor-templates')
+    .then((r) => r.json())
+    .then((list) => list.find((t) => t.id === ${template.id}) ?? null)`)
+  check(
+    'the template remembers the scope of the last run',
+    remembered?.link_scope?.kind === 'groups' &&
+      remembered.link_scope.group_uuids?.length === 1 &&
+      remembered.link_scope.group_uuids[0] === scope?.group?.uuid,
+    JSON.stringify(remembered?.link_scope),
+  )
+  check(
+    'the stored scope survives an edit that does not carry one',
+    await api(`fetch('/api/monitor-templates/${template.id}', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: ${JSON.stringify(JSON.stringify({ name: editedName, description: '', type: 'http', propagate: true, config: { method: 'POST' }, defaults: { ...(edited?.defaults ?? {}), interval_seconds: 300 } }))},
+    })
+      .then((r) => r.json())
+      .then((saved) => saved.link_scope?.kind === 'groups' && saved.link_scope.group_uuids?.[0] === ${JSON.stringify(scope?.group?.uuid ?? '')})`),
+  )
+  await page.goto(`${url}/admin/monitor-templates`, { settle: 1500 })
+  check('the templates table shows the stored scope', (await api(`document.body.innerText`)).includes(linkGroupName))
+  check('the link dialog reopens on the stored scope', await clickInRow(page, editedName, /link every monitor|vincular/i))
+  await sleep(1200)
+  const reopened = await dialogState(page)
+  check('the remembered scope pre-selects the groups card', reopened?.scope === 'groups', JSON.stringify(reopened))
+  check('the remembered scope pre-checks the group', (reopened?.checked ?? 0) >= 1, JSON.stringify(reopened))
+  check('the link dialog closes', await clickButton(page, /^(cancel|cancelar)$/i))
+  await sleep(400)
+
+  // --- a tag scope, and the tag vocabulary it reads --------------------------
+  // A tag scope selects by WHOLE tag: the monitor named "... similar" carries
+  // "<tag>x", which a substring match would pull into the run.
+  const tagName = `e2e-tag-${stamp}`
+  const taggedName = `e2e tagged ${stamp}`
+  const similarName = `e2e tagged similar ${stamp}`
+  const tagged = await api(`(async () => {
+    const make = async (name, tags) => {
+      const response = await fetch('/api/monitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          type: 'http',
+          active: false,
+          interval_seconds: ${(edited?.defaults ?? {}).interval_seconds === 300 ? 300 : 60},
+          timeout_seconds: 10,
+          tags,
+          config: { url: 'https://127.0.0.1:8099/${stamp}/tagged/' + name.split(' ').join('-'), method: 'GET' },
+        }),
+      })
+      return response.json()
+    }
+    const scoped = await make(${JSON.stringify(taggedName)}, ${JSON.stringify(tagName)})
+    const neighbour = await make(${JSON.stringify(similarName)}, ${JSON.stringify(`${tagName}x`)})
+    return { scoped, neighbour }
+  })()`)
+  created.monitors.push(tagged?.scoped?.id, tagged?.neighbour?.id)
+  check(
+    'the tag setup created a tagged monitor and a look-alike',
+    tagged?.scoped?.tags === tagName && tagged?.neighbour?.tags === `${tagName}x`,
+    JSON.stringify(tagged),
+  )
+  const vocabulary = await api(`fetch('/api/monitors/tags?type=http').then((r) => r.json())`)
+  const usage = vocabulary.find((item) => item.tag === tagName)
+  check('the tag vocabulary reports the tag with its count', usage?.monitors === 1, JSON.stringify(usage))
+
+  await page.goto(`${url}/admin/monitor-templates`, { settle: 1500 })
+  check('the link dialog opens for the tag scope', await clickInRow(page, editedName, /link every monitor|vincular/i))
+  await sleep(1200)
+  check('the tags scope is picked in the link dialog', await clickScopeCard(page, 'tags'))
+  await sleep(800)
+  // Nothing is selected yet: the dialog asks for a tag instead of previewing.
+  const emptyTagText = await dialogText()
+  const tagPicked = await api(`(() => {
+    const label = [...document.querySelectorAll('[role="dialog"] label')]
+      .find((el) => el.innerText.trim().startsWith(${JSON.stringify(tagName)}))
+    if (!label) return false
+    label.querySelector('button[role="checkbox"]')?.click()
+    return true
+  })()`)
+  check('the tag is selectable in the link dialog', tagPicked)
+  await sleep(1500)
+  const tagScopeText = await dialogText()
+  check('picking the tag refreshes the preview', tagScopeText !== emptyTagText)
+  // The counts behind the preview come from the same dry run the API answers:
+  // only the monitor carrying the whole tag is in scope.
+  const tagPreview = await api(`fetch('/api/monitor-templates/${template.id}/link-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dry_run: true, scope: { kind: 'tags', tags: [${JSON.stringify(tagName)}] } }),
+  }).then((r) => r.json())`)
+  check(
+    'the tag scope covers only the monitor carrying the whole tag',
+    tagPreview?.monitors === 1 && tagPreview?.linked === 1 && tagPreview?.scope?.kind === 'tags',
+    JSON.stringify(tagPreview),
+  )
+  check('the tag scope links in the dialog', await clickButton(page, /^(link and apply|vincular e aplicar|vincular y aplicar)$/i))
+  await sleep(2500)
+  const tagRows = await api(`Promise.all([${JSON.stringify(tagged?.scoped?.id ?? 0)}, ${JSON.stringify(tagged?.neighbour?.id ?? 0)}]
+    .map((id) => fetch('/api/monitors/' + id).then((r) => r.json())
+      .then((m) => ({ id: m.id, name: m.name, tags: m.tags, template_uuid: m.template_uuid }))))`)
+  const tagScopedRow = tagRows.find((row) => row.id === tagged?.scoped?.id)
+  const tagNeighbourRow = tagRows.find((row) => row.id === tagged?.neighbour?.id)
+  check('the tagged monitor follows the template', tagScopedRow?.template_uuid === template?.uuid, JSON.stringify(tagScopedRow))
+  check(
+    'the look-alike tag did not pull the neighbour in',
+    !tagNeighbourRow?.template_uuid,
+    JSON.stringify(tagNeighbourRow),
+  )
+  check(
+    'the tag scope is stored on the template',
+    await api(`fetch('/api/monitor-templates')
+      .then((r) => r.json())
+      .then((list) => {
+        const stored = list.find((t) => t.id === ${template.id})
+        return stored?.link_scope?.kind === 'tags' && stored.link_scope.tags?.length === 1 && stored.link_scope.tags[0] === ${JSON.stringify(tagName)}
+      })`),
+  )
+
+  // --- the bulk tag dialog renames a tag everywhere it is used ---------------
+  await page.goto(`${url}/`, { settle: 1500 })
+  check('the bulk tag dialog opens', await clickButton(page, /bulk tags|etiquetas em lote|etiquetas en lote/i))
+  await sleep(800)
+  await setValue(page, '#bulk-tags-selection', 'tag', 'change')
+  await sleep(600)
+  await setValue(page, '#bulk-tags-tag', tagName, 'change')
+  await setValue(page, '#bulk-tags-add', 'renamed')
+  await setValue(page, '#bulk-tags-remove', tagName)
+  await sleep(1500)
+  const bulkText = await api(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+  check('the bulk tag preview shows the one tagged monitor', /Selected: 1|Selecionados: 1|Seleccionados: 1/.test(bulkText), bulkText.replace(/\s+/g, ' ').slice(0, 160))
+  check('the bulk tag run applies', await clickButton(page, /^(apply tags|aplicar etiquetas)$/i))
+  await sleep(2000)
+  const renamedRow = await api(`fetch('/api/monitors/${tagged?.scoped?.id ?? 0}').then((r) => r.json())`)
+  check('the rename landed on the tagged monitor', renamedRow?.tags === 'renamed', String(renamedRow?.tags))
+  const neighbourAfter = await api(`fetch('/api/monitors/${tagged?.neighbour?.id ?? 0}').then((r) => r.json())`)
+  check(
+    'the rename left the look-alike alone',
+    neighbourAfter?.tags === `${tagName}x`,
+    String(neighbourAfter?.tags),
+  )
+  check('the bulk tag dialog closes', await clickButton(page, /^(close|fechar|cerrar)$/i))
+  await sleep(400)
 
 
   const consoleErrors = [...page.consoleMessages, ...page.exceptions].filter((line) =>

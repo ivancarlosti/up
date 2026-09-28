@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FileCog, Link2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { FileCog, Link2, Pencil, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -29,7 +29,18 @@ import { monitorTemplateSortKeys, sortMonitorTemplates } from '@/lib/sort'
 import type { MonitorTemplateSortKey } from '@/lib/sort'
 import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { useToastStore } from '@/stores/toast'
-import type { MonitorConfig, MonitorGroup, MonitorTemplate, MonitorTemplatePayload, MonitorType, Notification, TemplateLinkResult } from '@/lib/types'
+import type {
+  MonitorConfig,
+  MonitorGroup,
+  MonitorTemplate,
+  MonitorTemplatePayload,
+  MonitorType,
+  Notification,
+  TagUsage,
+  TemplateLinkResult,
+  TemplateLinkScope,
+  TemplateLinkScopeKind,
+} from '@/lib/types'
 
 /** TemplateForm mirrors a template without optional fields (the form always has them). */
 type TemplateForm = {
@@ -95,16 +106,28 @@ const confirmOpen = ref(false)
 const pendingRemoval = ref<MonitorTemplate | null>(null)
 
 // "Link monitors to this template": a dry run fills the preview the
-// confirmation dialog shows, the real run writes the link and the defaults. The
-// scope is either every monitor of the template type or the monitors of the
-// groups the operator picks.
+// confirmation dialog shows, the real run writes the link and the defaults.
+//
+// The scope is the decision the dialog exists for, and it is REMEMBERED on the
+// template (MonitorTemplate.link_scope), so re-opening the dialog shows the
+// selection of the last run instead of quietly falling back to "every monitor of
+// this type". The selection is held as the scope itself (group uuids, tags): the
+// uuids are what the API stores, because the ids of the groups differ from one
+// node of a cluster to the next.
 const linkOpen = ref(false)
 const linking = ref(false)
 const linkPreviewing = ref(false)
 const linkTarget = ref<MonitorTemplate | null>(null)
 const linkPreview = ref<TemplateLinkResult | null>(null)
-const linkScope = ref<'all' | 'groups'>('all')
-const linkGroupIDs = ref<number[]>([])
+const linkScope = ref<TemplateLinkScopeKind>('type')
+const linkGroupUUIDs = ref<string[]>([])
+const linkTags = ref<string[]>([])
+/** The tag input of the dialog: a tag no monitor carries yet can still be selected. */
+const linkTagInput = ref('')
+/** The tags in use among the monitors of the template type (the picker's vocabulary). */
+const linkTagUsage = ref<TagUsage[]>([])
+/** The template whose stored scope is being re-run (the row action shows a spinner). */
+const reapplyingID = ref<number | null>(null)
 
 const form = reactive<TemplateForm>(blank())
 
@@ -154,22 +177,96 @@ const runOnOptions = computed(() => [
   { value: 'some', label: t('monitor.runOnSome') },
 ])
 
-/** linkScopeOptions is the scope selector of the link dialog. */
-const linkScopeOptions = computed(() => [
-  { value: 'all', label: t('templates.linkScopeAll') },
-  { value: 'groups', label: t('templates.linkScopeGroups') },
+/**
+ * linkScopeCards are the three kinds of scope the dialog offers, as radio cards:
+ * a Select of two options hid the fact that the choice decides who follows the
+ * template (and who stops following it), so the decision is spelled out.
+ */
+const linkScopeCards = computed(() => [
+  {
+    kind: 'type' as TemplateLinkScopeKind,
+    title: t('templates.linkScopeAll'),
+    description: t('templates.linkScopeAllHelp', { type: linkTarget.value?.type ?? '' }),
+  },
+  {
+    kind: 'groups' as TemplateLinkScopeKind,
+    title: t('templates.linkScopeGroups'),
+    description: t('templates.linkScopeGroupsHelp'),
+  },
+  {
+    kind: 'tags' as TemplateLinkScopeKind,
+    title: t('templates.linkScopeTags'),
+    description: t('templates.linkScopeTagsHelp'),
+  },
 ])
 
-/** linkScopeNeedsGroups is true when the operator must pick at least one group. */
-const linkScopeNeedsGroups = computed(() => linkScope.value === 'groups' && linkGroupIDs.value.length === 0)
+/**
+ * linkScopeNeedsSelection is true when the selected kind has nothing selected yet:
+ * there is nothing to preview and nothing to run, so the dialog asks for the
+ * selection instead of showing a misleading count.
+ */
+const linkScopeNeedsSelection = computed(
+  () =>
+    (linkScope.value === 'groups' && linkGroupUUIDs.value.length === 0) ||
+    (linkScope.value === 'tags' && linkTags.value.length === 0),
+)
 
 /**
- * linkReleasesFollowers is true when the scope the operator selected replaces
- * the scope of the template, so the monitors that follow it from outside the
+ * linkReleasesFollowers is true when the scope the operator selected replaces the
+ * scope of the template, so the monitors that follow it from outside the
  * selection stop following it. The dialog words the preview differently in that
  * case because the run is not only additive.
  */
-const linkReleasesFollowers = computed(() => linkScope.value === 'groups')
+const linkReleasesFollowers = computed(() => linkScope.value !== 'type')
+
+/** linkWarning words the description of the link dialog for the selected kind. */
+const linkWarning = computed(() => {
+  if (linkScope.value === 'tags') return t('templates.linkAllWarningTags')
+  if (linkScope.value === 'groups') return t('templates.linkAllWarningGroups')
+  return t('templates.linkAllWarning')
+})
+
+/**
+ * linkTagChoices is the tag vocabulary of the picker: the tags in use among the
+ * monitors of the template type, plus the ones the operator typed, so a tag can
+ * be selected before any monitor carries it.
+ */
+const linkTagChoices = computed(() => {
+  const usage = new Map(linkTagUsage.value.map((item) => [item.tag.toLowerCase(), item]))
+  // `monitors: null` marks a tag an operator typed that no monitor carries yet.
+  const choices: { tag: string; monitors: number | null }[] = linkTagUsage.value.map((item) => ({
+    tag: item.tag,
+    monitors: item.monitors,
+  }))
+  for (const tag of linkTags.value) {
+    if (!usage.has(tag.toLowerCase())) choices.push({ tag, monitors: null })
+  }
+  return choices
+})
+
+/** linkGroupLabel resolves a stored uuid to the group name the operator knows. */
+function linkGroupLabel(uuid: string): string {
+  const group = groups.value.find((candidate) => candidate.uuid === uuid)
+  return group ? group.name : uuid.slice(0, 8)
+}
+
+/**
+ * scopeLabel words the stored scope of a template for the table: what the last
+ * link run decided to govern, which is what the row action re-applies.
+ */
+function scopeLabel(scope: TemplateLinkScope | undefined): string {
+  if (!scope || scope.kind === 'type') return t('templates.linkScopeAll')
+  if (scope.kind === 'groups') {
+    const names = (scope.group_uuids ?? []).map((uuid) => linkGroupLabel(uuid))
+    return `${t('templates.linkScopeGroups')}: ${names.join(', ')}`
+  }
+  return `${t('templates.linkScopeTags')}: ${(scope.tags ?? []).join(', ')}`
+}
+
+/** scopeHasSelection reports whether a stored scope names anything. */
+function scopeHasSelection(scope: TemplateLinkScope | undefined): boolean {
+  return Boolean(scope && scope.kind !== 'type')
+}
 
 const type = computed(() => (form.type ?? 'http') as MonitorType)
 const config = computed(() => form.config ?? {})
@@ -269,34 +366,66 @@ async function save(): Promise<void> {
   }
 }
 
+/**
+ * openLink opens the link dialog seeded with the STORED scope of the template,
+ * which is the whole point of persisting it: the dialog answers "what does this
+ * template govern?" with the decision of the last run, and the operator only has
+ * to change what changed.
+ */
 async function openLink(template: MonitorTemplate): Promise<void> {
   linkTarget.value = template
   linkPreview.value = null
-  linkScope.value = 'all'
-  linkGroupIDs.value = []
+  const scope = template.link_scope
+  linkScope.value = scope?.kind ? scope.kind : 'type'
+  // A group deleted elsewhere (another node, another admin) is dropped instead of
+  // staying selected invisibly: the backend prunes the same reference, and the
+  // operator must see the selection they can actually see.
+  const knownGroups = new Set(groups.value.map((group) => group.uuid))
+  linkGroupUUIDs.value = (scope?.group_uuids ?? []).filter((uuid) => knownGroups.has(uuid))
+  linkTags.value = [...(scope?.tags ?? [])]
+  linkTagInput.value = ''
+  // The picker offers the tags the monitors of this type actually carry: a tag
+  // nobody uses can still be typed, but the list starts from reality.
+  linkTagUsage.value = []
+  void loadLinkTags(template.type)
   linkOpen.value = true
   await refreshLinkPreview()
 }
 
 /**
- * refreshLinkPreview re-runs the dry run for the selected scope. With the
- * "specific groups" scope and nothing selected there is nothing to preview: the
- * dialog asks for a group instead of showing a misleading count.
+ * loadLinkTags fills the tag vocabulary of the picker. A failure is not fatal:
+ * the operator can still type the tags, so the dialog only loses its suggestions.
+ */
+async function loadLinkTags(type: MonitorType | undefined): Promise<void> {
+  try {
+    linkTagUsage.value = await api.monitorTags(type)
+  } catch {
+    linkTagUsage.value = []
+  }
+}
+
+/** buildLinkScope renders the selection of the dialog as the API scope. */
+function buildLinkScope(): TemplateLinkScope {
+  if (linkScope.value === 'groups') return { kind: 'groups', group_uuids: [...linkGroupUUIDs.value] }
+  if (linkScope.value === 'tags') return { kind: 'tags', tags: [...linkTags.value] }
+  return { kind: 'type' }
+}
+
+/**
+ * refreshLinkPreview re-runs the dry run for the selected scope. With a kind that
+ * has nothing selected yet there is nothing to preview: the dialog asks for the
+ * selection instead of showing a misleading count.
  */
 async function refreshLinkPreview(): Promise<void> {
   if (!linkTarget.value) return
-  if (linkScopeNeedsGroups.value) {
+  if (linkScopeNeedsSelection.value) {
     linkPreview.value = null
     return
   }
   linkPreviewing.value = true
   linkPreview.value = null
   try {
-    linkPreview.value = await api.linkAllMonitorTemplate(
-      linkTarget.value.id,
-      true,
-      linkScope.value === 'groups' ? linkGroupIDs.value : [],
-    )
+    linkPreview.value = await api.linkAllMonitorTemplate(linkTarget.value.id, true, buildLinkScope())
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
     linkOpen.value = false
@@ -305,39 +434,56 @@ async function refreshLinkPreview(): Promise<void> {
   }
 }
 
-function setLinkScope(value: string): void {
-  linkScope.value = value === 'groups' ? 'groups' : 'all'
+function setLinkScope(kind: TemplateLinkScopeKind): void {
+  linkScope.value = kind
   void refreshLinkPreview()
 }
 
-function toggleLinkGroup(id: number, value: boolean): void {
-  const set = new Set(linkGroupIDs.value)
-  if (value) set.add(id)
-  else set.delete(id)
-  linkGroupIDs.value = [...set]
+function toggleLinkGroup(uuid: string, value: boolean): void {
+  const set = new Set(linkGroupUUIDs.value)
+  if (value) set.add(uuid)
+  else set.delete(uuid)
+  linkGroupUUIDs.value = [...set]
+  void refreshLinkPreview()
+}
+
+function toggleLinkTag(tag: string, value: boolean): void {
+  const set = new Set(linkTags.value.map((candidate) => candidate.toLowerCase()))
+  if (value) set.add(tag.toLowerCase())
+  else set.delete(tag.toLowerCase())
+  // The selected tags are kept as they were spelled by the monitor that carries
+  // them (or as the operator typed them): the comparison is case insensitive, the
+  // stored value is not rewritten.
+  linkTags.value = [...set].map((key) => linkTagChoices.value.find((choice) => choice.tag.toLowerCase() === key)?.tag ?? key)
+  void refreshLinkPreview()
+}
+
+/** addLinkTag selects a tag that is not in the vocabulary yet. */
+function addLinkTag(): void {
+  const tag = linkTagInput.value.trim()
+  linkTagInput.value = ''
+  if (!tag) return
+  if (linkTags.value.some((candidate) => candidate.toLowerCase() === tag.toLowerCase())) return
+  linkTags.value = [...linkTags.value, tag]
   void refreshLinkPreview()
 }
 
 async function confirmLink(): Promise<void> {
-  if (!linkTarget.value || linkScopeNeedsGroups.value) return
+  if (!linkTarget.value || linkScopeNeedsSelection.value) return
   linking.value = true
-  // The scope is captured before the request: the toast must word the run the
-  // way the dialog did, even if the operator switches the selector afterwards.
-  const scope = linkScope.value
+  // The scope is captured before the request: the toast must word the run the way
+  // the dialog did, even if the operator switches the selector afterwards.
+  const scope = buildLinkScope()
   try {
-    const result = await api.linkAllMonitorTemplate(
-      linkTarget.value.id,
-      false,
-      scope === 'groups' ? linkGroupIDs.value : [],
-    )
+    const result = await api.linkAllMonitorTemplate(linkTarget.value.id, false, scope)
     toasts.success(
-      scope === 'groups'
-        ? t('templates.linkAllDoneGroups', {
+      scope.kind === 'type'
+        ? t('templates.linkAllDone', { linked: result.linked, updated: result.updated })
+        : t('templates.linkAllDoneGroups', {
             linked: result.linked,
             updated: result.updated,
             unlinked: result.unlinked,
-          })
-        : t('templates.linkAllDone', { linked: result.linked, updated: result.updated }),
+          }),
     )
     linkOpen.value = false
     await load()
@@ -345,6 +491,21 @@ async function confirmLink(): Promise<void> {
     toasts.error(t('common.error'), translateError(error))
   } finally {
     linking.value = false
+  }
+}
+
+/**
+ * reapplyLink opens the dialog on the stored scope of a template, which is the
+ * "run it again" shortcut: the preview and the detach warning are the ones of an
+ * ordinary run, so the operator confirms what the template is already supposed to
+ * govern instead of trusting a silent re-run.
+ */
+async function reapplyLink(template: MonitorTemplate): Promise<void> {
+  reapplyingID.value = template.id
+  try {
+    await openLink(template)
+  } finally {
+    reapplyingID.value = null
   }
 }
 
@@ -422,6 +583,7 @@ onMounted(load)
                 :direction="sort.direction"
                 @toggle="toggleSort('monitors')"
               />
+              <th>{{ t('templates.linkScopeColumn') }}</th>
               <SortHeader
                 :label="t('common.interval')"
                 column="interval"
@@ -455,6 +617,16 @@ onMounted(load)
                 <Badge variant="secondary">{{ template.type }}</Badge>
               </td>
               <td class="whitespace-nowrap tabular-nums">{{ template.monitor_count }}</td>
+              <!--
+                What the last link run decided to govern. It is shown because the
+                scope survives the dialog: an admin who cannot see it cannot tell
+                a template that governs everything from one that governs a group.
+              -->
+              <td>
+                <Badge :variant="scopeHasSelection(template.link_scope) ? 'secondary' : 'outline'">
+                  {{ scopeLabel(template.link_scope) }}
+                </Badge>
+              </td>
               <td class="whitespace-nowrap">
                 <span class="tabular-nums">{{ template.defaults?.interval_seconds }}s</span>
                 <span class="block text-[11px] text-muted-foreground">
@@ -464,6 +636,23 @@ onMounted(load)
               </td>
               <td class="text-end">
                 <div class="flex items-center justify-end gap-1">
+                  <!--
+                    Re-run the link with the scope of the last run. It opens the
+                    dialog on the stored selection instead of writing silently:
+                    a scope with an outside detaches followers, so the operator
+                    confirms the preview exactly like a hand-made run.
+                  -->
+                  <Button
+                    v-if="scopeHasSelection(template.link_scope)"
+                    variant="ghost"
+                    size="sm"
+                    :loading="reapplyingID === template.id"
+                    :title="t('templates.linkReapply')"
+                    :aria-label="t('templates.linkReapply')"
+                    @click="reapplyLink(template)"
+                  >
+                    <RotateCw class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -619,39 +808,84 @@ onMounted(load)
     <Dialog
       v-model="linkOpen"
       :title="t('templates.linkAllTitle')"
-      :description="linkReleasesFollowers ? t('templates.linkAllWarningGroups') : t('templates.linkAllWarning')"
+      :description="linkWarning"
     >
       <div class="grid gap-3 text-xs">
         <p v-if="linkTarget" class="font-mono">{{ linkTarget.name }} · {{ linkTarget.type }}</p>
 
-        <div class="grid gap-1">
-          <Label for="link-scope" :help="t('templates.linkScopeHelp')">{{ t('templates.linkScope') }}</Label>
-          <Select
-            id="link-scope"
-            :model-value="linkScope"
-            :options="linkScopeOptions"
-            @update:model-value="setLinkScope($event as string)"
-          />
-        </div>
+        <!--
+          The scope is a decision, not a filter: it decides who follows the
+          template and who stops following it. Three radio cards spell that out
+          (a two-entry Select hid it), and the one of the last run is pre-selected
+          because the template remembers it.
+        -->
+        <fieldset class="grid gap-2">
+          <legend class="mb-1 text-[11px] font-medium">{{ t('templates.linkScope') }}</legend>
+          <label
+            v-for="card in linkScopeCards"
+            :key="card.kind"
+            class="flex cursor-pointer items-start gap-2 rounded-md border p-3 transition-colors"
+            :class="linkScope === card.kind ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'"
+          >
+            <input
+              type="radio"
+              name="link-scope"
+              class="mt-0.5 h-3.5 w-3.5 accent-primary"
+              :value="card.kind"
+              :checked="linkScope === card.kind"
+              @change="setLinkScope(card.kind)"
+            />
+            <span class="grid gap-0.5">
+              <span class="text-xs font-medium">{{ card.title }}</span>
+              <span class="text-[11px] text-muted-foreground">{{ card.description }}</span>
+            </span>
+          </label>
+        </fieldset>
 
         <div v-if="linkScope === 'groups'" class="grid gap-2 rounded-md border border-border p-3">
           <p class="text-[11px] text-muted-foreground">
-            {{ groups.length ? t('templates.linkScopeGroupsHelp') : t('templates.linkNoGroups') }}
+            {{ groups.length ? t('templates.linkScopeGroupsPick') : t('templates.linkNoGroups') }}
           </p>
           <div class="flex max-h-48 flex-wrap gap-4 overflow-y-auto">
             <Checkbox
               v-for="group in groups"
-              :key="group.id"
-              :model-value="linkGroupIDs.includes(group.id)"
-              @update:model-value="toggleLinkGroup(group.id, $event)"
+              :key="group.uuid"
+              :model-value="linkGroupUUIDs.includes(group.uuid)"
+              @update:model-value="toggleLinkGroup(group.uuid, $event)"
             >
               {{ group.name }} ({{ group.monitor_count }})
             </Checkbox>
           </div>
         </div>
 
+        <div v-if="linkScope === 'tags'" class="grid gap-2 rounded-md border border-border p-3">
+          <p class="text-[11px] text-muted-foreground">{{ t('templates.linkScopeTagsPick') }}</p>
+          <div v-if="linkTagChoices.length" class="flex max-h-48 flex-wrap gap-4 overflow-y-auto">
+            <Checkbox
+              v-for="choice in linkTagChoices"
+              :key="choice.tag"
+              :model-value="linkTags.some((tag) => tag.toLowerCase() === choice.tag.toLowerCase())"
+              @update:model-value="toggleLinkTag(choice.tag, $event)"
+            >
+              {{ choice.monitors === null ? choice.tag : `${choice.tag} (${choice.monitors})` }}
+            </Checkbox>
+          </div>
+          <p v-else class="text-[11px] text-muted-foreground">{{ t('templates.linkNoTags') }}</p>
+          <div class="flex items-center gap-2">
+            <Input
+              v-model="linkTagInput"
+              class="max-w-[12rem]"
+              :placeholder="t('templates.linkTagAddPlaceholder')"
+              @keydown.enter.prevent="addLinkTag"
+            />
+            <Button variant="outline" size="sm" :disabled="!linkTagInput.trim()" @click="addLinkTag">
+              {{ t('common.add') }}
+            </Button>
+          </div>
+        </div>
+
         <p v-if="linkPreviewing" class="text-muted-foreground">{{ t('common.loading') }}</p>
-        <p v-else-if="linkScopeNeedsGroups" class="text-muted-foreground">{{ t('templates.linkScopePick') }}</p>
+        <p v-else-if="linkScopeNeedsSelection" class="text-muted-foreground">{{ t('templates.linkScopePick') }}</p>
         <p v-else-if="linkPreview">
           {{
             linkReleasesFollowers
@@ -668,10 +902,18 @@ onMounted(load)
                 })
           }}
         </p>
+        <!--
+          An empty selection is legitimate (the scope is a snapshot, so a tag no
+          monitor carries yet is a valid answer), but releasing every follower on a
+          typo is not: the run is called out before the confirmation.
+        -->
+        <p v-if="linkPreview && !linkPreview.monitors && linkPreview.unlinked" class="text-status-down">
+          {{ t('templates.linkEmptyScope', { unlinked: linkPreview.unlinked }) }}
+        </p>
       </div>
       <template #footer>
         <Button variant="outline" @click="linkOpen = false">{{ t('common.cancel') }}</Button>
-        <Button :loading="linking" :disabled="linkScopeNeedsGroups" @click="confirmLink">
+        <Button :loading="linking" :disabled="linkScopeNeedsSelection" @click="confirmLink">
           {{ t('templates.linkAllConfirm') }}
         </Button>
       </template>

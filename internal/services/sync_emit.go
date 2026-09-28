@@ -136,6 +136,7 @@ func BuildMonitorTemplatePayload(t *models.MonitorTemplate, groupUUIDs, notifica
 		Type:        t.Type,
 		Config:      t.Config,
 		Defaults:    defaults,
+		LinkScope:   t.LinkScope,
 
 		GroupUUIDs:        orEmpty(groupUUIDs),
 		NotificationUUIDs: orEmpty(notificationUUIDs),

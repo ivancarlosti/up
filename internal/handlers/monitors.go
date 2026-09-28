@@ -37,6 +37,56 @@ func monitorFilter(c *gin.Context) services.MonitorFilter {
 	return filter
 }
 
+// listMonitorTags returns the tags in use, each with the number of monitors that
+// carry it, optionally narrowed to one monitor type (`?type=http`).
+//
+// It is what the tag pickers read: the dashboard has no tag vocabulary of its own
+// (Monitor.Tags is a free form list), so the only honest list is the one the
+// monitors actually carry.
+func (h *Container) listMonitorTags(c *gin.Context) {
+	tags, err := h.Monitors.ListTags(c.Request.Context(), strings.TrimSpace(c.Query("type")))
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, tags)
+}
+
+// bulkUpdateMonitorTags adds and/or removes tags on a set of monitors
+// (dry run supported).
+//
+// The selection is the union of the given ids, the monitors of the given groups
+// and the monitors carrying the given tag, so "everything tagged prod" — the
+// rename case — is one request. dry_run previews the before/after of every row
+// without writing, which is what the confirmation shows.
+func (h *Container) bulkUpdateMonitorTags(c *gin.Context) {
+	var payload struct {
+		MonitorIDs []uint   `json:"monitor_ids"`
+		GroupIDs   []uint   `json:"group_ids"`
+		Tag        string   `json:"tag"`
+		Add        []string `json:"add"`
+		Remove     []string `json:"remove"`
+		DryRun     bool     `json:"dry_run"`
+	}
+	if !bindJSON(c, &payload) {
+		return
+	}
+	report, changed, err := h.Monitors.BulkUpdateTags(c.Request.Context(), services.BulkTagOptions{
+		MonitorIDs: payload.MonitorIDs,
+		GroupIDs:   payload.GroupIDs,
+		Tag:        payload.Tag,
+		Add:        payload.Add,
+		Remove:     payload.Remove,
+		DryRun:     payload.DryRun,
+	})
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	h.scheduleUpserts(changed)
+	api.OK(c, report)
+}
+
 // listMonitors returns the monitors, decorated with status and uptime.
 func (h *Container) listMonitors(c *gin.Context) {
 	ctx := c.Request.Context()

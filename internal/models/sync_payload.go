@@ -95,6 +95,13 @@ type MonitorTemplatePayload struct {
 	Config      MonitorConfig    `json:"config"`
 	Defaults    TemplateDefaults `json:"defaults"`
 
+	// LinkScope is the scope of the last link run of the template. It travels
+	// verbatim, which is the whole reason it stores group uuids instead of local
+	// ids: the ids of the groups differ on every node, the uuids do not. An
+	// older peer ignores the field and keeps its own scope, a new one answers the
+	// link dialog with the selection the origin last ran.
+	LinkScope TemplateLinkScope `json:"link_scope"`
+
 	GroupUUIDs        []string `json:"group_uuids"`
 	NotificationUUIDs []string `json:"notification_uuids"`
 }

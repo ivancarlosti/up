@@ -19,6 +19,16 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 	if len(monitor.Name) > 200 {
 		return ErrBadRequest(i18n.CodeValidation, "name must be at most 200 characters")
 	}
+	// The tags are a free form list in a single 255 character column: it is
+	// canonicalized here (trimmed, de-duplicated, order preserved) so the stored
+	// value is the one every tag selection compares against, and the length is
+	// checked so an overlong list is a 400 with a message instead of a driver
+	// error.
+	monitor.Tags = models.CleanTags(monitor.Tags)
+	if len(monitor.Tags) > models.MaxTagsLength {
+		return ErrBadRequest(i18n.CodeValidation,
+			fmt.Sprintf("tags must be at most %d characters", models.MaxTagsLength))
+	}
 	if !monitor.Type.Valid() {
 		return ErrBadRequest(i18n.CodeMonitorTypeInvalid,
 			fmt.Sprintf("type must be one of %v", models.AllMonitorTypes()))

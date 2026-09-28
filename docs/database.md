@@ -362,6 +362,7 @@ CREATE TABLE `monitor_templates` (
   `type` varchar(20) NOT NULL,
   `config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`config`)),
   `defaults` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`defaults`)),
+  `link_scope` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`link_scope`)),
   `propagate` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
@@ -369,6 +370,17 @@ CREATE TABLE `monitor_templates` (
   UNIQUE KEY `idx_monitor_templates_uuid` (`uuid`),
   UNIQUE KEY `idx_monitor_templates_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+`monitor_templates.link_scope` is the scope of the last "link the monitors to this
+template" run (`{kind: "type"|"groups"|"tags", group_uuids?, tags?}`), stored so
+the link dialog reopens on the decision the operator made instead of falling back
+to "every monitor of this type". The groups are **uuids**, never local ids: the row
+is synchronised between the cluster nodes, where the ids of the groups differ and
+the uuids do not, so the column travels verbatim inside the template payload and
+the scope means the same selection on every node. A row written before the column
+existed carries `NULL`, and a template that was never linked carries no scope: the
+write path normalizes it to the type scope, and a peer applying a payload without
+one **keeps** the scope it already had (it does not wipe it).
 
 `monitor_templates.config` **never carries the HTTP authentication**: `auth_type`,
 `basic_user`, `basic_pass` and `bearer_token` are a property of the monitor, so

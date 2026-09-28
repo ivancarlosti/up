@@ -25,6 +25,10 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	monitors.DELETE("/:id", h.deleteMonitor)
 	monitors.POST("/:id/clone", h.cloneMonitor)
 	monitors.POST("/bulk", h.bulkCreateMonitors)
+	monitors.POST("/bulk/tags", h.bulkUpdateMonitorTags)
+	// The tag vocabulary of the dashboard: every tag in use, with its monitor
+	// count (see Container.listMonitorTags).
+	monitors.GET("/tags", h.listMonitorTags)
 	monitors.POST("/:id/pause", h.pauseMonitor)
 	monitors.POST("/:id/resume", h.resumeMonitor)
 	monitors.POST("/:id/check", h.checkMonitor)

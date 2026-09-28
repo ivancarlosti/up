@@ -190,7 +190,9 @@ what makes the protocol self-healing instead of "eventually maybe".
 ```
 
 References inside `payload` are uuids, never local ids: `notification_uuids`,
-`group_uuids`, `monitor_uuids` (status page items). The receiving node resolves
+`group_uuids`, `monitor_uuids` (status page items) and `link_scope.group_uuids`
+(the groups of the last link run of a template, see
+[database.md](database.md)). The receiving node resolves
 them through `sync_objects`; a reference to an object it does not have yet is
 kept as a pending link and retried on the next apply (the order of changes inside
 a batch is not relied upon).
