@@ -3,6 +3,7 @@ import type { Query } from './http'
 import type {
   ApplyResult,
   ApplyTemplateOptions,
+  BootStatus,
   BulkOptions,
   BulkReport,
   BulkTagOptions,
@@ -32,6 +33,21 @@ import type {
 /** Core API client: bootstrap, authentication, monitors and notifications. */
 export const coreApi = {
   settings: () => get<PublicSettings>('/api/settings'),
+  /**
+   * boot reports the progress of the backend while it prepares the database.
+   *
+   * It is the only endpoint that answers 200 during the boot (the others answer
+   * 503 with a boot error code), which is what the boot screen polls. It stays
+   * useful afterwards: it also reports a database that died while the process
+   * was serving.
+   */
+  boot: () => get<BootStatus>('/api/boot'),
+  /**
+   * health is the liveness probe of an instance that is already serving: it
+   * pings the database and answers 503 with a classified code when it stopped
+   * answering. It carries the same fields as boot().
+   */
+  health: () => get<BootStatus>('/api/health'),
   session: () => get<SessionResponse>('/api/auth/session'),
   login: (email: string, password: string, recaptchaToken?: string) =>
     post<{ authenticated: boolean; identity: Identity }>('/api/auth/login', {

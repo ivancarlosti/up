@@ -298,6 +298,54 @@ export interface PublicSettings {
   uptime_windows: number[]
 }
 
+/** Every boot step the backend reports through GET /api/boot. */
+export type BootPhase =
+  | 'starting'
+  | 'connecting'
+  | 'migrating'
+  | 'backfilling'
+  | 'template_auth'
+  | 'rollups'
+  | 'seeding'
+  | 'wiring'
+  | 'scheduler'
+  | 'ready'
+
+/**
+ * BootStatus is the progress of the backend process (GET /api/boot).
+ *
+ * The API answers 503 with a boot error code while the database is not ready
+ * (see internal/boot on the backend), so the SPA asks this endpoint - it always
+ * answers 200 - to know which phase it is waiting for and why it is waiting.
+ */
+export interface BootStatus {
+  /** "ok" once the API is serving, "starting" while it prepares, "degraded" on a failure. */
+  status: 'ok' | 'starting' | 'degraded'
+  /** True once every service is wired and the API answers. */
+  ready: boolean
+  phase: BootPhase
+  /** Historical field of /api/health: pending, ok, unreachable, unauthorized, missing, error. */
+  database: 'pending' | 'ok' | 'unreachable' | 'unauthorized' | 'missing' | 'error' | 'unknown'
+  /** Stable error code of the failure (ERR_DB_UNREACHABLE, ...). */
+  code?: string
+  /** Developer oriented explanation of the failure (the driver message). */
+  detail?: string
+  /** Failed connection attempts so far. */
+  attempts?: number
+  /** Backoff before the next attempt, in milliseconds. */
+  next_retry_ms?: number
+  /** Milliseconds since the process started booting. */
+  elapsed_ms?: number
+  /** Milliseconds spent in the current phase. */
+  phase_ms?: number
+  /** Background job still running after the boot ("rollups"). */
+  maintenance?: string
+  node_id?: string
+  version?: string
+  since?: string
+  time?: string
+}
+
 export interface SessionResponse {
   authenticated: boolean
   auth_method: string

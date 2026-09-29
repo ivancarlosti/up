@@ -794,7 +794,49 @@
     "private": "This status page is not public.",
     "updatedAt": "Updated at {time}"
   },
+  "boot": {
+    "title": "Up is starting",
+    "subtitle": "The interface is already loading while the server prepares its database.",
+    "elapsed": "Started {seconds}s ago",
+    "attempts": "Attempt {attempt} failed, next try in {seconds}s",
+    "retry": "Try now",
+    "maintenanceRollups": "Up is rebuilding the hourly statistics of the last 30 days: this is the slowest step of the first start after an upgrade.",
+    "degradedTitle": "The database connection is broken",
+    "dismiss": "Dismiss",
+    "phase": {
+      "starting": "Waking up…",
+      "connecting": "Connecting to the database…",
+      "migrating": "Updating the database schema…",
+      "backfilling": "Updating data written by an older version…",
+      "templateAuth": "Removing credentials stored in old monitor templates…",
+      "rollups": "Rebuilding the hourly statistics…",
+      "seeding": "Preparing the default settings…",
+      "wiring": "Starting the services…",
+      "scheduler": "Starting the checks…",
+      "ready": "Finishing up…"
+    },
+    "failure": {
+      "unreachable": "Up cannot reach its database",
+      "credentials": "The database rejected the credentials",
+      "missing": "The database does not exist",
+      "migration": "Up could not update the database schema",
+      "generic": "Up could not finish starting"
+    },
+    "hint": {
+      "unreachable": "Check DB_HOST and DB_PORT, and that the MariaDB/MySQL server is running and reachable from this container. Up keeps retrying: the interface starts by itself as soon as the connection works.",
+      "credentials": "Check DB_USERNAME and DB_PASSWORD, and that the account is allowed to connect from this host. Up keeps retrying.",
+      "missing": "Check DB_DATABASE: the schema must already exist, because Up only creates its tables inside it. Create the database or fix the name and Up retries on its own.",
+      "migration": "The connection works, but the automatic migrations failed. Check that the account may create and alter tables, and look at the server log for the statement that failed.",
+      "generic": "Look at the server log: it names the step that failed and carries the driver message."
+    }
+  },
   "errors": {
+    "ERR_BOOT_STARTING": "Up is still starting, please wait",
+    "ERR_BOOT_FAILED": "Up could not finish starting",
+    "ERR_DB_UNREACHABLE": "The database is unreachable",
+    "ERR_DB_CREDENTIALS": "The database rejected the credentials",
+    "ERR_DB_MISSING": "The database does not exist",
+    "ERR_DB_MIGRATION_FAILED": "The database schema could not be updated",
     "ERR_INTERNAL": "Internal server error",
     "ERR_VALIDATION": "Invalid data",
     "ERR_INVALID_PAYLOAD": "Invalid request body",

@@ -794,7 +794,49 @@
     "private": "此状态页面不是公开的。",
     "updatedAt": "更新于 {time}"
   },
+  "boot": {
+    "title": "Up 正在启动",
+    "subtitle": "服务器正在准备数据库，界面已经在加载。",
+    "elapsed": "已启动 {seconds} 秒",
+    "attempts": "第 {attempt} 次尝试失败，{seconds} 秒后重试",
+    "retry": "立即重试",
+    "maintenanceRollups": "Up 正在重建最近 30 天的每小时统计：这是升级后首次启动中最慢的一步。",
+    "degradedTitle": "数据库连接已中断",
+    "dismiss": "忽略",
+    "phase": {
+      "starting": "正在唤醒…",
+      "connecting": "正在连接数据库…",
+      "migrating": "正在更新数据库结构…",
+      "backfilling": "正在更新旧版本写入的数据…",
+      "templateAuth": "正在清理旧监控模板中保存的凭据…",
+      "rollups": "正在重建每小时统计…",
+      "seeding": "正在准备默认设置…",
+      "wiring": "正在启动各项服务…",
+      "scheduler": "正在启动检测…",
+      "ready": "即将完成…"
+    },
+    "failure": {
+      "unreachable": "Up 无法连接数据库",
+      "credentials": "数据库拒绝了凭据",
+      "missing": "数据库不存在",
+      "migration": "Up 无法更新数据库结构",
+      "generic": "Up 无法完成启动"
+    },
+    "hint": {
+      "unreachable": "请检查 DB_HOST 和 DB_PORT，并确认 MariaDB/MySQL 服务器正在运行且可从该容器访问。Up 会持续重试：连接恢复后界面会自动启动。",
+      "credentials": "请检查 DB_USERNAME 和 DB_PASSWORD，并确认该账号允许从此主机连接。Up 会持续重试。",
+      "missing": "请检查 DB_DATABASE：该数据库必须已经存在，因为 Up 只在其内部创建表。请创建数据库或修正名称，Up 会自动重试。",
+      "migration": "数据库连接正常，但自动迁移失败。请确认该账号可以创建和修改表，并在服务器日志中查看失败的语句。",
+      "generic": "请查看服务器日志：其中记录了失败的步骤和驱动程序返回的信息。"
+    }
+  },
   "errors": {
+    "ERR_BOOT_STARTING": "Up 仍在启动，请稍候",
+    "ERR_BOOT_FAILED": "Up 未能完成启动",
+    "ERR_DB_UNREACHABLE": "无法连接数据库",
+    "ERR_DB_CREDENTIALS": "数据库拒绝了凭据",
+    "ERR_DB_MISSING": "数据库不存在",
+    "ERR_DB_MIGRATION_FAILED": "无法更新数据库结构",
     "ERR_INTERNAL": "服务器内部错误",
     "ERR_VALIDATION": "数据无效",
     "ERR_INVALID_PAYLOAD": "请求正文无效",

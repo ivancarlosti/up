@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ivancarlosti/up/internal/api"
+	"github.com/ivancarlosti/up/internal/boot"
 	"github.com/ivancarlosti/up/internal/config"
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
@@ -14,27 +14,46 @@ import (
 )
 
 // health is used by the container health check and by load balancers.
+//
+// The port answers from the first millisecond of a start (see internal/boot),
+// so the status code is the only thing that tells "the process is up" from "Up
+// is ready": 200 means the boot finished and the database still answers, 503
+// means the SPA is serving but the API cannot do its job yet. The body carries
+// the phase and the classified reason so an operator sees the failure in
+// `docker inspect` without opening the browser.
 func (h *Container) health(c *gin.Context) {
-	payload := gin.H{
-		"status":  "ok",
-		"version": version.Version,
-		"node_id": h.Cfg.NodeID,
-		"time":    time.Now().UTC(),
-	}
-	// The database is the only hard dependency: report it explicitly so a broken
-	// connection is visible in the health check.
+	payload := bootPayload(h.State)
+
+	// The database is the only hard dependency: ping it so a connection that
+	// died while the process was serving is reported instead of serving stale
+	// data quietly.
 	if h.DB != nil {
 		sqlDB, err := h.DB.DB()
-		if err != nil || sqlDB.Ping() != nil {
-			payload["status"] = "degraded"
-			payload["database"] = "unreachable"
+		if err == nil {
+			err = sqlDB.Ping()
+		}
+		if err != nil {
+			code, detail := boot.Classify(err)
+			if code == "" {
+				code, detail = i18n.CodeDatabaseUnreachable, err.Error()
+			}
+			h.Log.Warn("the database stopped answering", "code", code, "error", err)
+			payload["status"] = boot.StatusDegraded
+			payload["database"] = boot.DatabaseState(code)
+			payload["code"] = code
+			payload["detail"] = detail
+			payload["message"] = detail
 			c.JSON(http.StatusServiceUnavailable, payload)
 			return
 		}
-		payload["database"] = "ok"
+	}
+	if !h.State.Snapshot().Ready {
+		c.JSON(http.StatusServiceUnavailable, payload)
+		return
 	}
 	c.JSON(http.StatusOK, payload)
 }
+
 
 // version returns the build metadata.
 func (h *Container) version(c *gin.Context) {

@@ -794,7 +794,49 @@
     "private": "Cette page de statut n'est pas publique.",
     "updatedAt": "Mis à jour à {time}"
   },
+  "boot": {
+    "title": "Up démarre",
+    "subtitle": "L'interface se charge déjà pendant que le serveur prépare sa base de données.",
+    "elapsed": "Démarré il y a {seconds} s",
+    "attempts": "La tentative {attempt} a échoué, nouvelle tentative dans {seconds} s",
+    "retry": "Réessayer maintenant",
+    "maintenanceRollups": "Up reconstruit les statistiques horaires des 30 derniers jours : c'est l'étape la plus lente du premier démarrage après une mise à jour.",
+    "degradedTitle": "La connexion à la base de données est perdue",
+    "dismiss": "Masquer",
+    "phase": {
+      "starting": "Réveil…",
+      "connecting": "Connexion à la base de données…",
+      "migrating": "Mise à jour du schéma de la base de données…",
+      "backfilling": "Mise à jour des données écrites par une version précédente…",
+      "templateAuth": "Suppression des identifiants stockés dans les anciens modèles de moniteur…",
+      "rollups": "Reconstruction des statistiques horaires…",
+      "seeding": "Préparation des paramètres par défaut…",
+      "wiring": "Démarrage des services…",
+      "scheduler": "Démarrage des vérifications…",
+      "ready": "Finalisation…"
+    },
+    "failure": {
+      "unreachable": "Up ne peut pas joindre sa base de données",
+      "credentials": "La base de données a refusé les identifiants",
+      "missing": "La base de données n'existe pas",
+      "migration": "Up n'a pas pu mettre à jour le schéma de la base de données",
+      "generic": "Up n'a pas pu terminer son démarrage"
+    },
+    "hint": {
+      "unreachable": "Vérifiez DB_HOST et DB_PORT, et que le serveur MariaDB/MySQL tourne et est joignable depuis ce conteneur. Up continue de réessayer : l'interface démarre seule dès que la connexion fonctionne.",
+      "credentials": "Vérifiez DB_USERNAME et DB_PASSWORD, et que le compte est autorisé à se connecter depuis cet hôte. Up continue de réessayer.",
+      "missing": "Vérifiez DB_DATABASE : le schéma doit déjà exister, car Up ne crée ses tables qu'à l'intérieur. Créez la base ou corrigez le nom, puis Up réessaie tout seul.",
+      "migration": "La connexion fonctionne, mais les migrations automatiques ont échoué. Vérifiez que le compte peut créer et modifier des tables, puis regardez dans le journal du serveur l'instruction qui a échoué.",
+      "generic": "Consultez le journal du serveur : il nomme l'étape en échec et contient le message du pilote."
+    }
+  },
   "errors": {
+    "ERR_BOOT_STARTING": "Up démarre encore, veuillez patienter",
+    "ERR_BOOT_FAILED": "Up n'a pas pu terminer son démarrage",
+    "ERR_DB_UNREACHABLE": "La base de données est injoignable",
+    "ERR_DB_CREDENTIALS": "La base de données a refusé les identifiants",
+    "ERR_DB_MISSING": "La base de données n'existe pas",
+    "ERR_DB_MIGRATION_FAILED": "Le schéma de la base de données n'a pas pu être mis à jour",
     "ERR_INTERNAL": "Erreur interne du serveur",
     "ERR_VALIDATION": "Données invalides",
     "ERR_INVALID_PAYLOAD": "Corps de requête invalide",

@@ -794,7 +794,49 @@
     "private": "Esta página de estado no es pública.",
     "updatedAt": "Actualizado el {time}"
   },
+  "boot": {
+    "title": "Up está iniciando",
+    "subtitle": "La interfaz ya se está cargando mientras el servidor prepara su base de datos.",
+    "elapsed": "Iniciado hace {seconds}s",
+    "attempts": "El intento {attempt} falló, nuevo intento en {seconds}s",
+    "retry": "Intentar ahora",
+    "maintenanceRollups": "Up está reconstruyendo las estadísticas por hora de los últimos 30 días: este es el paso más lento del primer arranque tras una actualización.",
+    "degradedTitle": "Se perdió la conexión con la base de datos",
+    "dismiss": "Descartar",
+    "phase": {
+      "starting": "Despertando…",
+      "connecting": "Conectando con la base de datos…",
+      "migrating": "Actualizando el esquema de la base de datos…",
+      "backfilling": "Actualizando datos escritos por una versión anterior…",
+      "templateAuth": "Quitando credenciales guardadas en plantillas de monitor antiguas…",
+      "rollups": "Reconstruyendo las estadísticas por hora…",
+      "seeding": "Preparando la configuración predeterminada…",
+      "wiring": "Iniciando los servicios…",
+      "scheduler": "Iniciando las verificaciones…",
+      "ready": "Terminando…"
+    },
+    "failure": {
+      "unreachable": "Up no puede alcanzar su base de datos",
+      "credentials": "La base de datos rechazó las credenciales",
+      "missing": "La base de datos no existe",
+      "migration": "Up no pudo actualizar el esquema de la base de datos",
+      "generic": "Up no pudo terminar de iniciar"
+    },
+    "hint": {
+      "unreachable": "Revisa DB_HOST y DB_PORT, y que el servidor MariaDB/MySQL esté en ejecución y sea accesible desde este contenedor. Up sigue reintentando: la interfaz arranca sola en cuanto la conexión funcione.",
+      "credentials": "Revisa DB_USERNAME y DB_PASSWORD, y que la cuenta pueda conectarse desde este host. Up sigue reintentando.",
+      "missing": "Revisa DB_DATABASE: el esquema debe existir, porque Up solo crea sus tablas dentro de él. Crea la base de datos o corrige el nombre y Up reintenta solo.",
+      "migration": "La conexión funciona, pero fallaron las migraciones automáticas. Revisa que la cuenta pueda crear y alterar tablas y mira en el log del servidor la sentencia que falló.",
+      "generic": "Consulta el log del servidor: indica el paso que falló y trae el mensaje del driver."
+    }
+  },
   "errors": {
+    "ERR_BOOT_STARTING": "Up todavía está iniciando, espera un momento",
+    "ERR_BOOT_FAILED": "Up no pudo terminar de iniciar",
+    "ERR_DB_UNREACHABLE": "No se puede alcanzar la base de datos",
+    "ERR_DB_CREDENTIALS": "La base de datos rechazó las credenciales",
+    "ERR_DB_MISSING": "La base de datos no existe",
+    "ERR_DB_MIGRATION_FAILED": "No se pudo actualizar el esquema de la base de datos",
     "ERR_INTERNAL": "Error interno del servidor",
     "ERR_VALIDATION": "Datos no válidos",
     "ERR_INVALID_PAYLOAD": "Cuerpo de la solicitud no válido",

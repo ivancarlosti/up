@@ -52,6 +52,21 @@ export function isSupportedLocale(value: unknown): value is SupportedLocale {
 }
 
 /**
+ * detectBrowserLocale picks the best supported language of the browser, or nil
+ * when the browser asks for a language Up does not ship.
+ */
+function detectBrowserLocale(): SupportedLocale | null {
+  const candidates = [navigator.language, ...(navigator.languages ?? [])].filter(Boolean) as string[]
+  for (const candidate of candidates) {
+    if (isSupportedLocale(candidate)) return candidate
+    const base = candidate.split('-')[0]
+    const match = SUPPORTED_LOCALES.find((locale) => locale.toLowerCase().startsWith(`${base.toLowerCase()}-`))
+    if (match) return match
+  }
+  return null
+}
+
+/**
  * detectLocale picks the best language for a visitor:
  *  1. the value previously stored in the browser;
  *  2. the browser languages;
@@ -60,16 +75,26 @@ export function isSupportedLocale(value: unknown): value is SupportedLocale {
 export function detectLocale(fallback: string): SupportedLocale {
   const stored = localStorage.getItem(LOCALE_STORAGE_KEY)
   if (isSupportedLocale(stored)) return stored
-
-  const candidates = [navigator.language, ...(navigator.languages ?? [])].filter(Boolean) as string[]
-  for (const candidate of candidates) {
-    if (isSupportedLocale(candidate)) return candidate
-    const base = candidate.split('-')[0]
-    const match = SUPPORTED_LOCALES.find((locale) => locale.toLowerCase().startsWith(`${base.toLowerCase()}-`))
-    if (match) return match
-  }
-  return isSupportedLocale(fallback) ? fallback : 'en-US'
+  return detectBrowserLocale() ?? (isSupportedLocale(fallback) ? fallback : 'en-US')
 }
+
+/**
+ * applyPreferredLocale applies the stored (or browser) language without asking
+ * the API, and returns it.
+ *
+ * It exists for the boot screen: the call that normally reports DEFAULT_LOCALE
+ * cannot answer while the backend is starting, so without this a visitor reading
+ * another language would get the boot screen in English.
+ */
+export function applyPreferredLocale(): SupportedLocale {
+  const stored = localStorage.getItem(LOCALE_STORAGE_KEY)
+  const locale = isSupportedLocale(stored) ? stored : detectBrowserLocale() ?? 'en-US'
+  i18n.global.locale.value = locale
+  document.documentElement.lang = locale
+  applyDocumentDirection(locale)
+  return locale
+}
+
 
 /** Native name of a language, read from its own message bundle. */
 export function localeLabel(locale: string): string {

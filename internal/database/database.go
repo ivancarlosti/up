@@ -7,6 +7,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	stdlog "log"
@@ -18,13 +19,22 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/ivancarlosti/up/internal/boot"
 	"github.com/ivancarlosti/up/internal/config"
+	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
 )
 
 // Connect opens the database, retrying with an exponential backoff so the
 // container can start together with its database.
-func Connect(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
+//
+// The retry never gives up: a process without a database cannot serve anything,
+// but it can SAY what it is waiting for. The listener is already open and the
+// bootstrap engine answers /api/boot with the classified error (see
+// internal/boot), so exiting after a fixed window would only replace a readable
+// page with a crash loop that restarts the 90 seconds over and over. It returns
+// only when the context is cancelled (the process was asked to stop).
+func Connect(ctx context.Context, cfg *config.Config, log *slog.Logger, state *boot.State) (*gorm.DB, error) {
 	logLevel := gormlogger.Warn
 	if cfg.LogLevel == "debug" {
 		logLevel = gormlogger.Info
@@ -57,10 +67,13 @@ func Connect(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 		db      *gorm.DB
 		err     error
 		backoff = time.Second
+		start   = time.Now()
 	)
-	deadline := time.Now().Add(90 * time.Second)
 
 	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		db, err = gorm.Open(mysql.Open(cfg.DSN()), gormCfg)
 		if err == nil {
 			var sqlDB *sql.DB
@@ -71,16 +84,28 @@ func Connect(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 				sqlDB.SetMaxOpenConns(30)
 				sqlDB.SetMaxIdleConns(5)
 				sqlDB.SetConnMaxLifetime(30 * time.Minute)
-				log.Info("database connection established", "dsn", cfg.SafeDSN(), "attempts", attempt)
+				log.Info("database connection established",
+					"dsn", cfg.SafeDSN(), "attempts", attempt,
+					"took_ms", time.Since(start).Milliseconds())
 				return db, nil
 			}
 		}
 
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("could not connect to the database at %s after 90s: %w", cfg.SafeDSN(), err)
+		code, detail := boot.Classify(err)
+		if code == "" {
+			// An error the classifier does not know is still a connection that
+			// did not work: report it as unreachable, with the driver message.
+			code, detail = i18n.CodeDatabaseUnreachable, err.Error()
 		}
-		log.Warn("database not ready yet, retrying", "attempt", attempt, "in", backoff.String(), "error", err)
-		time.Sleep(backoff)
+		state.Retry(attempt, code, detail, backoff)
+		log.Warn("database not ready yet, retrying",
+			"attempt", attempt, "in", backoff.String(), "code", code, "error", err)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
 		if backoff < 8*time.Second {
 			backoff *= 2
 		}

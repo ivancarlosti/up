@@ -59,6 +59,71 @@ const rollupBackfillQuery = `
 		latency_max = VALUES(latency_max),
 		updated_at = VALUES(updated_at)`
 
+// RollupPlan is the reconciliation the boot has to run over the hourly rollups.
+type RollupPlan struct {
+	// Start is the oldest bucket to rebuild (inclusive).
+	Start time.Time
+	// End is the first bucket NOT to rebuild (exclusive): the current hour,
+	// which is still being filled by the live heartbeats.
+	End time.Time
+	// Full is true when the whole horizon has to be rebuilt, which is what an
+	// empty rollup table (the first boot after the upgrade) looks like. It is
+	// the pass that can be moved off the critical path, because it is the only
+	// one long enough to matter.
+	Full bool
+}
+
+// PlanRollups reads the newest rollup and decides what the boot pass has to
+// rebuild.
+//
+// It is separated from RebuildRollups so the boot can take the decision - and
+// defer the expensive full pass - without running it (see cmd/server/main.go).
+func PlanRollups(ctx context.Context, db *gorm.DB) (RollupPlan, error) {
+	floor := time.Now().UTC().Truncate(time.Hour)
+	horizon := floor.Add(-time.Duration(models.HeartbeatRollupHorizonHours) * time.Hour)
+
+	var newest sql.NullTime
+	if err := db.WithContext(ctx).Model(&models.HeartbeatRollup{}).
+		Select("MAX(bucket_at)").Scan(&newest).Error; err != nil {
+		return RollupPlan{}, fmt.Errorf("reading the newest heartbeat rollup: %w", err)
+	}
+
+	// An empty table is the first boot after the upgrade: the heartbeats stored
+	// before the release have no rollup at all, so the whole horizon is rebuilt.
+	// Otherwise only the healing window, extended back to the newest bucket when
+	// that is older than it (the node was down for a while), is recomputed.
+	plan := RollupPlan{Start: horizon, End: floor, Full: !newest.Valid}
+	if newest.Valid {
+		plan.Start = floor.Add(-time.Duration(rollupHealHours) * time.Hour)
+		if newest.Time.Before(plan.Start) {
+			plan.Start = newest.Time
+		}
+		if plan.Start.Before(horizon) {
+			plan.Start = horizon
+		}
+	}
+	return plan, nil
+}
+
+// RebuildRollups runs the reduction over the planned range.
+//
+// The range never reaches the current hour, so a pass that runs while the
+// scheduler is already probing is safe without any lock: the buckets it writes
+// are the complete hours before the floor, and the live writes only ever touch
+// the buckets from the floor on.
+func RebuildRollups(ctx context.Context, db *gorm.DB, log *slog.Logger, plan RollupPlan) error {
+	if !plan.Start.Before(plan.End) {
+		return nil
+	}
+	result := db.WithContext(ctx).Exec(rollupBackfillQuery, time.Now().UTC(), plan.Start, plan.End)
+	if result.Error != nil {
+		return fmt.Errorf("rebuilding the heartbeat rollups: %w", result.Error)
+	}
+	log.Info("heartbeat rollups reconciled",
+		"from", plan.Start, "to", plan.End, "rows", result.RowsAffected)
+	return nil
+}
+
 // BackfillHeartbeatRollups reconciles the hourly rollups the window statistics
 // read with the raw heartbeats they are derived from.
 //
@@ -72,39 +137,15 @@ const rollupBackfillQuery = `
 // this release have no rollup at all. Afterwards only the last few hours plus
 // whatever gap separates the newest bucket from now are recomputed, which is a
 // few thousand rows instead of a full scan.
+//
+// It is the planning and the pass in one call, for a caller that wants the
+// statistics complete before it serves anything. cmd/server plans first and
+// defers the full horizon (see RollupPlan), so it calls the two halves itself.
 func BackfillHeartbeatRollups(ctx context.Context, db *gorm.DB, log *slog.Logger) error {
-	floor := time.Now().UTC().Truncate(time.Hour)
-	horizon := floor.Add(-time.Duration(models.HeartbeatRollupHorizonHours) * time.Hour)
-
-	var newest sql.NullTime
-	if err := db.WithContext(ctx).Model(&models.HeartbeatRollup{}).
-		Select("MAX(bucket_at)").Scan(&newest).Error; err != nil {
-		return fmt.Errorf("reading the newest heartbeat rollup: %w", err)
+	plan, err := PlanRollups(ctx, db)
+	if err != nil {
+		return err
 	}
-
-	// An empty table is the first boot after the upgrade: the heartbeats stored
-	// before the release have no rollup at all, so the whole horizon is rebuilt.
-	// Otherwise only the healing window, extended back to the newest bucket when
-	// that is older than it (the node was down for a while), is recomputed.
-	start := horizon
-	if newest.Valid {
-		start = floor.Add(-time.Duration(rollupHealHours) * time.Hour)
-		if newest.Time.Before(start) {
-			start = newest.Time
-		}
-		if start.Before(horizon) {
-			start = horizon
-		}
-	}
-	if !start.Before(floor) {
-		return nil
-	}
-
-	result := db.WithContext(ctx).Exec(rollupBackfillQuery, time.Now().UTC(), start, floor)
-	if result.Error != nil {
-		return fmt.Errorf("rebuilding the heartbeat rollups: %w", result.Error)
-	}
-	log.Info("heartbeat rollups reconciled",
-		"from", start, "to", floor, "rows", result.RowsAffected)
-	return nil
+	return RebuildRollups(ctx, db, log, plan)
 }
+

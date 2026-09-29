@@ -9,7 +9,7 @@
 
 | Surface | Credential |
 |---|---|
-| `/api/auth/*`, `/api/health`, `/api/version`, `/api/settings` | none |
+| `/api/auth/*`, `/api/health`, `/api/boot`, `/api/version`, `/api/settings` | none |
 | admin API (`/api/monitors`, ...) | session cookie (`up_session`) or fully open with `AUTH_METHOD=none` |
 | `/api/public/*` | none (IP rules scope `public` + rate limit) |
 | `/api/v1/*` | `Authorization: Bearer up_<prefix>_<secret>` (scope `read`/`write`) |
@@ -22,16 +22,51 @@ Status codes: `200`/`201` success, `204` no content, `400` invalid payload,
 `404` unknown resource or route, `409` conflict, `429` rate limited,
 `500` internal, `503` dependency unavailable.
 
+`503` is also the answer of every `/api/*` route that needs the wired services
+while the process is still booting (or cannot reach its database at all): the
+body carries the boot code of section 11 (`ERR_BOOT_STARTING`,
+`ERR_DB_UNREACHABLE`, ...) and `GET /api/boot` reports the phase and the progress
+the interface is showing. See "Starting up" in `docs/architecture.md`.
+
 ## 2. Bootstrap and authentication
 
 ### `GET /api/health`
 
 ```json
-{"status":"ok","version":"1.0.0","node_id":"up-node-1","database":"ok","time":"2026-09-22T18:00:00Z"}
+{"status":"ok","version":"1.0.0","node_id":"up-node-1","ready":true,"phase":"ready",
+ "database":"ok","since":"2026-09-22T18:00:00Z","elapsed_ms":850,"phase_ms":12,
+ "time":"2026-09-22T18:00:00Z"}
 ```
 
-`503` with `"status":"degraded"` when the database is unreachable. Used by the
-container health check.
+| Field | Meaning |
+|---|---|
+| `status` | `ok` (serving), `starting` (boot in progress) or `degraded` (something failed) |
+| `ready` | `true` once the boot finished and every route is served |
+| `phase` | running boot step: `starting`, `connecting`, `migrating`, `backfilling`, `template_auth`, `rollups`, `seeding`, `wiring`, `scheduler`, `ready` |
+| `database` | `pending`, `ok`, `unreachable`, `unauthorized`, `missing` or `error` |
+| `code` | boot error code of the last failure (section 11), absent while all is well |
+| `detail` / `message` | the driver message behind `code` |
+| `attempts`, `next_retry_ms` | failed connection attempts and the backoff before the next one |
+| `maintenance` | background job still running after the boot (`rollups`) |
+| `elapsed_ms`, `phase_ms`, `since` | how long the process has been booting |
+
+`200` only when the boot finished **and** the database still answers a live
+`Ping`; `503` otherwise (with `"status":"starting"` before the first failure,
+`"status":"degraded"` after one). The container health check and a load balancer
+react to the status code, `GET /api/boot` is what the interface reads.
+
+### `GET /api/boot`
+
+The same body as `/api/health`, but it **always answers `200`**: it exists to be
+polled by the interface while the API is not usable, so the browser console stays
+clean. The `status`, `ready`, `phase` and `code` fields carry the truth.
+
+```json
+{"status":"degraded","version":"1.0.0","node_id":"up-node-1","ready":false,"phase":"connecting",
+ "database":"unreachable","code":"ERR_DB_UNREACHABLE","attempts":4,"next_retry_ms":8000,
+ "detail":"dial tcp 10.0.0.9:3306: connect: connection refused",
+ "since":"2026-09-22T18:00:00Z","elapsed_ms":15230,"phase_ms":15230,"time":"2026-09-22T18:00:15Z"}
+```
 
 ### `GET /api/version`
 
@@ -590,6 +625,19 @@ The complete, stable catalogue (also present in `web/src/locales/*.json` under
 | `ERR_STATUS_PAGE_NOT_FOUND` | 404 | unknown slug |
 | `ERR_STATUS_PAGE_NOT_PUBLIC` | 403 | page hidden from anonymous visitors |
 | `ERR_STATUS_PAGE_SLUG_TAKEN` | 409 | duplicate slug |
+| `ERR_BOOT_STARTING` | 503 | the API is up but the boot has not finished (phase in `/api/boot`) |
+| `ERR_BOOT_FAILED` | 503 | a boot step failed for another reason (the log names it) |
+| `ERR_DB_UNREACHABLE` | 503 | the server never answered: `DB_HOST`, `DB_PORT`, the server or the network |
+| `ERR_DB_CREDENTIALS` | 503 | `DB_USERNAME`/`DB_PASSWORD` refused (or the host is not allowed) |
+| `ERR_DB_MISSING` | 503 | `DB_DATABASE` does not exist (Up only creates its tables inside it) |
+| `ERR_DB_MIGRATION_FAILED` | 503 | the connection works but the automatic migrations failed or lack rights |
+
+The six `ERR_BOOT_*`/`ERR_DB_*` codes are what the SPA turns into the boot screen
+(or into the degraded banner once it is serving): they are the only reason it
+shows that screen, so a network level failure (a proxy in front of a stopped
+process) keeps the normal routing. `database.Backfill*` and the automated
+migrations answer with `ERR_DB_MIGRATION_FAILED`, a wrong or missing database
+with `ERR_DB_CREDENTIALS`/`ERR_DB_MISSING`; see `internal/boot/classify.go`.
 
 ## 12. Conventions
 

@@ -627,7 +627,12 @@ PY
 | Symptom | Check |
 |---|---|
 | `Up cannot start: invalid configuration` | the printed list; `docker/.env.example` is the reference |
-| Database retries forever | `DB_HOST`, credentials, and whether the DB accepts connections from the container (`host.docker.internal` for `docker-compose.yml`, `mariadb` for the bundle, `127.0.0.1` for the host-network files) |
+| The page shows the boot screen for a long time | `curl localhost:8080/api/boot` names the phase and the elapsed time; the `boot completed` log line gives the duration of every step. The screen disappears on its own (a 2s → 5s poll), no reload needed |
+| `ERR_DB_UNREACHABLE` in the boot screen | the server never answered: `DB_HOST`, `DB_PORT`, the server itself or a firewall. Up retries every 8s and starts serving as soon as it works (`host.docker.internal` for `docker-compose.yml`, `mariadb` for the bundle, `127.0.0.1` for the host-network files) |
+| `ERR_DB_CREDENTIALS` in the boot screen | `DB_USERNAME`/`DB_PASSWORD`, and whether the account may connect from the container address (`'up'@'172.17.%'`) |
+| `ERR_DB_MISSING` in the boot screen | `DB_DATABASE`: the schema must exist, Up only creates its tables **inside** it (`CREATE DATABASE up`) |
+| `ERR_DB_MIGRATION_FAILED` in the boot screen | the account needs `CREATE`/`ALTER`/`INDEX` on the schema; the server log names the failing statement |
+| The banner says the database connection is broken | an instance that was serving lost its database: `/api/health` is `503` and names the cause; the banner clears by itself when the connection is back |
 | Monitor stays `pending` | the worker log line `monitor worker started`; then `GET /api/monitors/:id/heartbeats` |
 | No notification | `GET /api/notifications/logs`, then `POST /api/notifications/:id/test` |
 | Dashboard not updating live | `GET /api/ws` requires the session cookie; check the reverse proxy upgrade headers |
@@ -635,6 +640,7 @@ PY
 | Boot log flooded with SQL | `LOG_LEVEL=debug` raises the GORM logger to `Info` (every statement). Keep `info` outside debugging |
 | `record not found` in the log | only expected when the missing row matters; the normal "does it exist yet?" lookups are silenced through `IgnoreRecordNotFoundError` (`internal/database/database.go`) |
 | `web/dist` placeholder still shown | run `npm run build` then rebuild the Go binary (the assets are embedded) |
+| First start after an upgrade is slow | the full 30 day rollup rebuild runs in the background once the API serves (`maintenance: "rollups"` in `/api/boot`, `deferred heartbeat rollup rebuild finished` in the log). The window statistics fill in as it goes |
 
 ## 12. Conventions for contributors
 

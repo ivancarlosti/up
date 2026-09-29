@@ -87,6 +87,12 @@ router.beforeEach(async (to) => {
   const app = useAppStore()
   if (!app.settings) await app.bootstrap()
 
+  // The backend is starting (or its database is down): park this navigation
+  // until it answers. The shell shows the boot screen meanwhile, so the visitor
+  // keeps the URL they asked for instead of landing on the login page of an API
+  // that cannot serve anything yet.
+  if (app.bootPending) await app.waitForBoot()
+
   if (to.meta.auth && !app.authenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }

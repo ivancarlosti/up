@@ -794,7 +794,49 @@
     "private": "Esta página de status não é pública.",
     "updatedAt": "Atualizado em {time}"
   },
+  "boot": {
+    "title": "O Up está iniciando",
+    "subtitle": "A interface já está carregando enquanto o servidor prepara o banco de dados.",
+    "elapsed": "Iniciado há {seconds}s",
+    "attempts": "A tentativa {attempt} falhou, nova tentativa em {seconds}s",
+    "retry": "Tentar agora",
+    "maintenanceRollups": "O Up está reconstruindo as estatísticas por hora dos últimos 30 dias: esta é a etapa mais lenta da primeira inicialização após uma atualização.",
+    "degradedTitle": "A conexão com o banco de dados caiu",
+    "dismiss": "Dispensar",
+    "phase": {
+      "starting": "Acordando…",
+      "connecting": "Conectando ao banco de dados…",
+      "migrating": "Atualizando o esquema do banco de dados…",
+      "backfilling": "Atualizando dados gravados por uma versão anterior…",
+      "templateAuth": "Removendo credenciais guardadas em modelos de monitor antigos…",
+      "rollups": "Reconstruindo as estatísticas por hora…",
+      "seeding": "Preparando as configurações padrão…",
+      "wiring": "Iniciando os serviços…",
+      "scheduler": "Iniciando as verificações…",
+      "ready": "Finalizando…"
+    },
+    "failure": {
+      "unreachable": "O Up não consegue alcançar o banco de dados",
+      "credentials": "O banco de dados recusou as credenciais",
+      "missing": "O banco de dados não existe",
+      "migration": "O Up não conseguiu atualizar o esquema do banco de dados",
+      "generic": "O Up não conseguiu concluir a inicialização"
+    },
+    "hint": {
+      "unreachable": "Verifique DB_HOST e DB_PORT, e se o servidor MariaDB/MySQL está em execução e acessível a partir deste contêiner. O Up continua tentando: a interface inicia sozinha assim que a conexão funcionar.",
+      "credentials": "Verifique DB_USERNAME e DB_PASSWORD, e se a conta pode se conectar a partir deste host. O Up continua tentando.",
+      "missing": "Verifique DB_DATABASE: o esquema precisa existir, porque o Up só cria suas tabelas dentro dele. Crie o banco de dados ou corrija o nome e o Up tenta novamente sozinho.",
+      "migration": "A conexão funciona, mas as migrações automáticas falharam. Verifique se a conta pode criar e alterar tabelas e veja no log do servidor qual instrução falhou.",
+      "generic": "Consulte o log do servidor: ele indica a etapa que falhou e traz a mensagem do driver."
+    }
+  },
   "errors": {
+    "ERR_BOOT_STARTING": "O Up ainda está iniciando, aguarde",
+    "ERR_BOOT_FAILED": "O Up não conseguiu concluir a inicialização",
+    "ERR_DB_UNREACHABLE": "Não é possível alcançar o banco de dados",
+    "ERR_DB_CREDENTIALS": "O banco de dados recusou as credenciais",
+    "ERR_DB_MISSING": "O banco de dados não existe",
+    "ERR_DB_MIGRATION_FAILED": "Não foi possível atualizar o esquema do banco de dados",
     "ERR_INTERNAL": "Erro interno do servidor",
     "ERR_VALIDATION": "Dados inválidos",
     "ERR_INVALID_PAYLOAD": "Corpo da requisição inválido",

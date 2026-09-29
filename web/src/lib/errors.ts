@@ -20,6 +20,22 @@ function detail(message: string): string {
 }
 
 /**
+ * translateCode converts a backend error code into a localized message.
+ *
+ * The code is the stable contract (internal/i18n/errors.go) and the parity check
+ * (npm run check:i18n) guarantees every code has a key in every locale, so this
+ * is safe for any code the API can answer with. An unknown code falls back to
+ * the raw message, which keeps developer information visible.
+ */
+export function translateCode(code: string, fallback = ''): string {
+  if (!code) return fallback
+  const key = `errors.${code}`
+  const hasKey = i18n.global.te ? i18n.global.te(key) : false
+  if (!hasKey) return fallback
+  return (i18n.global.t as (key: string) => string)(key)
+}
+
+/**
  * translateError converts a backend error into a localized message.
  *
  * The Go API always answers with a stable code (ERR_MONITOR_NOT_FOUND, ...) and
@@ -28,10 +44,7 @@ function detail(message: string): string {
  */
 export function translateError(error: unknown): string {
   if (error instanceof APIError) {
-    const key = `errors.${error.code}`
-    const translate = i18n.global.t as (key: string) => string
-    const hasKey = i18n.global.te ? i18n.global.te(key) : false
-    const base = hasKey ? translate(key) : error.message || translate('errors.ERR_INTERNAL')
+    const base = translateCode(error.code, error.message || '')
     const extra = EXPLANATORY_CODES.has(error.code) ? detail(error.message) : ''
     return extra && !base.includes(extra) ? `${base} — ${extra}` : base
   }

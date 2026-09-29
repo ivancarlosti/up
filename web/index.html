@@ -38,6 +38,66 @@
   </head>
   <body>
     <div id="app"></div>
+    <!--
+      The inline splash covers the window from the first paint until the bundle
+      has parsed, so a start never shows a blank page (the SPA used to render
+      nothing until the API answered). Vue does not clear what is already on the
+      page, so src/main.ts removes this element before mounting; the in app boot
+      screen (views/BootView.vue) takes over from there.
+    -->
+    <div id="up-splash">
+      <div class="up-splash__spinner"></div>
+      <p class="up-splash__title">Up</p>
+      <p class="up-splash__hint">Loading the interface…</p>
+    </div>
+    <style>
+      #up-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        background: #ffffff;
+        color: #0f172a;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      html.dark #up-splash {
+        background: #020617;
+        color: #e2e8f0;
+      }
+      #up-splash .up-splash__spinner {
+        width: 1.75rem;
+        height: 1.75rem;
+        border: 3px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 9999px;
+        opacity: 0.75;
+        animation: up-splash-spin 0.9s linear infinite;
+      }
+      #up-splash .up-splash__title {
+        margin: 0;
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+      #up-splash .up-splash__hint {
+        margin: 0;
+        font-size: 0.75rem;
+        opacity: 0.6;
+      }
+      @keyframes up-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #up-splash .up-splash__spinner {
+          animation: none;
+        }
+      }
+    </style>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

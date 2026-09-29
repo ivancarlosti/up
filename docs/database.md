@@ -36,8 +36,12 @@ user:pass@tcp(host:port)/database?charset=utf8mb4&parseTime=true&loc=UTC&timeout
 - `parseTime=true` makes the driver return `time.Time` (GORM requirement).
 - `loc=UTC` keeps every timestamp in UTC; the UI converts to the browser zone.
 - Connection pool: 30 open / 5 idle connections, 30 min max lifetime.
-- Boot retries for up to 90 s with exponential backoff (1 s -> 8 s), so the
-  container can start together with its database.
+- Boot retries **forever** with an exponential backoff (1 s -> 8 s), so the
+  container can start together with its database: the HTTP listener is already
+  open, `GET /api/boot` names the phase, and the interface retries on its own. The
+  failure is classified (`internal/boot/classify.go`): a refused connection, a
+  refused password (`DB_USERNAME`/`DB_PASSWORD`) and a missing schema
+  (`DB_DATABASE`) are told apart in the browser, each with the variable to check.
 
 Minimal provisioning on the database server:
 
@@ -751,6 +755,14 @@ the first boot after this release rebuilds the whole 30 day horizon, every later
 boot recomputes only the trailing hours. Both writers are idempotent (they write
 absolute values, never increments) and both are checked against the raw
 aggregate by the integration test.
+
+The full horizon pass is the one step long enough to delay every user (2.4 s for
+500 000 heartbeats, measured), so `cmd/server/main.go` asks `PlanRollups` for the
+range and, when the table is empty (`RollupPlan.Full`), runs `RebuildRollups` in
+the background once the API serves (reported as `maintenance: "rollups"` on
+`/api/boot`). It needs no lock: the range ends at the current hour and the live
+writes only ever touch the current hour, so the two never meet. A normal boot
+heals the last six hours synchronously, before the scheduler starts.
 
 **Current status and last check** (`internal/services/monitor.go`): the newest
 heartbeat of a monitor is *not* looked up any more: `heartbeats` is indexed on

@@ -35,13 +35,26 @@
         }
       })()
     </script>
-    <script type="module" crossorigin src="/assets/index-BgLC-dAA.js"></script>
+    <script type="module" crossorigin src="/assets/index-Md9ma-Ge.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/utils-vKijObja.js">
-    <link rel="modulepreload" crossorigin href="/assets/i18n-D5XGXWIk.js">
+    <link rel="modulepreload" crossorigin href="/assets/i18n-Ce6Zj59s.js">
     <link rel="modulepreload" crossorigin href="/assets/format-DPXVpUlp.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-vhXerzU0.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-DNtPBh3F.css">
   </head>
   <body>
     <div id="app"></div>
+    <!--
+      The inline splash covers the window from the first paint until the bundle
+      has parsed, so a start never shows a blank page (the SPA used to render
+      nothing until the API answered). Vue does not clear what is already on the
+      page, so src/main.ts removes this element before mounting; the in app boot
+      screen (views/BootView.vue) takes over from there.
+    -->
+    <div id="up-splash">
+      <div class="up-splash__spinner"></div>
+      <p class="up-splash__title">Up</p>
+      <p class="up-splash__hint">Loading the interface…</p>
+    </div>
+    <style>#up-splash{z-index:50;color:#0f172a;background:#fff;flex-direction:column;justify-content:center;align-items:center;gap:.5rem;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;display:flex;position:fixed;inset:0}html.dark #up-splash{color:#e2e8f0;background:#020617}#up-splash .up-splash__spinner{opacity:.75;border:3px solid;border-top-color:#0000;border-radius:9999px;width:1.75rem;height:1.75rem;animation:.9s linear infinite up-splash-spin}#up-splash .up-splash__title{margin:0;font-size:.875rem;font-weight:600}#up-splash .up-splash__hint{opacity:.6;margin:0;font-size:.75rem}@keyframes up-splash-spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){#up-splash .up-splash__spinner{animation:none}}</style>
   </body>
 </html>

@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/ivancarlosti/up/internal/boot"
 	"github.com/ivancarlosti/up/internal/config"
 	"github.com/ivancarlosti/up/internal/middleware"
 	"github.com/ivancarlosti/up/internal/models"
@@ -45,6 +46,10 @@ type Container struct {
 	Sync *services.SyncService
 	// SPA serves the embedded frontend (assets and index.html fallback).
 	SPA gin.HandlerFunc
+	// State is the boot progress of the process (internal/boot). It is what
+	// /api/health and /api/boot report, and it stays live after the boot so a
+	// database that dies later is visible without restarting.
+	State *boot.State
 	// OIDC is nil unless AUTH_METHOD=keycloak.
 	OIDC *OIDCProvider
 }
@@ -66,6 +71,7 @@ func (h *Container) Register(engine *gin.Engine) {
 
 	// --- Unauthenticated -------------------------------------------------
 	engine.GET("/api/health", h.health)
+	engine.GET("/api/boot", h.bootStatus)
 	engine.GET("/api/version", h.version)
 	engine.GET("/api/settings", h.publicSettings)
 

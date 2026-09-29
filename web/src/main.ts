@@ -18,6 +18,17 @@ app.use(i18n)
 app.use(router)
 
 /**
+ * dismissSplash removes the inline splash of index.html.
+ *
+ * It covers the window from the first paint until this bundle has parsed, so it
+ * has to go as soon as the application (or the boot failure box) is about to
+ * render: Vue only appends to the page, it never clears what is already there.
+ */
+function dismissSplash(): void {
+  document.getElementById('up-splash')?.remove()
+}
+
+/**
  * Render a startup failure inside #app.
  *
  * A failed boot used to leave <div id="app"></div> empty - a blank page with the
@@ -26,6 +37,7 @@ app.use(router)
  * never replaces an application that is already on screen.
  */
 function renderBootFailure(error: unknown): void {
+  dismissSplash()
   const container = document.getElementById('app')
   if (!container || container.childElementCount > 0) return
 
@@ -74,6 +86,7 @@ window.addEventListener('unhandledrejection', (event) => {
 })
 
 try {
+  dismissSplash()
   app.mount('#app')
 } catch (error) {
   console.error('[up] failed to start', error)

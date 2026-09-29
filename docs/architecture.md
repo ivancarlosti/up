@@ -42,6 +42,8 @@ Up is a minimalist, cluster-ready uptime monitor:
 cmd/server/          entry point (config -> db -> services -> scheduler -> HTTP)
 internal/
   api/               JSON response helpers shared by handlers and middlewares
+  boot/              boot progress (phase, attempts, classified failures) read by
+                     GET /api/boot and the interface
   checkers/          probe engines: HTTP, Keyword, TCP, DNS
   config/            env loading + validation (fail fast, aggregated report)
   database/          connection with retry, GORM AutoMigrate, first boot seed
@@ -69,33 +71,66 @@ Dockerfile           three stages: web build -> go build -> alpine runtime
 
 ## 3. Boot sequence
 
+The listener opens **before** the database is touched: the embedded SPA is served
+from the first millisecond, so a slow start (or a broken database) shows a page
+that explains itself instead of a closed port. A `handlerSwitcher`
+(`cmd/server/app.go`) is installed as the `http.Server` handler, the bootstrap
+engine (`internal/handlers/bootstrap.go`) answers until the wired engine replaces
+it atomically, and no connection is ever refused in between.
+
 ```mermaid
 sequenceDiagram
     participant M as main (cmd/server)
     participant C as config.Load
+    participant B as bootstrap engine + boot.State
     participant D as database
     participant A as services
     participant S as scheduler
-    participant H as HTTP (gin)
+    participant H as HTTP (gin, wired)
 
     M->>C: Load() reads .env + environment
     C-->>M: Config or ValidationError (all problems at once)
-    M->>D: Connect() with exponential backoff (up to 90s)
-    D->>D: Migrate() AutoMigrate(20 tables)
+    M->>B: listen on APP_PORT, answer /api/boot, /api/health, SPA, 503 elsewhere
+    M->>D: Connect() with exponential backoff, retrying until it works
+    D->>D: Migrate() AutoMigrate(29 tables), heal legacy indexes
     D->>D: Backfill() sync identity (uuid, origin_node_id, revision)
+    D->>D: BackfillTemplateAuth() removes credentials stored in templates
+    D->>D: PlanRollups() + RebuildRollups() (heals the last hours)
     D->>D: Seed() settings, session secret, cluster key, node row
     M->>A: build services (settings, stats, monitors, heartbeats, ...)
     A->>A: EnsureSelf() registers this node
     M->>S: Start() loads active monitors and starts one worker each
     S->>S: StartMaintenance() node ping 30s, peer ping 30s, sweep 30s, retention 6h
     M->>H: Register() routes + embedded SPA
-    H-->>M: ListenAndServe on APP_PORT
+    M->>B: swap the wired engine in (state.Ready(), "boot completed")
     M->>M: SIGTERM -> graceful shutdown (20s) -> scheduler.Stop()
 ```
 
-Everything that can fail at boot (missing variable, unreachable database,
-invalid locale) aborts the process with a readable message instead of surfacing
-later as a runtime error.
+Every step publishes the phase it is in through `internal/boot.State`, which
+`GET /api/boot` reports and the interface renders ("Connecting to the database…",
+"Rebuilding the hourly statistics…"). Every duration is logged in a single
+`boot completed` line (`connect_ms`, `migrate_ms`, `backfill_ms`,
+`template_auth_ms`, `rollups_ms`, `seed_ms`, `wiring_ms`, `total_ms`).
+
+Two deliberate changes keep the start short and self-explaining:
+
+- `database.Connect` **retries forever** (1s → 8s backoff) instead of exiting
+  after 90 seconds. A process that cannot reach its database is still the only
+  thing that can tell an operator why (the classified code, the driver message,
+  the attempt counter), and exiting only replaced that page with a restart loop.
+- The **full horizon rollup rebuild** (the first start after an upgrade, 30 days
+  of raw heartbeats) runs in the background once the API serves, and reports
+  `maintenance: "rollups"` meanwhile. It needs no lock: its range ends at the
+  current hour, and the live probes only ever write the current hour. The
+  trailing heal of a normal boot stays synchronous.
+
+Everything that can fail before the API is wired is classified
+(`internal/boot/classify.go`) and answered by the bootstrap engine as `503` with
+a stable code (`ERR_DB_UNREACHABLE`, `ERR_DB_CREDENTIALS`, `ERR_DB_MISSING`,
+`ERR_DB_MIGRATION_FAILED`, `ERR_BOOT_FAILED`): the browser shows the sentence
+that goes with it, in the visitor's language, instead of a blank page. Missing
+variables, an invalid locale or an invalid port still abort with a readable
+message before anything is started.
 
 ## 4. Runtime topology (single node)
 

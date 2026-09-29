@@ -21,6 +21,16 @@ const (
 	CodeRateLimited    = "ERR_RATE_LIMITED"
 	CodeNotFoundRoute  = "ERR_ROUTE_NOT_FOUND"
 
+	// Boot and database availability. The process listens and serves the SPA
+	// before the database is reachable, so the browser is told what it is
+	// waiting for instead of showing a connection error (see internal/boot).
+	CodeBootStarting        = "ERR_BOOT_STARTING"
+	CodeBootFailed          = "ERR_BOOT_FAILED"
+	CodeDatabaseUnreachable = "ERR_DB_UNREACHABLE"
+	CodeDatabaseCredentials = "ERR_DB_CREDENTIALS"
+	CodeDatabaseMissing     = "ERR_DB_MISSING"
+	CodeDatabaseMigration   = "ERR_DB_MIGRATION_FAILED"
+
 	// Authentication
 	CodeAuthRequired         = "ERR_AUTH_REQUIRED"
 	CodeAuthInvalid          = "ERR_AUTH_INVALID_CREDENTIALS"
@@ -85,6 +95,8 @@ func AllCodes() []string {
 	return []string{
 		CodeInternal, CodeValidation, CodeInvalidPayload, CodeNotFound, CodeAlreadyExists,
 		CodeDatabase, CodeForbidden, CodeRateLimited, CodeNotFoundRoute,
+		CodeBootStarting, CodeBootFailed, CodeDatabaseUnreachable, CodeDatabaseCredentials,
+		CodeDatabaseMissing, CodeDatabaseMigration,
 		CodeAuthRequired, CodeAuthInvalid, CodeAuthRateLimited, CodeAuthDomainNotAllowed,
 		CodeAuthCaptchaFailed, CodeAuthCaptchaMissing, CodeAuthStateInvalid, CodeAuthProviderError,
 		CodeAuthMethodDisabled,
