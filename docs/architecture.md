@@ -13,6 +13,12 @@ Up is a minimalist, cluster-ready uptime monitor:
 - **External database only**: MariaDB/MySQL lives outside the container
   (`DB_HOST`, default `host.docker.internal`). The compose file never declares a
   database service.
+- **IPv6 targets need the host network**: a Docker network is IPv4-only by
+  default, so a target that only answers over IPv6 is unreachable from inside the
+  container. The `docker-compose-host*.yml` variants run it with
+  `network_mode: host` for hosts that have IPv6 (Linux engines), and the database
+  is then reached at `127.0.0.1` instead of by compose service name
+  ([development.md](development.md)).
 - **Cluster ready**: two modes chosen with `CLUSTER_MODE`. `shared` (default)
   makes several Up instances share the same database, each running its own
   scheduler and writing its own heartbeats (`node_id`), while the dashboard
@@ -55,7 +61,8 @@ web/                 Vue 3 + Vite + TypeScript + Tailwind frontend
   embed.go           //go:embed all:dist -> Dist()/Available()
   src/locales/       one JSON bundle per language (en-US is the source)
 docker/              docker-compose.yml (external DB), docker-compose-bundle.yml
-                     (MariaDB included), .env, .env.example (nothing else)
+                     (MariaDB included), their host-network variants
+                     docker-compose-host*.yml, .env, .env.example (nothing else)
 docs/                this documentation set
 Dockerfile           three stages: web build -> go build -> alpine runtime
 ```
@@ -204,8 +211,8 @@ All variables, their defaults and validation rules live in
 | Group | Variables |
 |---|---|
 | App / proxy | `APP_URL`, `APP_TRUST_PROXY`, `APP_PORT` |
-| Docker publish (compose only) | `HOST_PORT` (optional; published host port, defaults to `APP_PORT`) |
-| Docker bundle (compose only) | `DB_ROOT_PASSWORD` (root password of the bundled MariaDB), `DB_HOST_PORT` (optional; publishes the bundled database on the host) |
+| Docker publish (compose only) | `HOST_PORT` (optional; published host port, defaults to `APP_PORT`; ignored by `docker-compose-host*.yml`, which bind `APP_PORT` on the host) |
+| Docker bundle (compose only) | `DB_ROOT_PASSWORD` (root password of the bundled MariaDB), `DB_HOST_PORT` (optional; publishes the bundled database on the host, on `127.0.0.1` in `docker-compose-host-bundle.yml`) |
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
 | Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |

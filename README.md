@@ -66,6 +66,14 @@ container on 3000 but publish another host port, set the optional `HOST_PORT`
 (for example `HOST_PORT=80` -> `80:3000`). See
 [docs/development.md](docs/development.md#changing-the-published-port).
 
+Need the host's IPv6 route? A Docker network is IPv4-only by default, so a target
+that only answers over IPv6 is unreachable from inside the container.
+`docker/docker-compose-host.yml` is the same service on the **host network**
+(`network_mode: host`), which is how the container uses the host's routes - IPv6
+included - as long as the host itself has IPv6 (Linux engines). There `APP_PORT`
+is the host port, `HOST_PORT` no longer applies, and `DB_HOST` must be where the
+host sees the database (`127.0.0.1` when it runs on the same machine).
+
 Database prerequisites:
 
 ```sql
@@ -94,8 +102,14 @@ docker compose -f docker/docker-compose-bundle.yml logs -f up
 
 The database files live in the `mariadb_data` volume, so they survive restarts;
 `docker compose -f docker/docker-compose-bundle.yml down -v` deletes them along
-with every monitor, heartbeat and setting. Both compose files are alternatives:
-they read the same `docker/.env` and use the same container name (`up`).
+with every monitor, heartbeat and setting. All four compose files are
+alternatives: they read the same `docker/.env` and use the same container name
+(`up`).
+
+For this bundle on the **host network** (IPv6 egress, host IPv6 required), use
+`docker/docker-compose-host-bundle.yml`: same volume, but the database is
+published on `127.0.0.1:${DB_HOST_PORT:-3306}` and `DB_HOST` must be `127.0.0.1`,
+because a host-network container does not resolve the `mariadb` service name.
 
 ## Quick start (from source)
 
@@ -130,6 +144,7 @@ APP_PORT=3000                          # inside the container AND published on t
 
 DB_HOST=host.docker.internal           # external database, never in compose
 # DB_HOST=mariadb                      # bundled database (docker-compose-bundle.yml)
+# DB_HOST=127.0.0.1                    # host-network files: database on the Docker host
 DB_PORT=3306
 DB_DATABASE=up
 DB_USERNAME=up
@@ -178,26 +193,34 @@ Two things are worth knowing when a look-up fails:
 * An egress firewall that only allows 80/443 breaks WHOIS (port 43) while RDAP
   keeps working, which looks like "the rule for this TLD is wrong".
 
-The supported fix for a registry that only answers over IPv6 — `.pt`
-(`whois.dns.pt`) is one — is to run the container with the host network, so it
-uses the host's IPv6 route (Linux engines only). In Compose that means replacing
-`ports`, `extra_hosts` and `networks` on the `up` service with one line:
+The supported fix for a target that only answers over IPv6 — a registry is one
+case — is to run the container on the **host network**, so it uses the host's
+IPv6 route. That needs the host itself to have IPv6, and works on Linux engines
+only:
 
-```yaml
-services:
-  up:
-    network_mode: host
+| File | Database |
+|---|---|
+| [docker/docker-compose-host.yml](docker/docker-compose-host.yml) | external, `DB_HOST=127.0.0.1` (or wherever the host reaches it) |
+| [docker/docker-compose-host-bundle.yml](docker/docker-compose-host-bundle.yml) | bundled MariaDB, published on `127.0.0.1:${DB_HOST_PORT:-3306}` |
+
+```bash
+sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' docker/.env
+docker compose -f docker/docker-compose-host.yml up -d        # or -host-bundle.yml
 ```
 
-The database is then reached where the host sees it (`DB_HOST=127.0.0.1`; with
-the bundle, uncomment the `DB_HOST_PORT` port of the `mariadb` service, which
-stays on the default bridge network), and `APP_PORT`/`HOST_PORT` no longer apply.
+Both replace `docker-compose.yml` / `docker-compose-bundle.yml`: they drop
+`ports`, `extra_hosts` and the compose network, so the server listens on the
+host's `APP_PORT` directly (`HOST_PORT` no longer applies) and
+`host.docker.internal` does not resolve — the database is reached where the
+*host* sees it.
 
 Enabling IPv6 in the engine is the alternative that also covers every other
 container (`/etc/docker/daemon.json`: `{"ipv6": true, "fixed-cidr-v6":
 "fd00::/80", "ip6tables": true}`, then restart Docker), at the cost of touching
 the configuration of the whole host.
-Docker Desktop: Settings > Resources > Network > Enable IPv6.
+Docker Desktop: Settings > Resources > Network > Enable IPv6 (its host networking
+does not carry the host's IPv6 route, so there the daemon-wide option is the one
+that works).
 
 A failed look-up is self-describing: the error lists every resolved address with
 its own error and, when the unreachable addresses are the IPv6 ones, it names the

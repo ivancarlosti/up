@@ -66,6 +66,8 @@ docker exec up-dev-mariadb mariadb -u up -psecret up -e 'SELECT VERSION();'
 |---|---|---|
 | `docker/.env` | `docker compose -f docker/docker-compose.yml up` | `host.docker.internal` |
 | `docker/.env` | `docker compose -f docker/docker-compose-bundle.yml up` | `mariadb` (the DB service name) |
+| `docker/.env` | `docker compose -f docker/docker-compose-host.yml up` | `127.0.0.1`, or wherever the host reaches the database |
+| `docker/.env` | `docker compose -f docker/docker-compose-host-bundle.yml up` | `127.0.0.1` (the port published by `DB_HOST_PORT`) |
 | `.env` (repository root, git-ignored) | `go run ./cmd/server` | `127.0.0.1` |
 | `docker/.env.example` | the canonical reference (all variables) | `host.docker.internal` |
 
@@ -341,6 +343,8 @@ will boot with):
 ```bash
 docker compose -f docker/docker-compose.yml config
 docker compose -f docker/docker-compose-bundle.yml config
+docker compose -f docker/docker-compose-host.yml config
+docker compose -f docker/docker-compose-host-bundle.yml config
 ```
 
 ### Changing the published port
@@ -385,6 +389,9 @@ Notes:
 - `docker/docker-compose-bundle.yml` interpolates the same way (same `docker/`
   project directory, same `.env`), so `APP_PORT` / `HOST_PORT` behave there too
   and the example commands above only need the file name changed.
+- The host-network files have no `ports` block at all: the container binds
+  `APP_PORT` on the host itself, so that value **is** the host port and
+  `HOST_PORT` is ignored (see *Host network* below).
 
 ### The bundle: Up plus its own MariaDB
 
@@ -417,6 +424,41 @@ docker compose -f docker/docker-compose-bundle.yml down -v
   compose network. Uncomment the `ports` block of the `mariadb` service (and set
   the optional `DB_HOST_PORT`) only when a client on the host has to connect.
 - Data lives in the `mariadb_data` volume; `down` keeps it, `down -v` erases it.
+
+### Host network: reaching targets only visible over IPv6
+
+A Docker network is IPv4-only unless the engine itself is configured for IPv6, so
+a container has no IPv6 route even when the machine running Docker has one: a
+target that only answers over IPv6 is unreachable and no application setting can
+change that (the failure mode and its diagnostics are in *Network egress* of the
+README). The two host-network files are the supported fix — the files above with
+`network_mode: host`, so the container uses the host's interfaces, routes and
+resolver, IPv6 included. They need IPv6 on the host itself and are for Linux
+engines (Docker Desktop's host networking does not carry the host's IPv6 route).
+
+| File | Database | `DB_HOST` |
+|---|---|---|
+| `docker/docker-compose-host.yml` | external | `127.0.0.1`, or wherever the host reaches it |
+| `docker/docker-compose-host-bundle.yml` | `mariadb:11` published on `127.0.0.1:${DB_HOST_PORT:-3306}` | `127.0.0.1` |
+
+```bash
+cp docker/.env.example docker/.env                       # if it does not exist yet
+sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' docker/.env     # the host sees the DB here
+docker compose -f docker/docker-compose-host.yml up -d    # or -host-bundle.yml
+docker compose -f docker/docker-compose-host.yml logs -f up
+curl -s localhost:3000/api/health
+```
+
+- Neither `host.docker.internal` nor a compose **service name** resolves on the
+  host network: `DB_HOST` must be where the *host* sees the database. In the host
+  bundle that is the port published on `127.0.0.1`, while `mariadb` itself stays
+  on the default bridge network (`docker exec up-mariadb ...` is unchanged).
+- `DB_PORT` has to be the published port: it defaults to `3306` on both sides, so
+  only a custom `DB_HOST_PORT` has to be repeated in `DB_PORT`.
+- No `ports` block: `APP_PORT` is the host port, `HOST_PORT` is ignored, and the
+  port has to be free on the host.
+- Both bundles share the `mariadb_data` volume, so switching between them keeps
+  every monitor, heartbeat and setting.
 
 ## 8. Notification sinks for testing
 
@@ -585,7 +627,7 @@ PY
 | Symptom | Check |
 |---|---|
 | `Up cannot start: invalid configuration` | the printed list; `docker/.env.example` is the reference |
-| Database retries forever | `DB_HOST`, credentials, and whether the DB accepts connections from the container (`host.docker.internal` for `docker-compose.yml`, `mariadb` for the bundle) |
+| Database retries forever | `DB_HOST`, credentials, and whether the DB accepts connections from the container (`host.docker.internal` for `docker-compose.yml`, `mariadb` for the bundle, `127.0.0.1` for the host-network files) |
 | Monitor stays `pending` | the worker log line `monitor worker started`; then `GET /api/monitors/:id/heartbeats` |
 | No notification | `GET /api/notifications/logs`, then `POST /api/notifications/:id/test` |
 | Dashboard not updating live | `GET /api/ws` requires the session cookie; check the reverse proxy upgrade headers |
@@ -604,6 +646,8 @@ PY
 - Docker/docs references: keep `docker/.env.example`, `docker/.env` and this
   document in sync when a variable is added.
 - `docker/` contains the compose files (`docker-compose.yml`,
-  `docker-compose-bundle.yml`), `.env` and `.env.example`. Any new compose-only
-  variable (like `HOST_PORT`, `DB_ROOT_PASSWORD`, `DB_HOST_PORT`) belongs in
-  `.env.example` next to the service that reads it.
+  `docker-compose-bundle.yml` and their host-network variants
+  `docker-compose-host.yml` / `docker-compose-host-bundle.yml`), `.env` and
+  `.env.example`. Any new compose-only variable (like `HOST_PORT`,
+  `DB_ROOT_PASSWORD`, `DB_HOST_PORT`) belongs in `.env.example` next to the
+  service that reads it.

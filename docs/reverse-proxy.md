@@ -9,8 +9,8 @@
 | Variable | Effect |
 |---|---|
 | `APP_URL` | Canonical public URL. Used for links inside notifications, the OIDC redirect URI (`APP_URL + /api/auth/callback`), the CORS allow list, the WebSocket origin check and the `nodes.api_url` recorded in a cluster. |
-| `APP_PORT` | Port the application listens on **inside the container**. `docker/docker-compose.yml` also publishes this same port on the host (Compose interpolates it from `docker/.env`), so `APP_PORT=8080` means `http://host:8080`. |
-| `HOST_PORT` | Optional, compose only: published host port when it must differ from `APP_PORT` (e.g. `APP_PORT=3000` + `HOST_PORT=80`). **The reverse proxy must point to `HOST_PORT`** (the published port), not to `APP_PORT`. |
+| `APP_PORT` | Port the application listens on **inside the container**. `docker/docker-compose.yml` also publishes this same port on the host (Compose interpolates it from `docker/.env`), so `APP_PORT=8080` means `http://host:8080`. The host-network variants (`docker-compose-host*.yml`) have no `ports` block and bind `APP_PORT` on the host directly. |
+| `HOST_PORT` | Optional, compose only: published host port when it must differ from `APP_PORT` (e.g. `APP_PORT=3000` + `HOST_PORT=80`). **The reverse proxy must point to `HOST_PORT`** (the published port), not to `APP_PORT`. Ignored by the host-network variants, where `APP_PORT` is already the host port. |
 | `APP_TRUST_PROXY=false` | `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Real-IP` are **ignored**; the client address is `RemoteAddr`, which is the proxy. Correct when Up is exposed directly. |
 | `APP_TRUST_PROXY=true` | The headers above are trusted. Correct only when Up cannot be reached without going through your proxy. |
 | `APP_TRUST_PROXY=10.0.0.0/8,172.16.0.0/12` | Trusted proxy CIDR list: only requests coming from those networks may spoof the headers (recommended). |
@@ -70,6 +70,11 @@ networks:
   proxy:
     external: true
 ```
+
+> On the host network (`docker-compose-host*.yml`) there is no `ports` block and
+> no `networks:` to join: Up binds `APP_PORT` on the host, so the proxy has to
+> reach it there (or run with `network_mode: host` itself), and `extra_hosts` is
+> unnecessary.
 
 Traefik sets `X-Forwarded-*` automatically and handles WebSocket upgrades without
 extra configuration. `APP_TRUST_PROXY=true` is correct when Up only joins the

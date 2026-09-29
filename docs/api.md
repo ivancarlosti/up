@@ -460,11 +460,12 @@ the first resolved address is tried at once and the other one follows 300 ms
 later, sharing the one deadline). There is no address family setting on purpose:
 the two paths of a registry host are not equivalent — a Docker network is
 IPv4-only by default, so a container has no IPv6 route even when the machine that
-runs it does, and a registry that only answers over IPv6 (`.pt`,
-`whois.dns.pt`) is then unreachable. Pinning the family only replaced a timeout
-with an immediate `connect: network is unreachable`; the fix is to give the
-container an IPv6 route, which is the `network_mode: host` recipe of the
-"Network egress" section of the README. When a lookup does fail, the error lists
+runs it does, and a registry that only answers over IPv6 is then unreachable.
+Pinning the family only replaced a timeout with an immediate `connect: network is
+unreachable`; the fix is to give the container an IPv6 route, which is what the
+host-network compose files do (`network_mode: host` via
+`docker-compose-host.yml` / `docker-compose-host-bundle.yml`, see "Network
+egress" in the README). When a lookup does fail, the error lists
 **every** resolved address with its own error (instead of only the family Go
 tried first), and it names the fix when the IPv6 addresses are the unreachable
 ones.

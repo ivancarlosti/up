@@ -229,7 +229,8 @@ function setCheckMinute(value: string): void {
  * Registry lookups always dial both families (Go's happy eyeballs), so there is
  * no address family to choose here: a registry that only answers over IPv6 needs
  * the container to have an IPv6 route, which is a property of the network it runs
- * on (network_mode: host). See the Network egress section of the README.
+ * on. The host-network compose files (network_mode: host) provide it; see the
+ * Network egress section of the README.
  */
 
 async function load(): Promise<void> {

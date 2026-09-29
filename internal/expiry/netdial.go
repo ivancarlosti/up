@@ -143,7 +143,7 @@ func describeDialAttempts(host string, attempts []dialAttempt) string {
 		return message + " - " + reached + " answered on a retry: the first attempt was probably rate limited, try again"
 	}
 	if ipv6Attempts > 0 && ipv6Unreachable == ipv6Attempts {
-		return message + " - this host has no IPv6 route (Docker networks are IPv4-only by default), while the registry answers on IPv6 only: run the container with network_mode: host, see the Network egress section of the README"
+		return message + " - this host has no IPv6 route (Docker networks are IPv4-only by default), while the registry answers on IPv6 only: run the container on the host network (network_mode: host, see docker-compose-host.yml), as described in the Network egress section of the README"
 	}
 	return message
 }

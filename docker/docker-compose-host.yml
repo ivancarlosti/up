@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# Up - Docker Compose (host network)
+#
+# The same application as docker-compose.yml, with ONE difference: the service
+# runs on the HOST network instead of a Docker network.
+#
+# Why this file exists: a Docker network is IPv4-only unless the engine is
+# configured for IPv6, so a container inside one has no IPv6 route at all - even
+# when the machine that runs Docker has one. A monitor or a registry look-up
+# whose target only answers over IPv6 is then unreachable, and no application
+# setting can fix that: an address family cannot create a route. On the host
+# network the container uses the host's own interfaces, routes, resolver and
+# IPv6 path, so this is the file to use when a target needs IPv6 - provided the
+# HOST itself has IPv6 connectivity.
+#
+# Trade-offs, compared to docker-compose.yml:
+#   * no `ports`: the server listens on the host's APP_PORT directly, so
+#     HOST_PORT is ignored (it exists to publish a different host port, and
+#     nothing is published any more). APP_PORT must be free on the host.
+#   * no `extra_hosts`: host.docker.internal does not exist on the host network.
+#     DB_HOST must be where the HOST sees the database: 127.0.0.1 when it runs
+#     on this machine (see the Quick start below), or its real address/name.
+#   * the container shares the host network stack, which is exactly the point.
+#
+# Linux engines only: Docker Desktop's host networking does not carry the host's
+# IPv6 route. On a host without IPv6 there is nothing to gain - keep the default
+# docker-compose.yml, where the container stays isolated on its own network.
+#
+# Quick start (database on the Docker host):
+#   cp docker/.env.example docker/.env
+#   sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' docker/.env
+#   docker compose -f docker/docker-compose-host.yml up -d
+#   docker compose -f docker/docker-compose-host.yml logs -f up
+#
+# Prefer the self-contained variant? docker-compose-host-bundle.yml is this
+# same host network plus the bundled MariaDB (published on 127.0.0.1 so the
+# host-network container can reach it).
+#
+# Every compose file reads the same docker/.env and uses the same container name
+# (`up`), so they are alternatives: run one at a time.
+# ---------------------------------------------------------------------------
+
+services:
+  up:
+    image: ghcr.io/ivancarlosti/up:latest
+    container_name: up
+    # Build locally instead of pulling the published image (optional):
+    #   VERSION=$(git describe --tags --always) COMMIT=$(git rev-parse --short HEAD) \
+    #     docker compose -f docker/docker-compose-host.yml up -d --build
+    # build:
+    #   context: ..
+    #   args:
+    #     VERSION: ${VERSION:-dev}
+    #     COMMIT: ${COMMIT:-unknown}
+    # Loads docker/.env into the container environment (path is relative to
+    # this compose file). DB_HOST is read where the HOST sees the database.
+    env_file: .env
+    # The host network: the container uses the host's interfaces and routes, so
+    # IPv6 included, and it binds APP_PORT on the host itself. There is
+    # deliberately NO `ports` (nothing is published by a host-network service)
+    # and NO `extra_hosts` (host.docker.internal does not resolve here); the
+    # implicit `default` network is not used at all.
+    network_mode: host
+    # The image already ships its own HEALTHCHECK (reads APP_PORT and probes
+    # 127.0.0.1), so nothing has to be declared here.
+    restart: unless-stopped

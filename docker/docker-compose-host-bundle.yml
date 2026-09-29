@@ -1,0 +1,115 @@
+# ---------------------------------------------------------------------------
+# Up - Docker Compose (host network, MariaDB included)
+#
+# The host-network variant of docker-compose-bundle.yml: the application runs on
+# the HOST network (IPv6 included, see docker-compose-host.yml for the why) and
+# a MariaDB container is declared HERE, for a machine that has no database
+# server yet. It is an alternative to the other three files, not a replacement:
+# they all read the same docker/.env and use the same container name (`up`) and
+# the same mariadb_data volume, so the data survives a switch between them.
+#
+# The one thing that changes compared to the bundle: DB_HOST.
+#
+# A host-network container resolves names through the HOST, not through the
+# compose DNS, so `DB_HOST=mariadb` can never work here. The database is reached
+# where the HOST sees it - 127.0.0.1 and the port published below - which is why
+# the `ports` block of the mariadb service is NOT commented out in this file:
+#
+#   # docker/.env (see docker/.env.example for every variable)
+#   DB_HOST=127.0.0.1      # <- the published port below, not the service name
+#   DB_PORT=3306
+#   DB_DATABASE=up
+#   DB_USERNAME=up
+#   DB_PASSWORD=secret
+#
+# Quick start:
+#   cp docker/.env.example docker/.env
+#   sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' docker/.env
+#   docker compose -f docker/docker-compose-host-bundle.yml up -d
+#   docker compose -f docker/docker-compose-host-bundle.yml logs -f up
+#
+# The database port is published on 127.0.0.1 only (the application needs it,
+# nothing else does). Drop the `127.0.0.1:` prefix, or change DB_HOST_PORT, to
+# let a client on the network connect - and mind a MariaDB already listening on
+# 3306 on the host, which is the usual conflict.
+#
+# DB_PORT in docker/.env must be the port published here: the default matches
+# (3306), so changing DB_HOST_PORT without changing DB_PORT leaves the
+# application dialing a port nothing is listening on.
+#
+# `docker compose -f docker/docker-compose-host-bundle.yml down -v` removes the
+# mariadb_data volume together with every monitor, heartbeat and setting.
+# ---------------------------------------------------------------------------
+
+services:
+  up:
+    image: ghcr.io/ivancarlosti/up:latest
+    container_name: up
+    # Build locally instead of pulling the published image (optional):
+    #   VERSION=$(git describe --tags --always) COMMIT=$(git rev-parse --short HEAD) \
+    #     docker compose -f docker/docker-compose-host-bundle.yml up -d --build
+    # build:
+    #   context: ..
+    #   args:
+    #     VERSION: ${VERSION:-dev}
+    #     COMMIT: ${COMMIT:-unknown}
+    # Loads docker/.env into the container environment (path is relative to this
+    # compose file), including the DB_HOST=127.0.0.1 that reaches the database
+    # through the port published below.
+    env_file: .env
+    # The host network: the container uses the host's interfaces and routes (so
+    # IPv6 included) and binds APP_PORT on the host itself. There is deliberately
+    # NO `ports` and NO `extra_hosts` on this service. The `mariadb` service
+    # below stays on the default bridge network and is therefore reached by the
+    # application through 127.0.0.1 and its published port, never by name.
+    network_mode: host
+    # Wait for a database that already accepted connections. Up also retries the
+    # connection for up to 90 s on its own, so a slow first boot is harmless.
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    # The image already ships its own HEALTHCHECK (reads APP_PORT), so nothing
+    # has to be declared here.
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:11
+    container_name: up-mariadb
+    # The schema, the user and the password are the ones docker/.env already
+    # gives to the application (interpolated from the .env of this docker/
+    # folder), so the two containers can never drift apart.
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MARIADB_DATABASE: ${DB_DATABASE:-up}
+      MARIADB_USER: ${DB_USERNAME:-up}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-secret}
+    # Same charset/collation as the provisioning snippet of docs/database.md,
+    # plus a buffer pool that fits a heartbeat table (see the bundle file and
+    # docs/database.md, "Sizing the server").
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=${DB_BUFFER_POOL_SIZE:-256M}
+    # REQUIRED in this file: a host-network container cannot join the compose
+    # network, so this is the only way the application reaches the database.
+    # Bound to loopback by default: remove the `127.0.0.1:` prefix to expose it
+    # (DB_HOST_PORT defaults to 3306, which must then be free on the host).
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-3306}:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    # Stays on the implicit `default` network: the application reaches it
+    # through the host, not through the compose DNS.
+    restart: unless-stopped
+
+volumes:
+  # Database files of the bundled MariaDB. Same project (`docker/`) and same
+  # volume name as docker-compose-bundle.yml, so switching between the two
+  # keeps every monitor, heartbeat and setting (`down -v` removes them).
+  mariadb_data:

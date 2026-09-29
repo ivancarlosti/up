@@ -539,9 +539,9 @@ smallest one the reminder repeats **once a day**. The events are
    rule's `server` field when it is set, otherwise the built-in table — and only
    asks `whois.iana.org` for the TLDs nothing else covers. A stale `server` in a
    rule therefore overrides a correct built-in entry, and a registry that only
-   answers over IPv6 (`.pt`, `whois.dns.pt`) also needs an IPv6 route from inside
-   the container — the `network_mode: host` recipe of *Network egress* in the
-   README, since no address family setting can create one.
+   answers over IPv6 also needs an IPv6 route from inside the container — the
+   host-network compose files described in *Network egress* of the README, since
+   no address family setting can create one.
 
 `date_layouts` is a `;` separated list of Go reference layouts and its
 recommended value is **ISO 8601** (`2006-01-02T15:04:05Z07:00;2006-01-02`),

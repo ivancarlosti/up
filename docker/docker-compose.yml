@@ -52,17 +52,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # The implicit `default` network is IPv4-only, like every Docker network
-    # unless the engine is configured for IPv6. A registry that answers WHOIS
-    # only over IPv6 - such as whois.dns.pt - is then unreachable from inside the
-    # container, and no setting of the app can fix that (an address family cannot
-    # create a route). The supported fix is to run this service on the host
-    # network instead, which drops `ports`, `extra_hosts` and this file's
-    # DB_HOST=host.docker.internal (use DB_HOST=127.0.0.1) in exchange for the
-    # host's IPv6 path:
-    #
-    #   network_mode: host
-    #
-    # A daemon-wide alternative (/etc/docker/daemon.json, then restart Docker) is
-    # { "ipv6": true, "fixed-cidr-v6": "fd00::/80", "ip6tables": true }: it gives
-    # the default bridge - and every other container - an IPv6 route.
+    # unless the engine is configured for IPv6, so a target that only answers
+    # over IPv6 is unreachable from inside the container and no setting of the
+    # app can fix that (an address family cannot create a route). When the host
+    # that runs Docker has IPv6, use docker-compose-host.yml instead: the same
+    # service on the host network, which is the supported way to hand the
+    # container the host's IPv6 path (Linux engines only). The daemon-wide
+    # alternative gives the default bridge - and every other container - an IPv6
+    # route too, at the cost of touching the whole host (/etc/docker/daemon.json,
+    # then restart Docker):
+    #   { "ipv6": true, "fixed-cidr-v6": "fd00::/80", "ip6tables": true }
     restart: unless-stopped

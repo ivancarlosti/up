@@ -313,10 +313,10 @@ const DefaultExpiryTimeoutSeconds = 10
 // Registry lookups always dial "tcp" (Go's happy eyeballs), because the
 // alternative - pinning one family with tcp4/tcp6 - cannot work from a
 // container: the registry host is usually dual stack and the two paths are not
-// equivalent (whois.nic.io answers on port 43 over IPv6 only), so the container
-// needs an IPv6 route to reach it. That is a property of the *network*, not of
-// the lookup, and it is solved where the container runs (network_mode: host);
-// see the Network egress section of the README.
+// equivalent, so a registry that answers on IPv6 only is unreachable while the
+// container has no IPv6 route. That is a property of the *network*, not of the
+// lookup, and it is solved where the container runs: the host-network compose
+// files (network_mode: host); see the Network egress section of the README.
 type ExpirySettings struct {
 	// CheckTime is "HH:MM" (24h) in CheckTimezone.
 	CheckTime string `json:"check_time"`

@@ -8,12 +8,19 @@
 > adds a `mariadb:11` service (volume `mariadb_data`, credentials taken from the
 > same `docker/.env`) and is addressed by its compose **service name**, i.e.
 > `DB_HOST=mariadb`. Everything below applies to both.
+>
+> The host-network variants (`docker-compose-host.yml`,
+> `docker-compose-host-bundle.yml`) run the application with `network_mode: host`
+> (to use the host's IPv6 route), so neither `host.docker.internal` nor a service
+> name resolves: `DB_HOST` is where the **host** sees the database - `127.0.0.1`
+> and the port the host bundle publishes the bundled MariaDB on.
 
 ## 1. Connection
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DB_HOST` | `host.docker.internal` | `127.0.0.1` when the backend runs directly on the host; `mariadb` (the compose service name) with `docker/docker-compose-bundle.yml` |
+| `DB_HOST` | `host.docker.internal` | `127.0.0.1` when the backend runs directly on the host or in a host-network container (`docker/docker-compose-host*.yml`); `mariadb` (the compose service name) with `docker/docker-compose-bundle.yml` |
+| `DB_PORT` | `3306` | with `docker-compose-host-bundle.yml`, the port published on `127.0.0.1`, i.e. the same as `DB_HOST_PORT` |
 | `DB_PORT` | `3306` | |
 | `DB_DATABASE` | `up` | must exist; Up creates the tables, not the schema |
 | `DB_USERNAME` | `up` | needs DDL rights (CREATE/ALTER/INDEX/DROP on the schema) |
@@ -818,9 +825,9 @@ answer from memory or from disk. MariaDB ships 128 MB, which is smaller than the
 row is far wider than its index entry), so a cold buffer pool turns every
 dashboard load into random reads. Give the database as much as the host can
 spare - a database-only machine can give two thirds of its RAM; the bundled
-MariaDB of `docker/docker-compose-bundle.yml` takes it from
-`DB_BUFFER_POOL_SIZE` (default `256M`), while an external server is tuned on its
-own:
+MariaDB of `docker/docker-compose-bundle.yml` (and of the host-network
+`docker-compose-host-bundle.yml`) takes it from `DB_BUFFER_POOL_SIZE` (default
+`256M`), while an external server is tuned on its own:
 
 ```sql
 SET GLOBAL innodb_buffer_pool_size = 2 * 1024 * 1024 * 1024;   -- 2 GiB
