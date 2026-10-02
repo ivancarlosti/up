@@ -170,6 +170,12 @@ CLUSTER_PRIVATE_KEY=                   # generated on the first boot
 # NOTIFICATION_LOG_RETENTION_DAYS=90   # prune the delivery history (environment only, disabled by default)
 ```
 
+`LOG_LEVEL` (`debug` | `info` | `warn` | `error`) drives Up's own logging. To
+silence gin's `[GIN-debug] Running in "debug" mode` warning as well, add
+`GIN_MODE=release`: gin reads it from the process environment before the config
+loader runs, so it belongs in `docker/.env` (compose `env_file`) — or exported in
+the shell when running the binary directly.
+
 ### Network egress (WHOIS, RDAP, DNS)
 
 The expiry job talks to the registries directly, so the container needs:

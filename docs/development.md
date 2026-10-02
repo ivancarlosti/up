@@ -91,6 +91,12 @@ go run ./cmd/server            # reads .env, migrates, seeds, starts the schedul
 Useful flags/behaviours:
 
 - `LOG_LEVEL=debug` enables GORM SQL logging and verbose scheduler logs.
+- `GIN_MODE=release` silences gin's `[GIN-debug] Running in "debug" mode`
+  warning. gin reads it from the process environment in its package `init`,
+  before `main()` parses `.env`, so export it in the shell (`GIN_MODE=release go
+  run ./cmd/server`); a line inside `.env` alone is parsed too late for this
+  host run. With compose the variable comes from `docker/.env` (`env_file`) and
+  does reach the container's process environment.
 - The server refuses to start with an invalid `.env` and prints every problem at
   once (exit code 2).
 - `GET /api/health` is the quickest smoke test; `GET /api/settings` proves the
@@ -638,6 +644,7 @@ PY
 | Dashboard not updating live | `GET /api/ws` requires the session cookie; check the reverse proxy upgrade headers |
 | Blank page in the browser | the Go binary serves the SPA shell with 200 even when the JavaScript fails: run `npm run smoke -- --url <instance>` (or check the browser console) and look for `[up] unexpected error` / `ReferenceError`. A boot failure is now rendered inside `#app` as well |
 | Boot log flooded with SQL | `LOG_LEVEL=debug` raises the GORM logger to `Info` (every statement). Keep `info` outside debugging |
+| `[GIN-debug] Running in "debug" mode` despite `LOG_LEVEL=info` | Up switches gin to release only after the database is up, while the bootstrap engine is created earlier. Set `GIN_MODE=release` in `docker/.env` (compose) or export it in the shell; gin reads it from the process environment before the config loader runs |
 | `record not found` in the log | only expected when the missing row matters; the normal "does it exist yet?" lookups are silenced through `IgnoreRecordNotFoundError` (`internal/database/database.go`) |
 | `web/dist` placeholder still shown | run `npm run build` then rebuild the Go binary (the assets are embedded) |
 | First start after an upgrade is slow | the full 30 day rollup rebuild runs in the background once the API serves (`maintenance: "rollups"` in `/api/boot`, `deferred heartbeat rollup rebuild finished` in the log). The window statistics fill in as it goes |

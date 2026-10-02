@@ -253,7 +253,7 @@ All variables, their defaults and validation rules live in
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |
 | Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared`\|`federated`), `CLUSTER_PEER_API`, `CLUSTER_LEADER_SETTLE_SECONDS`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
 | Cluster (federated sync) | `CLUSTER_LEADER_ELECTION`, `CLUSTER_LEADER_NODE_ID`, `CLUSTER_NOTIFY_ELECTION`, `CLUSTER_SYNC_SECONDS`, `CLUSTER_SYNC_BATCH`, `CLUSTER_SYNC_MANIFEST_SECONDS`, `CLUSTER_SYNC_TOMBSTONE_DAYS`, `CLUSTER_SYNC_NOTIFICATIONS`, `CLUSTER_SYNC_SETTINGS`, `CLUSTER_SYNC_SESSION_SECRET`, `CLUSTER_SYNC_PUSH`, `CLUSTER_INSECURE_SKIP_VERIFY` |
-| Tuning (optional) | `LOG_LEVEL`, `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
+| Tuning (optional) | `LOG_LEVEL`, `GIN_MODE` (framework variable, not validated by Up: gin reads it from the process environment before the config loader, so only a compose `env_file` or an exported shell variable reaches it; `release` silences gin's debug warning), `SCHEDULER_MAX_CONCURRENT`, `SCHEDULER_RECONCILE_SECONDS`, `HEARTBEAT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `SESSION_TTL_HOURS`, `SECURITY_BYPASS_IP_RULES`, `SECURITY_LOGIN_RATE_LIMIT`, `SECURITY_PUBLIC_RATE_LIMIT` |
 
 Validation lives in `internal/config/validate.go`; the aggregated error type is
 `config.ValidationError` (printed by `cmd/server/main.go`, exit code 2).
