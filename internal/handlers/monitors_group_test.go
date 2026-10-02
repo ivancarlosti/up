@@ -3,6 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/ivancarlosti/up/internal/models"
 )
 
 // bindMonitorPayload decodes a create/update body the way bindJSON does.
@@ -47,5 +49,30 @@ func TestMonitorPayloadGroupKeys(t *testing.T) {
 	}
 	if joined.Monitor.GroupID != 0 {
 		t.Fatalf("the embedded model field must stay untouched, got %d", joined.Monitor.GroupID)
+	}
+}
+
+// TestMonitorJSONExposesTheFlatGroupOnly pins the shape of the group on the read
+// path: the payload carries the pair flat (`group_id` / `group_name`) and no
+// nested `group` object. The nested form only duplicated the pair (same id, same
+// name, no reader), so a future field that reintroduces it would make the two
+// representations drift apart again.
+func TestMonitorJSONExposesTheFlatGroupOnly(t *testing.T) {
+	raw, err := json.Marshal(models.Monitor{GroupID: 5, GroupName: "Prod"})
+	if err != nil {
+		t.Fatalf("marshalling the monitor: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decoding %s: %v", raw, err)
+	}
+	if got := decoded["group_id"]; got != float64(5) {
+		t.Errorf("group_id = %#v, want 5", got)
+	}
+	if got := decoded["group_name"]; got != "Prod" {
+		t.Errorf("group_name = %#v, want %q", got, "Prod")
+	}
+	if _, ok := decoded["group"]; ok {
+		t.Errorf("a monitor must not carry a nested group object any more: %s", raw)
 	}
 }

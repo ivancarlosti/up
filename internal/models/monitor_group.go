@@ -68,9 +68,12 @@ type MonitorGroupMember struct {
 	SortOrder int  `gorm:"not null;default:0" json:"sort_order"`
 }
 
-// MonitorGroupRef is the group of a monitor as the payload exposes it: the id that
-// a write uses and the name the UI (and the notification bodies) read. A monitor
-// carries at most one of them, and none at all when it belongs to no group.
+// MonitorGroupRef is the single group a monitor belongs to, as the read path
+// resolves it: the id that a write uses and the name the UI (and the notification
+// bodies) read. A monitor carries at most one of them, and none at all when it
+// belongs to no group. It is an internal helper (GroupRefsByMonitor, groupRef,
+// notify.NewMessage): the monitor payload exposes the pair flat, as group_id and
+// group_name.
 type MonitorGroupRef struct {
 	ID   uint   `json:"id"`
 	Name string `json:"name"`

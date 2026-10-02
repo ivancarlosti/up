@@ -208,8 +208,8 @@ current links, send `[]` to clear them.
 
 `group_id` is the group of the monitor and follows the same contract: omit the
 field to keep the current group, send `0` to move the monitor to no group. The
-payload answers with `group_id`, `group_name` and the nested `group` object, and
-the listing filters with `?group_id=`.
+payload answers with `group_id` (the id) and `group_name` (the name), and the
+listing filters with `?group_id=`.
 
 ## 6. Other operations
 

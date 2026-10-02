@@ -375,17 +375,15 @@ func (s *MonitorService) applySources(monitors []*models.Monitor, windowHours in
 		} else {
 			m.NotificationIDs = []uint{}
 		}
-		// One group per monitor: the id, the name and the pair travel together, so
-		// the dashboard, the group editor and the notification bodies can never
+		// One group per monitor: the id and the name travel together, so the
+		// dashboard, the group editor and the notification bodies can never
 		// disagree about which group a monitor is in.
 		if ref, ok := sources.groups[m.ID]; ok {
 			m.GroupID = ref.ID
 			m.GroupName = ref.Name
-			m.Group = &ref
 		} else {
 			m.GroupID = 0
 			m.GroupName = ""
-			m.Group = nil
 		}
 		if m.CertWatch {
 			if info, ok := sources.certificates[m.ID]; ok {

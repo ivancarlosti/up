@@ -649,8 +649,7 @@ with `ERR_DB_CREDENTIALS`/`ERR_DB_MISSING`; see `internal/boot/classify.go`.
 - Heartbeat `status` is a string (`up`/`down`/`pending`/`maintenance`); the
   aggregated monitor status adds `degraded`/`unknown`.
 - `notification_ids` is always present on a monitor (possibly empty), and so is
-  `group_id` / `group_name` (`0` and `""` when the monitor belongs to no group,
-  with `group` carrying both as one object or `null`).
+  `group_id` / `group_name` (`0` and `""` when the monitor belongs to no group).
 - The public API masks credentials (`basic_pass`, `bearer_token` -> `***`) unless
   `?include_secrets=true` is passed.
 - Monitor templates never return credentials: a template holds neither

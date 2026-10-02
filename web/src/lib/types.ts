@@ -161,11 +161,10 @@ export interface Monitor {
   notification_ids: number[]
   /**
    * The single group of the monitor: the id a write uses (0 when it belongs to no
-   * group), the name the table and the notification bodies read, and the pair.
+   * group) and the name the table and the notification bodies read.
    */
   group_id: number
   group_name: string
-  group: MonitorGroupRef | null
   // Certificate watching (see docs/monitors.md §9).
   cert_watch: boolean
   cert_notify: boolean
@@ -198,16 +197,6 @@ export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
    * monitor already has, while 0 moves it to no group.
    */
   group_id?: number
-}
-
-/**
- * MonitorGroupRef is the single group of a monitor as the API payload carries it:
- * what the table renders and what the notification bodies read. It is null on an
- * ungrouped monitor.
- */
-export interface MonitorGroupRef {
-  id: number
-  name: string
 }
 
 /**
