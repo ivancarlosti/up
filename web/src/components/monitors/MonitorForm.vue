@@ -47,6 +47,8 @@ function emptyForm(): MonitorPayload {
     tags: '',
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', ip_family: 'auto', headers: [] },
     notification_ids: [],
+    // The single group of the monitor, and the deprecated list that mirrors it.
+    group_id: 0,
     group_ids: [],
     template_uuid: '',
     cert_watch: false,
@@ -184,12 +186,29 @@ function toggleNotification(id: number, value: boolean): void {
   form.notification_ids = [...ids]
 }
 
-function toggleGroup(id: number, value: boolean): void {
-  const ids = new Set(form.group_ids ?? [])
-  if (value) ids.add(id)
-  else ids.delete(id)
-  form.group_ids = [...ids]
-}
+/**
+ * The group options: every group, plus the "no group" entry the operator picks to
+ * take the monitor out of the group it is in.
+ */
+const groupOptions = computed(() => [
+  { value: 0, label: t('monitor.noGroup') },
+  ...(props.groups ?? []).map((group) => ({ value: group.id, label: group.name })),
+])
+
+/**
+ * groupValue is the single group of the form. The Select reports what the browser
+ * hands it (a string), so the value is converted once, here, and the deprecated
+ * `group_ids` list is kept in step with it: a body built on the multi group form
+ * reads the same group.
+ */
+const groupValue = computed({
+  get: () => String(form.group_id ?? 0),
+  set: (value: string) => {
+    const id = Number(value) || 0
+    form.group_id = id
+    form.group_ids = id ? [id] : []
+  },
+})
 
 /** toNumber converts what a native number input produces (a string). */
 function toNumber(value: unknown, fallback: number): number {
@@ -385,19 +404,10 @@ function submit(): void {
         </div>
       </section>
 
-      <!-- Groups -->
-      <section v-if="props.groups?.length" class="grid gap-2 border-t border-border pt-4">
-        <Label :help="t('monitor.groupsHelp')">{{ t('monitor.groupsSection') }}</Label>
-        <div class="flex flex-wrap gap-4">
-          <Checkbox
-            v-for="group in props.groups"
-            :key="group.id"
-            :model-value="(form.group_ids ?? []).includes(group.id)"
-            @update:model-value="toggleGroup(group.id, $event)"
-          >
-            {{ group.name }}
-          </Checkbox>
-        </div>
+      <!-- Group -->
+      <section v-if="props.groups?.length" class="grid gap-1 border-t border-border pt-4">
+        <Label for="monitor-group" :help="t('monitor.groupsHelp')">{{ t('monitor.groupsSection') }}</Label>
+        <Select id="monitor-group" v-model="groupValue" :options="groupOptions" class="sm:max-w-sm" />
       </section>
     </div>
 

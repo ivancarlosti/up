@@ -358,12 +358,11 @@ func TestMessageTagsAndGroups(t *testing.T) {
 		Tags:   "web, api,prod",
 		Config: models.MonitorConfig{URL: "https://api.example.com/health"},
 	}
-	// The groups arrive already ordered (sort order, then name) and a name may
-	// contain a space, so neither the array nor the flat form may reorder or
-	// split them.
+	// The groups arrive already resolved (id and name) and a name may contain a
+	// space, so neither the array nor the flat form may split it.
 	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
 		"connection refused", 42, "up-node-1", "https://up.example.com",
-		[]string{"Public", "Prod EU"})
+		&models.MonitorGroupRef{ID: 7, Name: "Prod EU"})
 
 	if got := strings.Join(message.MonitorTags, ","); got != "web,api,prod" {
 		t.Errorf("MonitorTags = %q, want the trimmed tags in the stored order", got)
@@ -371,28 +370,37 @@ func TestMessageTagsAndGroups(t *testing.T) {
 	if got := message.TagsCSV(); got != "web,api,prod" {
 		t.Errorf("TagsCSV() = %q, want %q", got, "web,api,prod")
 	}
-	if got := message.GroupsCSV(); got != "Public,Prod EU" {
-		t.Errorf("GroupsCSV() = %q, want %q", got, "Public,Prod EU")
+	// The single group, and the deprecated array / flat forms that mirror it.
+	if message.MonitorGroup != "Prod EU" || message.MonitorGroupID != 7 {
+		t.Errorf("MonitorGroup = %q (id %d), want %q (id 7)",
+			message.MonitorGroup, message.MonitorGroupID, "Prod EU")
+	}
+	if got := strings.Join(message.MonitorGroups, ","); got != "Prod EU" {
+		t.Errorf("MonitorGroups = %q, want the single group", got)
+	}
+	if got := message.GroupsCSV(); got != "Prod EU" {
+		t.Errorf("GroupsCSV() = %q, want %q", got, "Prod EU")
 	}
 
 	body, err := message.RenderBody(
-		`{"tags":{{json .MonitorTags}},"groups":{{json .MonitorGroups}},"flat":"{{.TagsCSV}}|{{.GroupsCSV}}"}`)
+		`{"group":{{json .MonitorGroup}},"group_id":{{.MonitorGroupID}},"tags":{{json .MonitorTags}},` +
+			`"groups":{{json .MonitorGroups}},"flat":"{{.TagsCSV}}|{{.GroupsCSV}}"}`)
 	if err != nil {
 		t.Fatalf("render the body template: %v", err)
 	}
-	want := `{"tags":["web","api","prod"],"groups":["Public","Prod EU"],"flat":"web,api,prod|Public,Prod EU"}`
+	want := `{"group":"Prod EU","group_id":7,"tags":["web","api","prod"],"groups":["Prod EU"],"flat":"web,api,prod|Prod EU"}`
 	if body != want {
 		t.Errorf("rendered body =\n%s\nwant\n%s", body, want)
 	}
 
 	if text := message.Text(); !strings.Contains(text, "Tags    : web,api,prod") ||
-		!strings.Contains(text, "Groups  : Public,Prod EU") {
-		t.Errorf("the text body must list the tags and the groups:\n%s", text)
+		!strings.Contains(text, "Group   : Prod EU") {
+		t.Errorf("the text body must list the tags and the group:\n%s", text)
 	}
 	html := message.HTML()
 	if !strings.Contains(html, ">Tags</td><td><strong>web,api,prod</strong></td>") ||
-		!strings.Contains(html, ">Groups</td><td><strong>Public,Prod EU</strong></td>") {
-		t.Errorf("the HTML body must list the tags and the groups:\n%s", html)
+		!strings.Contains(html, ">Group</td><td><strong>Prod EU</strong></td>") {
+		t.Errorf("the HTML body must list the tags and the group:\n%s", html)
 	}
 }
 
@@ -417,10 +425,10 @@ func TestMessageWithoutTagsOrGroups(t *testing.T) {
 		t.Errorf("rendered body = %s, want %s", body, want)
 	}
 
-	if text := message.Text(); strings.Contains(text, "Tags") || strings.Contains(text, "Groups") {
+	if text := message.Text(); strings.Contains(text, "Tags") || strings.Contains(text, "Group") {
 		t.Errorf("the text body must omit the lines when there is nothing to show:\n%s", text)
 	}
-	if html := message.HTML(); strings.Contains(html, ">Tags<") || strings.Contains(html, ">Groups<") {
+	if html := message.HTML(); strings.Contains(html, ">Tags<") || strings.Contains(html, ">Group<") {
 		t.Errorf("the HTML body must omit the rows when there is nothing to show:\n%s", html)
 	}
 }
@@ -437,7 +445,8 @@ func TestWebhookPayloadCarriesTagsAndGroups(t *testing.T) {
 		Config: models.MonitorConfig{URL: "https://api.example.com"},
 	}
 	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
-		"boom", 12, "up-node-1", "https://up.example.com", []string{"Prod"})
+		"boom", 12, "up-node-1", "https://up.example.com",
+		&models.MonitorGroupRef{ID: 3, Name: "Prod"})
 
 	for name, bodyTemplate := range map[string]string{
 		"default payload": "",
@@ -448,11 +457,15 @@ func TestWebhookPayloadCarriesTagsAndGroups(t *testing.T) {
 			t.Fatalf("%s: render: %v", name, err)
 		}
 		var payload struct {
+			Group  string   `json:"group"`
 			Tags   []string `json:"tags"`
 			Groups []string `json:"groups"`
 		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("%s: must stay valid JSON: %v (%s)", name, err, body)
+		}
+		if payload.Group != "Prod" {
+			t.Errorf("%s: group = %q, want Prod (%s)", name, payload.Group, body)
 		}
 		if len(payload.Tags) != 1 || payload.Tags[0] != "web" {
 			t.Errorf("%s: tags = %v, want [web] (%s)", name, payload.Tags, body)

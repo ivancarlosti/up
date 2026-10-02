@@ -612,6 +612,16 @@ func (s *SyncService) linkRelation(ctx context.Context, tx *gorm.DB, entity, mon
 
 	switch entity {
 	case models.EntityMonitorGroupMember:
+		// A monitor belongs to one group, so applying a membership MOVES it, exactly
+		// like the local write paths do (setMonitorGroup, replaceMonitorGroupMembers).
+		// Without the delete, a node that receives the add before the tombstone of
+		// the group the monitor is leaving would hold it in two groups until that
+		// tombstone arrives.
+		if err := tx.WithContext(ctx).
+			Where("monitor_id = ? AND group_id <> ?", monitorID, target).
+			Delete(&models.MonitorGroupMember{}).Error; err != nil {
+			return true, err
+		}
 		link := models.MonitorGroupMember{GroupID: target, MonitorID: monitorID}
 		return true, tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&link).Error
 	case models.EntityMonitorNotification:

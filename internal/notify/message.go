@@ -44,9 +44,16 @@ type Message struct {
 	// {{json .MonitorTags}} or {{range .MonitorTags}}). TagsCSV is the same
 	// data as one comma separated string.
 	MonitorTags []string
-	// MonitorGroups is the name of every group the monitor belongs to, in the
-	// group sort order, exposed as an array like MonitorTags. GroupsCSV is the
-	// same data as one comma separated string.
+	// MonitorGroup is the name of the single group the monitor belongs to, and
+	// MonitorGroupID is its id; both are empty when the monitor belongs to no
+	// group.
+	MonitorGroup   string
+	MonitorGroupID uint
+	// MonitorGroups is DEPRECATED: it carries the same group as a zero or one
+	// element array, which is what a body template written before the single
+	// group rule reads ({{range .MonitorGroups}}). GroupsCSV is the same data as
+	// one comma separated string, and it stays the flat form operators already
+	// have in their templates. Both go away with the next release.
 	MonitorGroups []string
 	// Message is the check result message ("200 - OK", "connection refused"...).
 	Message string
@@ -77,17 +84,24 @@ const (
 
 // NewMessage builds the message of a status change.
 //
-// groupNames is the list of groups the monitor belongs to, already ordered the
-// way the UI lists them (sort order, then name). It is resolved by the caller
-// because a Monitor carries no group names by itself, and it is passed here so
-// every delivery path ends up with the same populated payload.
+// group is the single group the monitor belongs to (nil when it belongs to none),
+// resolved by the caller because a Monitor carries no group name by itself on the
+// notification path; it is passed here so every delivery path ends up with the same
+// populated payload.
 func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status models.AggregateStatus,
-	detail string, latencyMS int64, nodeID, instanceURL string, groupNames []string) Message {
-	if groupNames == nil {
-		// A nil slice would render as null through {{json .MonitorGroups}},
-		// which reads like a bug on the receiving side; an empty array is the
-		// truthful, stable representation of "no group".
-		groupNames = []string{}
+	detail string, latencyMS int64, nodeID, instanceURL string, group *models.MonitorGroupRef) Message {
+	// The deprecated array form is derived from the single group, and it stays an
+	// EMPTY array when there is no group: a nil slice would render as null through
+	// {{json .MonitorGroups}}, which reads like a bug on the receiving side.
+	groupName := ""
+	groupID := uint(0)
+	groupNames := []string{}
+	if group != nil {
+		groupID = group.ID
+		groupName = group.Name
+		if groupName != "" {
+			groupNames = []string{groupName}
+		}
 	}
 	return Message{
 		Event:              string(event),
@@ -98,6 +112,8 @@ func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status 
 		MonitorURL:         MonitorTarget(monitor),
 		MonitorDescription: monitor.Description,
 		MonitorTags:        monitor.TagList(),
+		MonitorGroup:       groupName,
+		MonitorGroupID:     groupID,
 		MonitorGroups:      groupNames,
 		Message:            detail,
 		LatencyMS:          latencyMS,
@@ -227,12 +243,18 @@ func (m Message) RenderBody(bodyTemplate string) (string, error) {
 // reads in a log line).
 func (m Message) jsonPayload() map[string]any {
 	return map[string]any{
-		"event":        m.Event,
-		"monitor":      m.MonitorName,
-		"type":         m.MonitorType,
-		"target":       m.MonitorURL,
-		"status":       m.Status,
-		"message":      m.Message,
+		"event":   m.Event,
+		"monitor": m.MonitorName,
+		"type":    m.MonitorType,
+		"target":  m.MonitorURL,
+		"status":  m.Status,
+		"message": m.Message,
+		// group and group_id are the single group of the monitor ("" and 0 when
+		// it belongs to none). groups and groups_csv are DEPRECATED mirrors of
+		// the same value: they keep a body written before the single group rule
+		// working, and they go away with the next release.
+		"group":        m.MonitorGroup,
+		"group_id":     m.MonitorGroupID,
 		"tags":         m.MonitorTags,
 		"groups":       m.MonitorGroups,
 		"tags_csv":     m.TagsCSV(),

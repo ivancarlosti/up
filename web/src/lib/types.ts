@@ -159,6 +159,18 @@ export interface Monitor {
   heartbeats?: HeartbeatSummary[]
   votes?: NodeVote[]
   notification_ids: number[]
+  /**
+   * The single group of the monitor: the id a write uses (0 when it belongs to no
+   * group), the name the table and the notification bodies read, and the pair.
+   */
+  group_id: number
+  group_name: string
+  group: MonitorGroupRef | null
+  /**
+   * @deprecated Mirrors `group_id` as a zero or one element list, for the requests
+   * and the clients written before the single group rule. It disappears with the
+   * next release: read `group_id` and `group_name`.
+   */
   group_ids: number[]
   // Certificate watching (see docs/monitors.md §9).
   cert_watch: boolean
@@ -187,7 +199,23 @@ export interface Monitor {
 
 export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
   notification_ids?: number[]
+  /**
+   * The single group of the monitor. A request that omits it keeps the group the
+   * monitor already has, while 0 moves it to no group.
+   */
+  group_id?: number
+  /** @deprecated Use `group_id`: only its first entry is honoured. */
   group_ids?: number[]
+}
+
+/**
+ * MonitorGroupRef is the single group of a monitor as the API payload carries it:
+ * what the table renders and what the notification bodies read. It is null on an
+ * ungrouped monitor.
+ */
+export interface MonitorGroupRef {
+  id: number
+  name: string
 }
 
 /**
@@ -405,6 +433,12 @@ export interface BulkReport {
 export interface BulkOptions {
   text: string
   template_id: number
+  /**
+   * The single group the new monitors join (0 when they join none). A request that
+   * omits it falls back to the group the template carries.
+   */
+  group_id?: number
+  /** @deprecated Use `group_id`: only its first entry is honoured. */
   group_ids?: number[]
   active?: boolean
   dry_run?: boolean

@@ -172,7 +172,9 @@ A single decorated monitor.
 
 ### `POST /api/monitors`
 
-Body: `models.Monitor` fields plus `notification_ids` and `group_ids`. The type is
+Body: `models.Monitor` fields plus `notification_ids` and `group_id` (the
+deprecated `group_ids` list is still accepted, keeping only its first entry). The
+type is
 one of `http`, `keyword`, `tcp`, `dns`, `ssl`; the certificate switches
 `cert_watch`, `cert_notify` and the free form list `cert_warn_days` ride along.
 When `cert_watch` is on, the decorated monitor carries a `certificate` object
@@ -253,9 +255,12 @@ starts on the node that served the request.
 | PUT | `/api/monitor-groups/:id/monitors` | `{"monitor_ids": [6,7]}` |
 | POST | `/api/monitor-groups/:id/clone` | `{"name": "...", "deep": true, "copy_links": true}` |
 
-A monitor belongs to any number of groups: the create/update payload of a monitor
-takes `group_ids` (omitted = keep the current groups, `[]` = clear them) and the
-listing filters with `?group_id=`. Names are unique
+A monitor belongs to **one** group: the create/update payload takes `group_id`
+(omitted = keep the current group, `0` = no group) and the listing filters with
+`?group_id=`. Adding a monitor to a group from the group side (the `monitor_ids`
+of `PUT /api/monitor-groups/:id/monitors`) MOVES it out of the group it was in.
+The deprecated `group_ids` list is still accepted for one release and only its
+first entry is honoured, whatever the singular key says. Names are unique
 (`409 ERR_MONITOR_GROUP_INVALID`) and an unknown id answers
 `400 ERR_MONITOR_GROUP_INVALID` / `404 ERR_MONITOR_GROUP_NOT_FOUND`.
 
@@ -274,7 +279,7 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
 | POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{scope?, group_ids?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run, scope}` |
-| POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_ids?, active?, dry_run?}` |
+| POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_id?, group_ids?, active?, dry_run?}` |
 | GET | `/api/monitors/tags` | the tags in use with their monitor count (`?type=http` to narrow) |
 | POST | `/api/monitors/bulk/tags` | tags in bulk: `{monitor_ids?, group_ids?, tag?, add?, remove?, dry_run?}` |
 
@@ -644,7 +649,9 @@ with `ERR_DB_CREDENTIALS`/`ERR_DB_MISSING`; see `internal/boot/classify.go`.
 - Timestamps are RFC3339 in UTC (`2026-09-22T18:00:00.123456789Z`).
 - Heartbeat `status` is a string (`up`/`down`/`pending`/`maintenance`); the
   aggregated monitor status adds `degraded`/`unknown`.
-- `notification_ids` is always present on a monitor (possibly empty).
+- `notification_ids` is always present on a monitor (possibly empty), and so is
+  `group_id` / `group_name` (`0` and `""` when the monitor belongs to no group,
+  with `group` carrying both as one object or `null`).
 - The public API masks credentials (`basic_pass`, `bearer_token` -> `***`) unless
   `?include_secrets=true` is passed.
 - Monitor templates never return credentials: a template holds neither

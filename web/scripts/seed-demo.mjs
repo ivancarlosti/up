@@ -552,7 +552,7 @@ async function seedMonitors({ groups, templates, notifications }) {
       cert_warn_days: monitor.cert_warn_days ?? '',
       config: monitor.config,
       notification_ids: defaultNotifications,
-      group_ids: [groups.get(monitor.group).id],
+      group_id: groups.get(monitor.group).id,
     }
     if (monitor.template) {
       payload.template_uuid = templates.get(monitor.template).uuid

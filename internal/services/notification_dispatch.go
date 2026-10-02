@@ -22,7 +22,7 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *models.Moni
 	}
 
 	message := notify.NewMessage(event, monitor, status, detail, latencyMS, nodeID, s.cfg.AppURL,
-		s.groupNames(ctx, monitor.ID))
+		s.groupRef(ctx, monitor.ID))
 	logs := make([]models.NotificationLog, 0, len(links))
 
 	for _, link := range links {
@@ -106,27 +106,42 @@ func (s *NotificationService) Logs(ctx context.Context, limit int) ([]models.Not
 	return logs, nil
 }
 
-// groupNames returns the names of the groups a monitor belongs to, ordered the
-// way the UI lists them (sort order, then name) so the notification shows the
-// groups in the same order the operator sees.
+// groupRef returns the single group of a monitor: the id and the name the
+// notification bodies report.
 //
-// The lookup is resolved once per Dispatch, not once per channel. A failure is
-// logged and ignored: an alert must still be delivered without its groups rather
-// than not at all.
-func (s *NotificationService) groupNames(ctx context.Context, monitorID uint) []string {
-	var names []string
+// It is resolved here, and not read off the monitor, because the monitor a
+// notification is about comes from the check that just ran and not from a decorated
+// listing. It is passed to notify.NewMessage so every delivery path ends up with the
+// same populated payload.
+//
+// The lookup runs once per Dispatch, not once per channel. A failure is logged and
+// ignored (nil): an alert must still be delivered without its group rather than not
+// at all.
+func (s *NotificationService) groupRef(ctx context.Context, monitorID uint) *models.MonitorGroupRef {
+	var row struct {
+		ID   uint   `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}
 	err := s.db.WithContext(ctx).
 		Table("monitor_groups").
+		Select("monitor_groups.id, monitor_groups.name").
 		Joins("JOIN monitor_group_members ON monitor_group_members.group_id = monitor_groups.id").
 		Where("monitor_group_members.monitor_id = ?", monitorID).
-		Order("monitor_groups.sort_order ASC, monitor_groups.name ASC").
-		Pluck("monitor_groups.name", &names).Error
+		// A monitor belongs to one group. The order makes the pick deterministic
+		// even on a database that still holds a duplicate (the boot consolidation
+		// removes them): the group that comes first in the group list the operator
+		// sees, then its id.
+		Order("monitor_groups.sort_order ASC, monitor_groups.id ASC").
+		Scan(&row).Error
 	if err != nil {
-		s.log.Warn("could not load the groups of a monitor for a notification",
+		s.log.Warn("could not load the group of a monitor for a notification",
 			"monitor_id", monitorID, "error", err)
 		return nil
 	}
-	return names
+	if row.ID == 0 {
+		return nil
+	}
+	return &models.MonitorGroupRef{ID: row.ID, Name: row.Name}
 }
 
 // MaxResendInterval returns the largest re-notification interval configured on the

@@ -13,17 +13,25 @@ func (h *Container) bulkCreateMonitors(c *gin.Context) {
 	var payload struct {
 		Text       string `json:"text"`
 		TemplateID uint   `json:"template_id"`
-		GroupIDs   []uint `json:"group_ids"`
-		Active     *bool  `json:"active"`
-		DryRun     bool   `json:"dry_run"`
+		// GroupID is the single group the new monitors join. GroupIDs is the
+		// deprecated list form: it follows the same contract and only its first
+		// entry is honoured (an omitted GroupID falls back to it).
+		GroupID  *uint  `json:"group_id"`
+		GroupIDs []uint `json:"group_ids"`
+		Active   *bool  `json:"active"`
+		DryRun   bool   `json:"dry_run"`
 	}
 	if !bindJSON(c, &payload) {
 		return
 	}
+	var groupIDs *[]uint
+	if payload.GroupIDs != nil {
+		groupIDs = &payload.GroupIDs
+	}
 	report, createdIDs, err := h.Monitors.BulkCreate(c.Request.Context(), services.BulkOptions{
 		Text:       payload.Text,
 		TemplateID: payload.TemplateID,
-		GroupIDs:   payload.GroupIDs,
+		GroupIDs:   monitorGroupSelection(payload.GroupID, groupIDs),
 		Active:     payload.Active,
 		DryRun:     payload.DryRun,
 	}, h.MonitorTemplates)

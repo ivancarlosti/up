@@ -511,7 +511,7 @@ try {
       active: m.active,
       method: (m.config || {}).method,
       url: (m.config || {}).url,
-      groups: (m.group_ids || []).join(','),
+      groups: m.group_name ?? '',
     }))))`)
   await page.goto(`${url}/admin/monitor-templates`, { settle: 1200 })
   check('the link dialog opens', await clickInRow(page, editedName, /link every monitor|vincular/i))

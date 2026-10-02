@@ -98,7 +98,7 @@ Rendering rules (`planStatusPage` in `internal/services/statuspage_groups.go`):
 | Situation | Result |
 |---|---|
 | A monitor is both selected explicitly and inside a group | rendered **once**, in the explicit list |
-| A monitor belongs to two groups linked to the page | rendered in the **first** group that claims it |
+| A monitor belongs to two linked groups | cannot happen: a monitor belongs to one group (the "first group that claims it" rule stays as a guard) |
 | A group linked to the page is empty | **no** section (an empty heading looks like a bug) |
 | Monitors selected explicitly but in no group | last section, without a heading |
 | `display_name` on the link | replaces the group name **on that page only** |

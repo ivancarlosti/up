@@ -20,8 +20,10 @@ func (m Message) Text() string {
 	if tags := m.TagsCSV(); tags != "" {
 		fmt.Fprintf(&b, "Tags    : %s\n", tags)
 	}
-	if groups := m.GroupsCSV(); groups != "" {
-		fmt.Fprintf(&b, "Groups  : %s\n", groups)
+	if group := m.MonitorGroup; group != "" {
+		// The single group of the monitor. The deprecated array form carries
+		// exactly the same name, so the two can never disagree.
+		fmt.Fprintf(&b, "Group   : %s\n", group)
 	}
 	fmt.Fprintf(&b, "Latency : %d ms\n", m.LatencyMS)
 	if m.NodeID != "" {
@@ -49,7 +51,7 @@ func (m Message) HTML() string {
 		{"Status", strings.ToUpper(m.Status)},
 		{"Detail", m.Message},
 		{"Tags", m.TagsCSV()},
-		{"Groups", m.GroupsCSV()},
+		{"Group", m.MonitorGroup},
 		{"Latency", fmt.Sprintf("%d ms", m.LatencyMS)},
 		{"Node", m.NodeID},
 		{"Time", m.Timestamp.Format(time.RFC1123)},

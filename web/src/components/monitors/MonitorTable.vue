@@ -14,7 +14,7 @@ import { formatInterval, formatUptime, formatUptimeWindow } from '@/lib/format'
 import { monitorTarget, monitorTargetURL } from '@/lib/monitor-config'
 import type { MonitorSortState } from '@/lib/monitor-sort'
 import type { MonitorSortKey } from '@/lib/sort'
-import type { Monitor, MonitorGroup } from '@/lib/types'
+import type { Monitor } from '@/lib/types'
 
 /**
  * MonitorTable is the sortable table of the dashboard, the one monitors screen.
@@ -29,7 +29,6 @@ export type MonitorTableAction = 'detail' | 'edit' | 'clone' | 'check' | 'toggle
 const props = withDefaults(
   defineProps<{
     monitors: Monitor[]
-    groups?: MonitorGroup[]
     sort: MonitorSortState
     loading?: boolean
     /** Which row actions to render (their order is fixed by the template). */
@@ -38,7 +37,6 @@ const props = withDefaults(
     emptyDescription?: string
   }>(),
   {
-    groups: () => [],
     loading: false,
     actions: () => ['edit', 'remove'] as MonitorTableAction[],
     emptyTitle: '',
@@ -57,8 +55,6 @@ const emit = defineEmits<{
 }>()
 
 const { t, locale } = useI18n()
-
-const groupNames = computed(() => new Map(props.groups.map((group) => [group.id, group.name])))
 
 /** hasCertificates reveals the validity column only when it says something. */
 const hasCertificates = computed(() => props.monitors.some((monitor) => monitor.cert_watch || monitor.certificate))
@@ -200,12 +196,8 @@ function targetLink(monitor: Monitor): string {
             </td>
             <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
             <td>
-              <div class="flex flex-wrap gap-1">
-                <Badge v-for="id in monitor.group_ids ?? []" :key="id" variant="outline">
-                  {{ groupNames.get(id) ?? id }}
-                </Badge>
-                <span v-if="!(monitor.group_ids ?? []).length" class="text-muted-foreground">—</span>
-              </div>
+              <Badge v-if="monitor.group_name" variant="outline">{{ monitor.group_name }}</Badge>
+              <span v-else class="text-muted-foreground">—</span>
             </td>
             <td v-if="hasCertificates">
               <Badge

@@ -100,6 +100,8 @@ what a channel created from the UI uses):
   "status": "{{.Status}}",
   "message": "{{.Message}}",
   "tags": {{json .MonitorTags}},
+  "group": "{{.MonitorGroup}}",
+  "group_id": {{.MonitorGroupID}},
   "groups": {{json .MonitorGroups}},
   "latency_ms": {{.LatencyMS}},
   "node": "{{.NodeID}}",
@@ -113,6 +115,11 @@ dialog renders. A row with no template at all falls back to
 `Message.jsonPayload()`: the same fields plus `instance_url`, `dashboard_url`,
 `tags_csv` and `groups_csv`, which a template can reach through
 `{{.InstanceURL}}`, `{{.DashboardURL}}`, `{{.TagsCSV}}` and `{{.GroupsCSV}}`.
+`group` and `group_id` are the single group of the monitor (`""` and `0` when it
+belongs to none); `groups` and `groups_csv` are the deprecated mirrors of the same
+value, kept for one release so a body written before the single group rule keeps
+rendering. Adding `group` and `group_id` to the block only affects the channels
+saved after the change, for the same reason as `dashboard_url` below.
 Adding `dashboard_url` to the block only affects the channels saved after it
 appeared: a row that already stored a template keeps it verbatim (the dialog
 textarea has no *reset* button), so an existing channel picks the new field up
@@ -183,8 +190,9 @@ Available template data (the `notify.Message` struct):
 | `{{.MonitorURL}}` | target (URL, `host:port` or `TYPE name @resolver`) |
 | `{{.MonitorDescription}}` | description of the monitor |
 | `{{.MonitorTags}}` | tags of the monitor, as an array (`["web","api"]`) |
-| `{{.MonitorGroups}}` | names of the groups the monitor belongs to, as an array, in the group sort order |
-| `{{.TagsCSV}}`, `{{.GroupsCSV}}` | the same tags/groups as one comma separated string (`web,api`) |
+| `{{.MonitorGroup}}`, `{{.MonitorGroupID}}` | the single group of the monitor (name and id; `""` and `0` when it belongs to none) |
+| `{{.MonitorGroups}}` | deprecated: the same group as a zero or one element array |
+| `{{.TagsCSV}}`, `{{.GroupsCSV}}` | the same tags/group as one comma separated string (`web,api`) |
 | `{{.Message}}` | check result detail (`200 OK`, `connection refused`, ...) |
 | `{{.LatencyMS}}` | latency in milliseconds (number) |
 | `{{.NodeID}}` | node that produced the heartbeat |
@@ -218,12 +226,14 @@ Template helpers: `json`, `urlquery`, `upper`, `lower`, `trim`,
 `default "fallback" .Value`.
 
 `{{.MonitorTags}}` and `{{.MonitorGroups}}` are slices, so use `{{json .MonitorTags}}`
-to embed them in a JSON body or `{{range .MonitorTags}}…{{end}}` to walk them. Use
-`{{.TagsCSV}}` / `{{.GroupsCSV}}` when a single flat string is easier to consume:
-those keep the same order as the arrays (a monitor with no tag renders `[]` and
-`""`, never `null`). The tags and groups of the monitor are also listed in the
-plain text/HTML body used by SMTP, Slack, Discord and Telegram, when they are not
-empty, followed by the `Dashboard:` link of the event when `APP_URL` is set.
+to embed them in a JSON body or `{{range .MonitorTags}}…{{end}}` to walk them. The
+group is a plain string (`{{.MonitorGroup}}`) with its id next to it
+(`{{.MonitorGroupID}}`). Use `{{.TagsCSV}}` / `{{.GroupsCSV}}` when a single flat
+string is easier to consume: those keep the same order as the arrays (a monitor with
+no tag renders `[]` and `""`, never `null`). The tags and the group of the monitor
+are also listed in the plain text/HTML body used by SMTP, Slack, Discord and
+Telegram, when they are not empty, followed by the `Dashboard:` link of the event
+when `APP_URL` is set.
 
 Example: Slack-compatible payload
 

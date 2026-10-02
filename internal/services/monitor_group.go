@@ -437,28 +437,50 @@ func (s *MonitorGroupService) uniqueName(ctx context.Context, base string) (stri
 		fmt.Sprintf("could not find a free name for %q", base))
 }
 
-// replaceMonitorGroupMembers rewrites the members of a group, validating that
-// the monitors exist so a deleted monitor cannot leave a dangling membership.
-func replaceMonitorGroupMembers(tx *gorm.DB, groupID uint, monitorIDs []uint) error {
-	if monitorIDs != nil {
-		ids := uniqueIDs(monitorIDs)
-		if len(ids) > 0 {
-			var found int64
-			if err := tx.Model(&models.Monitor{}).Where("id IN ?", ids).Count(&found).Error; err != nil {
-				return err
-			}
-			if int(found) != len(ids) {
-				return ErrBadRequest(i18n.CodeMonitorGroupInvalid, "monitor_ids contains an unknown monitor")
-			}
+// firstGroupID returns the first usable id of a group list, or 0 when the list
+// holds none.
+//
+// The monitor form writes ONE group now, but a request may still send the
+// deprecated group_ids list: keeping its first entry is what turns "two groups"
+// into "the first group" without failing the request, and it is the only place the
+// truncation is decided.
+func firstGroupID(ids []uint) uint {
+	for _, id := range ids {
+		if id != 0 {
+			return id
 		}
 	}
-	if err := tx.Where("group_id = ?", groupID).Delete(&models.MonitorGroupMember{}).Error; err != nil {
+	return 0
+}
+
+// replaceMonitorGroupMembers rewrites the members of a group, validating that
+// the monitors exist so a deleted monitor cannot leave a dangling membership.
+//
+// A monitor belongs to at most one group, so adding it here MOVES it: its
+// membership in another group is dropped in the same statement. Without that a
+// monitor that joined a group from the group editor would be claimed by two groups
+// at once, which is exactly the state the single group rule forbids.
+func replaceMonitorGroupMembers(tx *gorm.DB, groupID uint, monitorIDs []uint) error {
+	ids := uniqueIDs(monitorIDs)
+	if len(ids) > 0 {
+		var found int64
+		if err := tx.Model(&models.Monitor{}).Where("id IN ?", ids).Count(&found).Error; err != nil {
+			return err
+		}
+		if int(found) != len(ids) {
+			return ErrBadRequest(i18n.CodeMonitorGroupInvalid, "monitor_ids contains an unknown monitor")
+		}
+	}
+	// The members of the group and the monitors that are about to join it (leaving
+	// another group) are the memberships this call owns; everything else stays.
+	if err := tx.Where("group_id = ? OR monitor_id IN ?", groupID, ids).
+		Delete(&models.MonitorGroupMember{}).Error; err != nil {
 		return err
 	}
-	order := 0
-	for _, id := range uniqueIDs(monitorIDs) {
-		order++
-		member := models.MonitorGroupMember{GroupID: groupID, MonitorID: id, SortOrder: order}
+	// The position in the list is what the group editor (and the group listing)
+	// orders the members by.
+	for index, id := range ids {
+		member := models.MonitorGroupMember{GroupID: groupID, MonitorID: id, SortOrder: index + 1}
 		if err := tx.Create(&member).Error; err != nil {
 			return err
 		}

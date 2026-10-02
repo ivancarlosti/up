@@ -25,6 +25,7 @@ import (
 	"github.com/ivancarlosti/up/internal/database"
 	"github.com/ivancarlosti/up/internal/handlers"
 	"github.com/ivancarlosti/up/internal/i18n"
+	"github.com/ivancarlosti/up/internal/services"
 )
 
 func main() {
@@ -149,6 +150,19 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	// second boot changes nothing.
 	if err := step("backfill", boot.PhaseBackfilling, i18n.CodeDatabaseMigration, func() error {
 		return database.Backfill(ctx, db, cfg, log)
+	}); err != nil {
+		return nil, err
+	}
+
+	// The monitors that predate the single group rule are reduced to one group
+	// each. It runs AFTER the backfill on purpose: the tombstones it publishes name
+	// the uuid of both ends, and a row that predates the sync identity has no uuid
+	// until the backfill has stamped it. The phase is the backfill one: this IS a
+	// data backfill (it rewrites rows an older release wrote), and reusing the phase
+	// keeps the progress the UI reports honest without adding a sentence to every
+	// locale. It is idempotent, so a second boot changes nothing.
+	if err := step("monitor_groups", boot.PhaseBackfilling, i18n.CodeDatabaseMigration, func() error {
+		return services.ConsolidateSingleGroupMembership(ctx, db, cfg, log)
 	}); err != nil {
 		return nil, err
 	}

@@ -225,7 +225,7 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 		if err := replaceMonitorNotifications(tx, monitor.ID, notificationIDs); err != nil {
 			return err
 		}
-		if err := replaceMonitorGroups(tx, monitor.ID, groupIDs); err != nil {
+		if err := setMonitorGroup(tx, monitor.ID, groupIDs); err != nil {
 			return err
 		}
 		state := models.MonitorState{
@@ -330,7 +330,7 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 			}
 		}
 		if groupIDs != nil {
-			if err := replaceMonitorGroups(tx, monitor.ID, groupIDs); err != nil {
+			if err := setMonitorGroup(tx, monitor.ID, groupIDs); err != nil {
 				return err
 			}
 		}
@@ -467,27 +467,56 @@ func replaceMonitorNotifications(tx *gorm.DB, monitorID uint, notificationIDs []
 	return nil
 }
 
-// replaceMonitorGroups rewrites the groups a monitor belongs to (the reverse of
+// setMonitorGroup sets the single group of a monitor (the reverse of
 // replaceMonitorGroupMembers: here the monitor is the fixed side).
-func replaceMonitorGroups(tx *gorm.DB, monitorID uint, groupIDs []uint) error {
-	if err := validateGroupIDs(tx, groupIDs); err != nil {
-		return err
+//
+// A monitor belongs to at most one group, so a LIST is accepted only for
+// compatibility: an older client still sends group_ids, and its first usable entry
+// is what the monitor keeps instead of the request failing (the key disappears with
+// the next release). A nil slice means "leave the current group alone" and an empty
+// one means "no group", the same contract the notification links follow.
+//
+// The membership is replaced rather than updated in place, and the caller publishes
+// the before/after diff (publishMonitor), so a peer sees exactly what moved.
+func setMonitorGroup(tx *gorm.DB, monitorID uint, groupIDs []uint) error {
+	if groupIDs == nil {
+		return nil
+	}
+	groupID := firstGroupID(groupIDs)
+	if groupID != 0 {
+		if err := validateGroupIDs(tx, []uint{groupID}); err != nil {
+			return err
+		}
+	}
+	order := 1
+	if groupID != 0 {
+		// A monitor that stays in its group keeps its position inside it; one that
+		// moves goes to the END of the group it joins, so a save never silently
+		// reorders a group the operator did not touch.
+		var existing models.MonitorGroupMember
+		switch err := tx.Where("monitor_id = ? AND group_id = ?", monitorID, groupID).
+			Take(&existing).Error; {
+		case err == nil:
+			order = existing.SortOrder
+		case err == gorm.ErrRecordNotFound:
+			var last int
+			if err := tx.Model(&models.MonitorGroupMember{}).
+				Where("group_id = ?", groupID).
+				Select("COALESCE(MAX(sort_order), 0)").
+				Scan(&last).Error; err != nil {
+				return err
+			}
+			order = last + 1
+		default:
+			return err
+		}
 	}
 	if err := tx.Where("monitor_id = ?", monitorID).Delete(&models.MonitorGroupMember{}).Error; err != nil {
 		return err
 	}
-	seen := map[uint]bool{}
-	order := 0
-	for _, id := range groupIDs {
-		if id == 0 || seen[id] {
-			continue
-		}
-		seen[id] = true
-		order++
-		member := models.MonitorGroupMember{GroupID: id, MonitorID: monitorID, SortOrder: order}
-		if err := tx.Create(&member).Error; err != nil {
-			return err
-		}
+	if groupID == 0 {
+		return nil
 	}
-	return nil
+	member := models.MonitorGroupMember{GroupID: groupID, MonitorID: monitorID, SortOrder: order}
+	return tx.Create(&member).Error
 }

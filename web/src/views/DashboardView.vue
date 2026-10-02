@@ -227,7 +227,7 @@ const filtered = computed(() => {
   const term = search.value.trim().toLowerCase()
   const groupID = Number(groupFilter.value) || 0
   return list.value.filter((monitor) => {
-    if (groupID > 0 && !(monitor.group_ids ?? []).includes(groupID)) return false
+    if (groupID > 0 && monitor.group_id !== groupID) return false
     if (typeFilter.value && monitor.type !== typeFilter.value) return false
     if (statusFilter.value) {
       if (statusFilter.value === 'paused') {
@@ -489,7 +489,6 @@ onMounted(async () => {
 
     <MonitorTable
       :monitors="sorted"
-      :groups="groups"
       :sort="sort"
       :loading="monitors.loading"
       :actions="['detail', 'check', 'toggle', 'edit', 'clone', 'remove']"

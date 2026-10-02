@@ -178,11 +178,12 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		"deleteStatusPageSelection": "shared cascade; the caller publishes the tombstone",
 		"deleteMonitorCascade":      "shared cascade; the caller publishes the tombstones",
 		"removeRelation":            "apply path (no echo)",
+		"linkRelation":              "apply path (no echo)",
 		// Shared join-table writers. Their callers take a before/after snapshot and
 		// publish exactly what moved (publishMonitor, publishGroup), which is what keeps
 		// a membership with one writer per edit.
 		"replaceMonitorGroupMembers":  "caller publishes the membership diff",
-		"replaceMonitorGroups":        "caller publishes the membership diff",
+		"setMonitorGroup":             "caller publishes the membership diff",
 		"replaceMonitorNotifications": "caller publishes the link diff",
 		// The mirror of a manual domain expiration date. Its caller (Create and
 		// Update) publishes every touched sibling through publishDomainSiblings, in

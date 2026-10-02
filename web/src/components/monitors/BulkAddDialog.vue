@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { Eye, ListPlus } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
-import Checkbox from '@/components/ui/Checkbox.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
@@ -32,10 +31,12 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean]; created: [] }>
 const { t } = useI18n()
 const toasts = useToastStore()
 
-const form = reactive<{ text: string; templateId: number | null; groupIds: number[]; active: boolean }>({
+const form = reactive<{ text: string; templateId: number | null; groupId: string; active: boolean }>({
   text: '',
   templateId: null,
-  groupIds: [],
+  // The Select reports the chosen value as a string; it is converted to the number
+  // the API expects when the request is built. 0 is "no group".
+  groupId: '0',
   active: true,
 })
 
@@ -84,7 +85,9 @@ async function run(dryRun: boolean): Promise<void> {
     const response = await api.bulkCreateMonitors({
       text: form.text,
       template_id: Number(form.templateId),
-      group_ids: form.groupIds,
+      // The single group of the run: 0 means "no group", so the group a template
+      // may carry can never decide for the operator.
+      group_id: Number(form.groupId) || 0,
       active: form.active,
       dry_run: dryRun,
     })
@@ -101,13 +104,11 @@ async function run(dryRun: boolean): Promise<void> {
   }
 }
 
-function toggleGroup(id: number, value: boolean): void {
-  const set = new Set(form.groupIds)
-  if (value) set.add(id)
-  else set.delete(id)
-  form.groupIds = [...set]
-  preview()
-}
+/** groupOptions is the single group the new monitors join, plus "no group". */
+const groupOptions = computed(() => [
+  { value: 0, label: t('monitor.noGroup') },
+  ...props.groups.map((group) => ({ value: group.id, label: group.name })),
+])
 
 /** statusVariant colours the per row badge. */
 function statusVariant(status: string): 'success' | 'secondary' | 'danger' | 'outline' {
@@ -154,18 +155,9 @@ function statusVariant(status: string): 'success' | 'secondary' | 'danger' | 'ou
         />
       </div>
 
-      <div v-if="props.groups.length" class="grid gap-2">
-        <Label>{{ t('bulk.groups') }}</Label>
-        <div class="flex flex-wrap gap-4">
-          <Checkbox
-            v-for="group in props.groups"
-            :key="group.id"
-            :model-value="form.groupIds.includes(group.id)"
-            @update:model-value="toggleGroup(group.id, $event)"
-          >
-            {{ group.name }}
-          </Checkbox>
-        </div>
+      <div v-if="props.groups.length" class="grid gap-1">
+        <Label for="bulk-group">{{ t('bulk.groups') }}</Label>
+        <Select id="bulk-group" v-model="form.groupId" :options="groupOptions" />
       </div>
 
       <p v-if="error" class="text-xs text-status-down">{{ error }}</p>

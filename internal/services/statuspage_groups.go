@@ -22,10 +22,12 @@ type StatusPageSection struct {
 // into the ordered sections and the flat monitor list used by `page.monitors`.
 //
 // Rules: the explicit monitors come first, in their own order; then every linked
-// group in the page order. A monitor that belongs to several groups is rendered
-// only in the first group that claims it, an empty group produces no section
-// (it would be an empty heading on the public page) and the flat list keeps the
-// exact order of the sections, so the API payload and the page never disagree.
+// group in the page order. A monitor belongs to one group, so it can only be
+// claimed by the group it is in: the "already seen" check below is what keeps a
+// monitor that is BOTH selected explicitly and inside a linked group from being
+// rendered twice. An empty group produces no section (it would be an empty heading
+// on the public page) and the flat list keeps the exact order of the sections, so
+// the API payload and the page never disagree.
 func planStatusPage(items []models.StatusPageMonitor, links []models.StatusPageGroupLink,
 	members map[uint][]uint, names map[uint]string) ([]StatusPageSection, []uint) {
 

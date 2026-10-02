@@ -55,10 +55,23 @@ func (g *MonitorGroup) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// MonitorGroupMember links a monitor to a group. A monitor can belong to any
-// number of groups (the status page and the dashboard filters rely on it).
+// MonitorGroupMember links a monitor to a group. A monitor belongs to at most one
+// group: the grouping is how the operator organises the list, and a monitor in two
+// groups had two places claiming it (and appeared twice on a page that included
+// both). The write paths keep the rule - setMonitorGroup replaces the membership
+// of a monitor and replaceMonitorGroupMembers moves the monitors that join a group
+// - and the unique index on monitor_id (added once the tables are known to hold no
+// duplicate) enforces it in the schema.
 type MonitorGroupMember struct {
 	GroupID   uint `gorm:"primaryKey;index" json:"group_id"`
 	MonitorID uint `gorm:"primaryKey;index" json:"monitor_id"`
 	SortOrder int  `gorm:"not null;default:0" json:"sort_order"`
+}
+
+// MonitorGroupRef is the group of a monitor as the payload exposes it: the id that
+// a write uses and the name the UI (and the notification bodies) read. A monitor
+// carries at most one of them, and none at all when it belongs to no group.
+type MonitorGroupRef struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
 }

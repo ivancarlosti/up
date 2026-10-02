@@ -207,7 +207,7 @@ type decorateSources struct {
 	votes        map[uint][]models.NodeVote
 	aggregates   map[uint]models.AggregateStatus
 	links        []models.MonitorNotification
-	groups       map[uint][]uint
+	groups       map[uint]models.MonitorGroupRef
 	certificates map[uint]*models.CertificateInfo
 	domains      map[uint]*models.DomainInfo
 	templates    map[string]string
@@ -290,7 +290,7 @@ func (s *MonitorService) gatherSources(ctx context.Context, monitors []*models.M
 		return err
 	})
 	group.Go(func() error {
-		groups, err := s.AllGroupMembers(gctx)
+		groups, err := s.GroupRefsByMonitor(gctx)
 		sources.groups = groups
 		return err
 	})
@@ -375,9 +375,19 @@ func (s *MonitorService) applySources(monitors []*models.Monitor, windowHours in
 		} else {
 			m.NotificationIDs = []uint{}
 		}
-		if ids, ok := sources.groups[m.ID]; ok {
-			m.GroupIDs = ids
+		// One group per monitor: the id, the name and the pair travel together, so
+		// the dashboard, the group editor and the notification bodies can never
+		// disagree about which group a monitor is in. GroupIDs is the deprecated
+		// mirror of the id.
+		if ref, ok := sources.groups[m.ID]; ok {
+			m.GroupID = ref.ID
+			m.GroupName = ref.Name
+			m.Group = &ref
+			m.GroupIDs = []uint{ref.ID}
 		} else {
+			m.GroupID = 0
+			m.GroupName = ""
+			m.Group = nil
 			m.GroupIDs = []uint{}
 		}
 		if m.CertWatch {

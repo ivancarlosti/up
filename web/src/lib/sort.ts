@@ -80,13 +80,15 @@ function expiryDaysOf(monitor: Monitor, key: 'certificate' | 'domain'): number |
   return typeof monitor.domain.days_left === 'number' ? monitor.domain.days_left : null
 }
 
-/** groupLabelOf is the joined group names of a monitor ("" when ungrouped). */
+/**
+ * groupLabelOf is the group of a monitor ("" when ungrouped).
+ *
+ * The monitor carries the name of its single group; the map is only a fallback for
+ * a payload that knows the id alone (a group renamed in another tab while the list
+ * is open, which the API resolves on the next load).
+ */
 function groupLabelOf(monitor: Monitor, context: MonitorSortContext): string {
-  return (monitor.group_ids ?? [])
-    .map((id) => context.groupNames.get(id) ?? '')
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, context.locale))
-    .join(', ')
+  return monitor.group_name || context.groupNames.get(monitor.group_id) || ''
 }
 
 /** compareMonitors orders two rows for a column. */

@@ -39,17 +39,34 @@ func (s *MonitorService) AllLinks(ctx context.Context) ([]models.MonitorNotifica
 	return links, nil
 }
 
-// AllGroupMembers returns the group memberships of every monitor, grouped by
-// monitor id (used by Decorate: the dashboard and the monitor list show the
-// groups of each row).
-func (s *MonitorService) AllGroupMembers(ctx context.Context) (map[uint][]uint, error) {
-	var members []models.MonitorGroupMember
-	if err := s.db.WithContext(ctx).Order("group_id ASC").Find(&members).Error; err != nil {
+// GroupRefsByMonitor returns the single group of every monitor, keyed by monitor
+// id, as the id and the name the payload reports (used by Decorate: the dashboard
+// and the monitor list show the group of each row, and the notification bodies
+// read its name).
+//
+// A monitor belongs to at most one group, so the map holds one ref per monitor at
+// most. The first row per monitor wins, which keeps the read deterministic on a
+// database that still holds a duplicate (the boot consolidation removes them).
+func (s *MonitorService) GroupRefsByMonitor(ctx context.Context) (map[uint]models.MonitorGroupRef, error) {
+	var rows []struct {
+		MonitorID uint   `gorm:"column:monitor_id"`
+		GroupID   uint   `gorm:"column:group_id"`
+		Name      string `gorm:"column:name"`
+	}
+	if err := s.db.WithContext(ctx).
+		Table("monitor_group_members AS m").
+		Select("m.monitor_id, m.group_id, g.name").
+		Joins("JOIN monitor_groups AS g ON g.id = m.group_id").
+		Order("m.monitor_id ASC, g.sort_order ASC, g.id ASC").
+		Scan(&rows).Error; err != nil {
 		return nil, ErrInternal(err)
 	}
-	out := make(map[uint][]uint, len(members))
-	for _, member := range members {
-		out[member.MonitorID] = append(out[member.MonitorID], member.GroupID)
+	out := make(map[uint]models.MonitorGroupRef, len(rows))
+	for _, row := range rows {
+		if _, seen := out[row.MonitorID]; seen {
+			continue
+		}
+		out[row.MonitorID] = models.MonitorGroupRef{ID: row.GroupID, Name: row.Name}
 	}
 	return out, nil
 }

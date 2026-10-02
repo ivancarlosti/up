@@ -160,7 +160,8 @@ curl -b cookies.txt -X POST http://localhost:3000/api/monitors \
       "max_redirects": 3,
       "ignore_tls": false
     },
-    "notification_ids": [1, 2]
+    "notification_ids": [1, 2],
+    "group_id": 1
   }'
 ```
 
@@ -204,6 +205,12 @@ TCP and DNS example:
 
 `notification_ids` replaces the links on every update; omit the field to keep the
 current links, send `[]` to clear them.
+
+`group_id` is the single group of the monitor and follows the same contract: omit
+the field to keep the current group, send `0` (or an empty `group_ids`) to move the
+monitor to no group. The deprecated `group_ids` list is still accepted for one
+release and only its first entry is honoured; the response mirrors the group back
+as `group_ids` (a zero or one element list) for the clients that still read it.
 
 ## 6. Other operations
 
@@ -283,9 +290,15 @@ monitor to a group makes it appear on every page that includes the group.
 
 Rules that matter in practice:
 
-- A monitor belongs to **any number** of groups. On the monitor payload
-  `group_ids` follows the same contract as `notification_ids`: omitted keeps the
-  current groups, `[]` clears them.
+- A monitor belongs to **one** group. On the monitor payload `group_id` follows the
+  same contract as `notification_ids`: omitted keeps the current group, `0` clears
+  it. The deprecated `group_ids` list is still accepted (its first entry is kept)
+  and the response mirrors `group_id` back as a zero or one element list; both keys
+  disappear with the next release.
+- Adding a monitor to a group from the group side (`PUT
+  /api/monitor-groups/:id/monitors`) MOVES it out of the group it was in: a monitor
+  claimed by two groups appeared twice on a status page that included both, which
+  is what the single row per monitor in `monitor_group_members` prevents.
 - Group names are unique (`409 ERR_MONITOR_GROUP_INVALID`); the ids in
   `monitor_ids`/`group_ids` are validated, so a typo answers
   `400 ERR_MONITOR_GROUP_INVALID` instead of creating a dangling link.

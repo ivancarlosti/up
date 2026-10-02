@@ -55,12 +55,39 @@ type BulkReport struct {
 type BulkOptions struct {
 	Text       string
 	TemplateID uint
-	// GroupIDs adds the new monitors to these groups (on top of the ones the
-	// template already carries).
+	// GroupIDs is the single group the new monitors join. The key is still the
+	// deprecated list form: only the first entry is used (see bulkGroupIDs), and
+	// it wins over the group the template carries.
 	GroupIDs []uint
 	// Active overrides the template default; nil keeps it.
 	Active *bool
 	DryRun bool
+}
+
+// bulkGroupIDs resolves the group a bulk created monitor joins.
+//
+// A nil list means the request did not mention a group at all, so the group the
+// template carries applies - the same "not mentioned" contract the monitor form
+// follows. An empty list means "no group" and wins over the template, and a filled
+// one names the group. Both sides are the deprecated list form, so only their first
+// usable entry counts.
+func bulkGroupIDs(requested, fromTemplate []uint) []uint {
+	if requested == nil {
+		return templateGroupIDs(fromTemplate)
+	}
+	if id := firstGroupID(requested); id != 0 {
+		return []uint{id}
+	}
+	return []uint{}
+}
+
+// templateGroupIDs is the group a template carries, as the deprecated one element
+// list. A template that still names several keeps the first.
+func templateGroupIDs(ids []uint) []uint {
+	if id := firstGroupID(ids); id != 0 {
+		return []uint{id}
+	}
+	return []uint{}
 }
 
 // ParseBulkText turns pasted text into rows.

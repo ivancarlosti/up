@@ -184,7 +184,18 @@ type Monitor struct {
 	HeartbeatBars   []string   `gorm:"-" json:"heartbeat_bars,omitempty"`
 	Votes           []NodeVote `gorm:"-" json:"votes,omitempty"`
 	NotificationIDs []uint     `gorm:"-" json:"notification_ids"`
-	GroupIDs        []uint     `gorm:"-" json:"group_ids"`
+	// GroupID, GroupName and Group are the single group of the monitor: the id a
+	// write uses, the name the UI shows, and both together. They are zero, empty
+	// and null when the monitor belongs to no group. Notification bodies and the
+	// dashboard read the same three values.
+	GroupID   uint             `gorm:"-" json:"group_id"`
+	GroupName string           `gorm:"-" json:"group_name"`
+	Group     *MonitorGroupRef `gorm:"-" json:"group"`
+	// GroupIDs is DEPRECATED and mirrors GroupID as a zero or one element list, so
+	// an older client keeps reading an answer: the key goes away with the next
+	// release. A write still accepts it (see monitorPayload) and keeps its first
+	// usable entry.
+	GroupIDs []uint `gorm:"-" json:"group_ids"`
 	// Certificate is the last TLS certificate read by a probe (only when the
 	// monitor watches its certificate).
 	Certificate *CertificateInfo `gorm:"-" json:"certificate,omitempty"`

@@ -18,8 +18,41 @@ type monitorPayload struct {
 	// NotificationIDs is a pointer so an omitted field keeps the current links
 	// on update, while an empty list clears them.
 	NotificationIDs *[]uint `json:"notification_ids"`
-	// GroupIDs follows the same contract for the monitor groups.
+	// GroupID is the single group of the monitor, a pointer for the same reason:
+	// an omitted field keeps the current group on update, while 0 moves the
+	// monitor to no group.
+	GroupID *uint `json:"group_id"`
+	// GroupIDs is DEPRECATED. It follows the same contract and only its first
+	// entry is honoured, so a client written against the multi group API (and a
+	// request built before the single group rule) keeps working until the key
+	// disappears with the next release.
 	GroupIDs *[]uint `json:"group_ids"`
+}
+
+// monitorGroupSelection resolves the two accepted group keys of a monitor payload
+// into the list the service receives.
+//
+// The singular key wins when both are sent: it is what the form writes now, and the
+// deprecated list is only read so an older client keeps meaning what it meant, with
+// its first entry honoured (setMonitorGroup truncates it).
+//
+// A nil result means "not mentioned" - an update then keeps the group the monitor
+// already has - while a non-nil empty slice means "no group". It is the same
+// contract the notification links follow.
+func monitorGroupSelection(groupID *uint, groupIDs *[]uint) []uint {
+	if groupID != nil {
+		if *groupID == 0 {
+			return []uint{}
+		}
+		return []uint{*groupID}
+	}
+	if groupIDs == nil {
+		return nil
+	}
+	if *groupIDs == nil {
+		return []uint{}
+	}
+	return *groupIDs
 }
 
 // monitorFilter reads the listing filters from the query string.
@@ -135,9 +168,11 @@ func (h *Container) createMonitor(c *gin.Context) {
 	if payload.NotificationIDs != nil {
 		ids = *payload.NotificationIDs
 	}
-	groupIDs := []uint{}
-	if payload.GroupIDs != nil {
-		groupIDs = *payload.GroupIDs
+	groupIDs := monitorGroupSelection(payload.GroupID, payload.GroupIDs)
+	if groupIDs == nil {
+		// A create has no current group to keep, so "not mentioned" and "no group"
+		// describe the same new row.
+		groupIDs = []uint{}
 	}
 	if err := h.Monitors.Create(c.Request.Context(), &payload.Monitor, ids, groupIDs); err != nil {
 		api.WriteServiceError(c, err)
@@ -173,14 +208,10 @@ func (h *Container) updateMonitor(c *gin.Context) {
 			notificationIDs = []uint{}
 		}
 	}
-	// Same contract for the groups.
-	var groupIDs []uint
-	if payload.GroupIDs != nil {
-		groupIDs = *payload.GroupIDs
-		if groupIDs == nil {
-			groupIDs = []uint{}
-		}
-	}
+	// An omitted group_id (or group_ids) keeps the current group, while 0 or an
+	// empty list moves the monitor to no group: monitorGroupSelection resolves the
+	// two accepted keys into that contract.
+	groupIDs := monitorGroupSelection(payload.GroupID, payload.GroupIDs)
 	if err := h.Monitors.Update(c.Request.Context(), &payload.Monitor, notificationIDs, groupIDs); err != nil {
 		api.WriteServiceError(c, err)
 		return
