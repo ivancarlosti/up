@@ -12,6 +12,7 @@ import (
 // percentile in Go: MySQL and MariaDB have no portable percentile function.
 func (s *StatsService) percentile95(ctx context.Context, monitorID uint, since time.Time) int64 {
 	const sampleSize = 500
+	since = queryTime(since)
 	var latencies []int64
 	if err := s.db.WithContext(ctx).
 		Model(&models.Heartbeat{}).
@@ -75,6 +76,7 @@ func (s *StatsService) LatestPerNode(ctx context.Context, monitorIDs []uint, sin
 	if len(monitorIDs) == 0 {
 		return nil, nil
 	}
+	since = queryTime(since)
 	var heartbeats []models.Heartbeat
 	query := `
 		SELECT h.* FROM heartbeats h
@@ -99,9 +101,10 @@ func (s *StatsService) List(ctx context.Context, monitorID uint, hours, limit in
 	if hours <= 0 {
 		hours = 24
 	}
+	since := queryTime(time.Now().UTC().Add(-time.Duration(hours) * time.Hour))
 	var heartbeats []models.Heartbeat
 	err := s.db.WithContext(ctx).
-		Where("monitor_id = ? AND created_at >= ?", monitorID, time.Now().UTC().Add(-time.Duration(hours)*time.Hour)).
+		Where("monitor_id = ? AND created_at >= ?", monitorID, since).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&heartbeats).Error
@@ -160,24 +163,26 @@ func (s *StatsService) CountOlderThan(ctx context.Context, before time.Time) (in
 	return count, nil
 }
 
-// HeartbeatBarSlots is how many slots the compact heartbeat bar of the monitors
-// table has, whatever the selected window: a fixed number keeps the column the
-// same width and the query bounded by monitors x slots rows.
+// HeartbeatBarSlots is the widest heartbeat bar of the monitors table: the column
+// draws one bar per whole hour of the selected window, so a 24 h window gets one
+// per hour and a 30 d window the full 30 (plus, in every case, the hour in
+// progress). Capping the window at this many whole hours is what keeps the bars
+// readable on a wide window - one bar per slot instead of one per day - and the
+// query bounded by monitors x slots rows.
 const HeartbeatBarSlots = 30
 
-// heartbeatBucketRow is one (monitor, bucket) aggregate of RecentBars.
+// heartbeatBucketRow is one (monitor, slot) aggregate of RecentBars.
 type heartbeatBucketRow struct {
-	MonitorID    uint     `gorm:"column:monitor_id"`
-	Bucket       int      `gorm:"column:bucket"`
-	Downs        int64    `gorm:"column:downs"`
-	Pendings     int64    `gorm:"column:pendings"`
-	Maintenances int64    `gorm:"column:maintenances"`
-	Total        int64    `gorm:"column:total"`
-	Latency      *float64 `gorm:"column:latency"`
+	MonitorID    uint  `gorm:"column:monitor_id"`
+	Bucket       int   `gorm:"column:bucket"`
+	Downs        int64 `gorm:"column:downs"`
+	Pendings     int64 `gorm:"column:pendings"`
+	Maintenances int64 `gorm:"column:maintenances"`
+	Total        int64 `gorm:"column:total"`
 }
 
-// status reduces a bucket to the status that deserves attention: a single
-// failed check marks the slot as down even when the bucket also saw successes.
+// status reduces a slot to the status that deserves attention: a single failed
+// check marks the slot as down even when the slot also saw successes.
 func (r heartbeatBucketRow) status() string {
 	switch {
 	case r.Downs > 0:
@@ -192,65 +197,100 @@ func (r heartbeatBucketRow) status() string {
 	return ""
 }
 
-// RecentBars returns the compact, bucketed heartbeat history of a set of
-// monitors: one status slot per bucket, oldest first, empty when the bucket saw
-// no heartbeat (a paused monitor, or a gap in the history).
+// heartbeatSlotPlan is the layout of one RecentBars call: the whole hours each
+// bar covers.
+type heartbeatSlotPlan struct {
+	// start is the first hour of the first bar.
+	start time.Time
+	// slotHours is how many whole hours one bar covers.
+	slotHours int
+	// bars is the number of bars: the whole hour slots of the window plus the
+	// bar of the hour in progress, which is always the last one.
+	bars int
+}
+
+// planHeartbeatSlots lays the bars out on whole hours, oldest first, one bar per
+// slot of the window plus the hour in progress.
 //
-// It is ONE grouped query over the heartbeats inside the window, so the cost is
-// bounded by monitors x slots instead of by the size of the history. That is
-// what makes the column affordable on every dashboard load; the value is a
+// A bar used to cover windowHours/slots (48 minutes of a 24 h window), a period
+// no rollup can answer: an hourly bucket then falls in the middle of two bars, so
+// the bars had to aggregate the raw heartbeats of the whole window - 2 000 slots
+// of checks for a 24 h window and 60 times that for a 30 d one, which is what
+// made the column the slowest query of a dashboard load. Aligning every bar on
+// the hour keeps its meaning (one status per slot of the window) and lets the
+// rollups answer it: they hold the same reduction of the same heartbeats.
+func planHeartbeatSlots(now time.Time, windowHours, slots int) heartbeatSlotPlan {
+	if slots <= 0 || slots > 120 {
+		slots = HeartbeatBarSlots
+	}
+	windowHours = models.NormalizeUptimeWindowHours(windowHours)
+	// The bar is the smallest whole number of hours that keeps the column within
+	// slots bars. Every window the application accepts is a multiple of 24 h and
+	// the default width is 30 bars, so the division is exact on the shipped
+	// values: a 24 h window gets one bar per hour, 7 d and 14 d six and twelve,
+	// 30 d one per day.
+	slotHours := (windowHours + slots - 1) / slots
+	if slotHours < 1 {
+		slotHours = 1
+	}
+	whole := windowHours / slotHours
+	if whole < 1 {
+		whole = 1
+	}
+	endHour := now.UTC().Truncate(time.Hour)
+	return heartbeatSlotPlan{
+		start:     endHour.Add(-time.Duration(whole*slotHours) * time.Hour),
+		slotHours: slotHours,
+		bars:      whole + 1,
+	}
+}
+
+// RecentBars returns the compact, bucketed heartbeat history of a set of
+// monitors: one status slot per whole hour of the window plus the hour in
+// progress, oldest first, empty when the slot saw no heartbeat (a paused monitor,
+// or a gap in the history).
+//
+// It is ONE grouped query over the hourly rollups, so the cost is bounded by
+// monitors x slots rows and a dashboard load never reads the heartbeat history
+// itself. That is what makes the column affordable on every load; the value is a
 // snapshot, never a live feed.
 func (s *StatsService) RecentBars(ctx context.Context, monitorIDs []uint, windowHours, slots int) (map[uint][]string, error) {
 	out := map[uint][]string{}
 	if len(monitorIDs) == 0 {
 		return out, nil
 	}
-	if slots <= 0 || slots > 120 {
-		slots = HeartbeatBarSlots
-	}
-	windowHours = models.NormalizeUptimeWindowHours(windowHours)
-	since := time.Now().UTC().Add(-time.Duration(windowHours) * time.Hour)
-	bucketSeconds := int64(windowHours) * 3600 / int64(slots)
-	if bucketSeconds < 1 {
-		bucketSeconds = 1
-	}
+	plan := planHeartbeatSlots(time.Now(), windowHours, slots)
 
-	// The bucket index is computed from TIMESTAMPDIFF(SECOND, since, created_at)
-	// and not from UNIX_TIMESTAMP: every stored timestamp is UTC, and
+	// The slot index is the whole hours between the first bar and the bucket
+	// divided by the width of a bar; every stored timestamp is UTC and
 	// TIMESTAMPDIFF compares two DATETIME values without converting them through
-	// the session timezone.
+	// the session timezone. The bucket of the hour in progress lands on the last
+	// bar exactly (start + slotHours x whole hours is that hour).
 	query := `
 		SELECT monitor_id,
-		       FLOOR(TIMESTAMPDIFF(SECOND, ?, created_at) / ?) AS bucket,
-		       SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END)     AS downs,
-		       SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END)     AS pendings,
-		       SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END)     AS maintenances,
-		       COUNT(*)                                        AS total,
-		       AVG(latency_ms)                                 AS latency
-		FROM heartbeats
-		WHERE created_at >= ? AND monitor_id IN ?
+		       FLOOR(TIMESTAMPDIFF(HOUR, ?, bucket_at) / ?) AS bucket,
+		       SUM(down)                                    AS downs,
+		       SUM(pending)                                 AS pendings,
+		       SUM(maintenance)                             AS maintenances,
+		       SUM(total)                                   AS total
+		FROM heartbeat_rollups
+		WHERE bucket_at >= ? AND monitor_id IN ?
 		GROUP BY monitor_id, bucket`
 
 	var rows []heartbeatBucketRow
-	if err := s.db.WithContext(ctx).Raw(query, since, bucketSeconds, since, monitorIDs).Scan(&rows).Error; err != nil {
+	if err := s.db.WithContext(ctx).Raw(query, plan.start, plan.slotHours, plan.start, monitorIDs).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("computing the heartbeat bars: %w", err)
 	}
 	for _, row := range rows {
-		bucket := row.Bucket
-		if bucket < 0 || bucket > slots {
+		if row.Bucket < 0 || row.Bucket >= plan.bars {
 			continue
-		}
-		if bucket == slots {
-			// A heartbeat exactly on the upper boundary lands one past the last
-			// slot (the window is inclusive at both ends): fold it into it.
-			bucket = slots - 1
 		}
 		bars, ok := out[row.MonitorID]
 		if !ok {
-			bars = make([]string, slots)
+			bars = make([]string, plan.bars)
 			out[row.MonitorID] = bars
 		}
-		bars[bucket] = row.status()
+		bars[row.Bucket] = row.status()
 	}
 	return out, nil
 }

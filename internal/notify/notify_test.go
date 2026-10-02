@@ -347,10 +347,9 @@ func TestRenderBody(t *testing.T) {
 	}
 }
 
-// TestMessageTagsAndGroups pins the two shapes the tags and the groups of a
-// monitor take in a notification: arrays, which are what a webhook consumer
-// parses, and one comma separated string, which is what a human reads in a log
-// line or an e-mail.
+// TestMessageTagsAndGroups pins the two shapes the monitor carries in a
+// notification: tags are a list (an array to parse, one comma separated string to
+// read) while the group is a single name and id, so there is no list to flatten.
 func TestMessageTagsAndGroups(t *testing.T) {
 	monitor := &models.Monitor{
 		Name:   "API health",
@@ -358,8 +357,8 @@ func TestMessageTagsAndGroups(t *testing.T) {
 		Tags:   "web, api,prod",
 		Config: models.MonitorConfig{URL: "https://api.example.com/health"},
 	}
-	// The groups arrive already resolved (id and name) and a name may contain a
-	// space, so neither the array nor the flat form may split it.
+	// The group arrives already resolved (id and name) and a name may contain a
+	// space, so the flat form may not split it.
 	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
 		"connection refused", 42, "up-node-1", "https://up.example.com",
 		&models.MonitorGroupRef{ID: 7, Name: "Prod EU"})
@@ -370,25 +369,19 @@ func TestMessageTagsAndGroups(t *testing.T) {
 	if got := message.TagsCSV(); got != "web,api,prod" {
 		t.Errorf("TagsCSV() = %q, want %q", got, "web,api,prod")
 	}
-	// The single group, and the deprecated array / flat forms that mirror it.
+	// The single group: one name and one id, no array form to keep in step.
 	if message.MonitorGroup != "Prod EU" || message.MonitorGroupID != 7 {
 		t.Errorf("MonitorGroup = %q (id %d), want %q (id 7)",
 			message.MonitorGroup, message.MonitorGroupID, "Prod EU")
 	}
-	if got := strings.Join(message.MonitorGroups, ","); got != "Prod EU" {
-		t.Errorf("MonitorGroups = %q, want the single group", got)
-	}
-	if got := message.GroupsCSV(); got != "Prod EU" {
-		t.Errorf("GroupsCSV() = %q, want %q", got, "Prod EU")
-	}
 
 	body, err := message.RenderBody(
 		`{"group":{{json .MonitorGroup}},"group_id":{{.MonitorGroupID}},"tags":{{json .MonitorTags}},` +
-			`"groups":{{json .MonitorGroups}},"flat":"{{.TagsCSV}}|{{.GroupsCSV}}"}`)
+			`"flat":"{{.TagsCSV}}|{{.MonitorGroup}}"}`)
 	if err != nil {
 		t.Fatalf("render the body template: %v", err)
 	}
-	want := `{"group":"Prod EU","group_id":7,"tags":["web","api","prod"],"groups":["Prod EU"],"flat":"web,api,prod|Prod EU"}`
+	want := `{"group":"Prod EU","group_id":7,"tags":["web","api","prod"],"flat":"web,api,prod|Prod EU"}`
 	if body != want {
 		t.Errorf("rendered body =\n%s\nwant\n%s", body, want)
 	}
@@ -405,8 +398,9 @@ func TestMessageTagsAndGroups(t *testing.T) {
 }
 
 // TestMessageWithoutTagsOrGroups is the empty counterpart: an untagged monitor in
-// no group must render empty arrays, never null (a consumer that walks
-// `body.tags` chokes on null), and must not print empty rows.
+// no group must render an empty array for the tags, never null (a consumer that
+// walks `body.tags` chokes on null), and must not print empty rows. The group of a
+// monitor without one is the empty string / zero, which is what a body reads.
 func TestMessageWithoutTagsOrGroups(t *testing.T) {
 	monitor := &models.Monitor{
 		Name:   "Bare",
@@ -416,11 +410,12 @@ func TestMessageWithoutTagsOrGroups(t *testing.T) {
 	message := NewMessage(models.EventUp, monitor, models.AggregateUp, "", 5, "", "", nil)
 
 	body, err := message.RenderBody(
-		`{"tags":{{json .MonitorTags}},"groups":{{json .MonitorGroups}},"tags_csv":"{{.TagsCSV}}","groups_csv":"{{.GroupsCSV}}"}`)
+		`{"tags":{{json .MonitorTags}},"group":{{json .MonitorGroup}},"group_id":{{.MonitorGroupID}},` +
+			`"tags_csv":"{{.TagsCSV}}"}`)
 	if err != nil {
 		t.Fatalf("render the body template: %v", err)
 	}
-	want := `{"tags":[],"groups":[],"tags_csv":"","groups_csv":""}`
+	want := `{"tags":[],"group":"","group_id":0,"tags_csv":""}`
 	if body != want {
 		t.Errorf("rendered body = %s, want %s", body, want)
 	}
@@ -457,9 +452,9 @@ func TestWebhookPayloadCarriesTagsAndGroups(t *testing.T) {
 			t.Fatalf("%s: render: %v", name, err)
 		}
 		var payload struct {
-			Group  string   `json:"group"`
-			Tags   []string `json:"tags"`
-			Groups []string `json:"groups"`
+			Group   string   `json:"group"`
+			GroupID uint     `json:"group_id"`
+			Tags    []string `json:"tags"`
 		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("%s: must stay valid JSON: %v (%s)", name, err, body)
@@ -467,22 +462,26 @@ func TestWebhookPayloadCarriesTagsAndGroups(t *testing.T) {
 		if payload.Group != "Prod" {
 			t.Errorf("%s: group = %q, want Prod (%s)", name, payload.Group, body)
 		}
+		if payload.GroupID != 3 {
+			t.Errorf("%s: group_id = %d, want 3 (%s)", name, payload.GroupID, body)
+		}
 		if len(payload.Tags) != 1 || payload.Tags[0] != "web" {
 			t.Errorf("%s: tags = %v, want [web] (%s)", name, payload.Tags, body)
 		}
-		if len(payload.Groups) != 1 || payload.Groups[0] != "Prod" {
-			t.Errorf("%s: groups = %v, want [Prod] (%s)", name, payload.Groups, body)
-		}
 	}
 
-	// The payload sent when no template is configured also carries the flat
-	// forms, for the receivers that cannot parse JSON.
+	// The payload sent when no template is configured also carries the flat form
+	// of the tags, for the receivers that cannot parse JSON. There is no flat form
+	// of the group: it is a single value, so `group` already reads as one field.
 	defaultBody, err := message.RenderBody("")
 	if err != nil {
 		t.Fatalf("render the default payload: %v", err)
 	}
-	if !strings.Contains(defaultBody, `"tags_csv":"web"`) || !strings.Contains(defaultBody, `"groups_csv":"Prod"`) {
-		t.Errorf("the default payload must carry the comma separated forms: %s", defaultBody)
+	if !strings.Contains(defaultBody, `"tags_csv":"web"`) || !strings.Contains(defaultBody, `"group":"Prod"`) {
+		t.Errorf("the default payload must carry the comma separated tags and the group: %s", defaultBody)
+	}
+	if strings.Contains(defaultBody, `"groups"`) {
+		t.Errorf("the default payload must not carry a group list: %s", defaultBody)
 	}
 }
 

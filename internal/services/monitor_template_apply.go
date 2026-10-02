@@ -79,8 +79,10 @@ func (s *MonitorTemplateService) Apply(ctx context.Context, opts ApplyOptions) (
 			results = append(results, result)
 			continue
 		}
-		updated, notificationIDs, groupIDs := applyTemplate(monitor, template, fields)
-		if updateErr := s.mono.Update(ctx, updated, notificationIDs, groupIDs); updateErr != nil {
+		updated, notificationIDs := applyTemplate(monitor, template, fields)
+		// A template apply never moves a monitor between groups (see
+		// applyTemplate): nil keeps the group the monitor has.
+		if updateErr := s.mono.Update(ctx, updated, notificationIDs, nil); updateErr != nil {
 			result.Error = updateErr.Error()
 			results = append(results, result)
 			continue
@@ -186,10 +188,15 @@ func configChanges(monitor *models.Monitor, template *models.MonitorTemplate) []
 }
 
 // applyTemplate returns a copy of the monitor with the selected fields taken from
-// the template, plus the notification and group ids to write (nil = keep).
-func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fields []string) (*models.Monitor, []uint, []uint) {
+// the template, plus the notification ids to write (nil = keep).
+//
+// The group is deliberately NOT applicable (see models.TemplateDefaultFields): two
+// monitors can follow one template and live in different groups, so a bulk apply
+// never moves a monitor. Its group travels only at creation time, as the blueprint's
+// default.
+func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fields []string) (*models.Monitor, []uint) {
 	updated := *monitor
-	var notificationIDs, groupIDs []uint
+	var notificationIDs []uint
 	for _, field := range fields {
 		switch field {
 		case "description":
@@ -242,7 +249,7 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 			updated.DomainWarnDays = template.Defaults.DomainWarnDays
 		}
 	}
-	return &updated, notificationIDs, groupIDs
+	return &updated, notificationIDs
 }
 
 // withProbeTarget copies the template configuration but keeps the target fields

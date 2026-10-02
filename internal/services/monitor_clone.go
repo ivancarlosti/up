@@ -17,8 +17,8 @@ type MonitorCloneOptions struct {
 	Active *bool
 	// CopyNotifications links the copy to the same notification channels.
 	CopyNotifications bool
-	// CopyGroups puts the copy in the same groups.
-	CopyGroups bool
+	// CopyGroup puts the copy in the same group.
+	CopyGroup bool
 }
 
 // Clone duplicates a monitor: configuration, and optionally the notification
@@ -76,16 +76,17 @@ func (s *MonitorService) Clone(ctx context.Context, id uint, opts MonitorCloneOp
 	if opts.CopyNotifications {
 		notificationIDs = source.NotificationIDs
 	}
-	var groupIDs []uint
-	if opts.CopyGroups {
-		groupIDs = source.GroupIDs
+	var groupID *uint
+	if opts.CopyGroup {
+		id := source.GroupID
+		groupID = &id
 	}
 
-	if err := s.Create(ctx, clone, notificationIDs, groupIDs); err != nil {
+	if err := s.Create(ctx, clone, notificationIDs, groupID); err != nil {
 		return nil, err
 	}
 	s.log.Info("monitor cloned", "source", id, "clone", clone.ID, "name", clone.Name,
-		"notifications", opts.CopyNotifications, "groups", opts.CopyGroups)
+		"notifications", opts.CopyNotifications, "group", opts.CopyGroup)
 	return s.Get(ctx, clone.ID)
 }
 

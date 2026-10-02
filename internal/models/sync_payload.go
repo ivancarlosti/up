@@ -102,7 +102,10 @@ type MonitorTemplatePayload struct {
 	// link dialog with the selection the origin last ran.
 	LinkScope TemplateLinkScope `json:"link_scope"`
 
-	GroupUUIDs        []string `json:"group_uuids"`
+	// GroupUUID is the template's default group, as the uuid of the group: a
+	// local id would be meaningless (or worse, silently wrong) on the receiver,
+	// which is why Defaults.GroupID travels empty (see sync_emit).
+	GroupUUID         string   `json:"group_uuid,omitempty"`
 	NotificationUUIDs []string `json:"notification_uuids"`
 }
 

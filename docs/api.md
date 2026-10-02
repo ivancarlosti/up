@@ -151,7 +151,7 @@ Query: `search`, `type`, `tag`, `active`.
                  "votes": [{"node_id":"up-node-1","node_name":"Primary Node","status":"up","online":true}],
                  "notification_ids": [1] }],
   "summary": { "total": 5, "up": 4, "down": 1, "degraded": 0, "paused": 0,
-               "heartbeats_1h": 312, "ws_clients": 2, "cluster": { } }
+               "ws_clients": 2, "cluster": { } }
 }
 ```
 
@@ -159,7 +159,10 @@ Query: `search`, `type`, `tag`, `active`.
 status page override); `uptime_24h`, `uptime_7d` and `uptime_30d` stay as the
 fixed windows of the public API. `heartbeat_bars` is the bucketed history drawn
 in the monitors table: one status per slot, oldest first, `""` for a slot with no
-heartbeat (it is a snapshot, never a live feed).
+heartbeat (it is a snapshot, never a live feed). Each slot covers a whole hour of
+the selected window - at most 30 of them - plus the hour in progress, and the
+counters come from the hourly rollups (`heartbeat_rollups`), so a dashboard load
+never reads the heartbeat history itself.
 
 ### `GET /api/monitors`
 
@@ -172,9 +175,7 @@ A single decorated monitor.
 
 ### `POST /api/monitors`
 
-Body: `models.Monitor` fields plus `notification_ids` and `group_id` (the
-deprecated `group_ids` list is still accepted, keeping only its first entry). The
-type is
+Body: `models.Monitor` fields plus `notification_ids` and `group_id`. The type is
 one of `http`, `keyword`, `tcp`, `dns`, `ssl`; the certificate switches
 `cert_watch`, `cert_notify` and the free form list `cert_warn_days` ride along.
 When `cert_watch` is on, the decorated monitor carries a `certificate` object
@@ -238,7 +239,7 @@ Stop/start the workers of that monitor (the history is preserved).
 
 ### `POST /api/monitors/:id/clone` -> `201`
 
-Body (all optional): `{"name": "...", "copy_notifications": true, "copy_groups": true}`.
+Body (all optional): `{"name": "...", "copy_notifications": true, "copy_group": true}`.
 An empty `name` produces `<name> (copy)`; the heartbeat history and the aggregated
 state are never copied, so the copy starts clean. The worker of the new monitor
 starts on the node that served the request.
@@ -259,13 +260,12 @@ A monitor belongs to **one** group: the create/update payload takes `group_id`
 (omitted = keep the current group, `0` = no group) and the listing filters with
 `?group_id=`. Adding a monitor to a group from the group side (the `monitor_ids`
 of `PUT /api/monitor-groups/:id/monitors`) MOVES it out of the group it was in.
-The deprecated `group_ids` list is still accepted for one release and only its
-first entry is honoured, whatever the singular key says. Names are unique
+Names are unique
 (`409 ERR_MONITOR_GROUP_INVALID`) and an unknown id answers
 `400 ERR_MONITOR_GROUP_INVALID` / `404 ERR_MONITOR_GROUP_NOT_FOUND`.
 
 `deep: true` also clones the monitors of the group (each one with its `(copy)`
-name and, with `copy_links`, its channels and groups); without `deep` the copy
+name and, with `copy_links`, its channels); without `deep` the copy
 starts empty on purpose, so two groups cannot silently share the same monitors.
 
 ### Monitor templates and the bulk importer
@@ -278,8 +278,8 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
-| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{scope?, group_ids?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run, scope}` |
-| POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_id?, group_ids?, active?, dry_run?}` |
+| POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{scope?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run, scope}` |
+| POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_id?, active?, dry_run?}` |
 | GET | `/api/monitors/tags` | the tags in use with their monitor count (`?type=http` to narrow) |
 | POST | `/api/monitors/bulk/tags` | tags in bulk: `{monitor_ids?, group_ids?, tag?, add?, remove?, dry_run?}` |
 
@@ -308,9 +308,8 @@ to them. The scope is `{kind: "type" | "groups" | "tags", group_uuids?:
 [<uuid>], tags?: [...]}`: every monitor of the template type, the monitors of
 those groups (a monitor is in scope when it belongs to at least one of them) or
 the monitors carrying at least one of those tags (whole tag, case insensitive). A
-payload without a scope falls back to the deprecated `group_ids` (a non-empty list
-of local ids is translated to the uuids of those groups) and then to the type
-scope, so an older client keeps linking exactly what it asked for. `groups` and
+payload without a scope means the type scope, so a client that only sends
+`dry_run` counts every monitor of the template type. `groups` and
 `tags` are selections by **uuid** and by **whole tag** on purpose: the template is
 synchronised between the cluster nodes, where the local ids of the groups differ,
 and a substring match on a comma separated column would silently select

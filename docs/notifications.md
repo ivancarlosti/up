@@ -102,7 +102,6 @@ what a channel created from the UI uses):
   "tags": {{json .MonitorTags}},
   "group": "{{.MonitorGroup}}",
   "group_id": {{.MonitorGroupID}},
-  "groups": {{json .MonitorGroups}},
   "latency_ms": {{.LatencyMS}},
   "node": "{{.NodeID}}",
   "timestamp": "{{.Timestamp}}"
@@ -112,14 +111,12 @@ what a channel created from the UI uses):
 The API fills `body_template` with the block above whenever it is left empty
 (`Notification.Normalize`), so this is what a channel created or saved from the
 dialog renders. A row with no template at all falls back to
-`Message.jsonPayload()`: the same fields plus `instance_url`, `dashboard_url`,
-`tags_csv` and `groups_csv`, which a template can reach through
-`{{.InstanceURL}}`, `{{.DashboardURL}}`, `{{.TagsCSV}}` and `{{.GroupsCSV}}`.
-`group` and `group_id` are the single group of the monitor (`""` and `0` when it
-belongs to none); `groups` and `groups_csv` are the deprecated mirrors of the same
-value, kept for one release so a body written before the single group rule keeps
-rendering. Adding `group` and `group_id` to the block only affects the channels
-saved after the change, for the same reason as `dashboard_url` below.
+`Message.jsonPayload()`: the same fields plus `instance_url`, `dashboard_url` and
+`tags_csv`, which a template can reach through `{{.InstanceURL}}`,
+`{{.DashboardURL}}` and `{{.TagsCSV}}`. The group is a single value: `group` and
+`group_id` are the group of the monitor (`""` and `0` when it belongs to none).
+Adding `group` and `group_id` to the block only affects the channels saved after
+the change, for the same reason as the fields below.
 Adding `dashboard_url` to the block only affects the channels saved after it
 appeared: a row that already stored a template keeps it verbatim (the dialog
 textarea has no *reset* button), so an existing channel picks the new field up
@@ -190,9 +187,8 @@ Available template data (the `notify.Message` struct):
 | `{{.MonitorURL}}` | target (URL, `host:port` or `TYPE name @resolver`) |
 | `{{.MonitorDescription}}` | description of the monitor |
 | `{{.MonitorTags}}` | tags of the monitor, as an array (`["web","api"]`) |
-| `{{.MonitorGroup}}`, `{{.MonitorGroupID}}` | the single group of the monitor (name and id; `""` and `0` when it belongs to none) |
-| `{{.MonitorGroups}}` | deprecated: the same group as a zero or one element array |
-| `{{.TagsCSV}}`, `{{.GroupsCSV}}` | the same tags/group as one comma separated string (`web,api`) |
+| `{{.MonitorGroup}}`, `{{.MonitorGroupID}}` | the group of the monitor (name and id; `""` and `0` when it belongs to none) |
+| `{{.TagsCSV}}` | the tags as one comma separated string (`web,api`) |
 | `{{.Message}}` | check result detail (`200 OK`, `connection refused`, ...) |
 | `{{.LatencyMS}}` | latency in milliseconds (number) |
 | `{{.NodeID}}` | node that produced the heartbeat |
@@ -225,12 +221,12 @@ wants the instance root itself.
 Template helpers: `json`, `urlquery`, `upper`, `lower`, `trim`,
 `default "fallback" .Value`.
 
-`{{.MonitorTags}}` and `{{.MonitorGroups}}` are slices, so use `{{json .MonitorTags}}`
-to embed them in a JSON body or `{{range .MonitorTags}}…{{end}}` to walk them. The
-group is a plain string (`{{.MonitorGroup}}`) with its id next to it
-(`{{.MonitorGroupID}}`). Use `{{.TagsCSV}}` / `{{.GroupsCSV}}` when a single flat
-string is easier to consume: those keep the same order as the arrays (a monitor with
-no tag renders `[]` and `""`, never `null`). The tags and the group of the monitor
+`{{.MonitorTags}}` is a slice, so use `{{json .MonitorTags}}` to embed it in a
+JSON body or `{{range .MonitorTags}}…{{end}}` to walk it. The group is a plain
+string (`{{.MonitorGroup}}`) with its id next to it (`{{.MonitorGroupID}}`). Use
+`{{.TagsCSV}}` when a single flat string is easier to consume: it keeps the same
+order as the array (a monitor with no tag renders `[]` and `""`, never `null`). The
+tags and the group of the monitor
 are also listed in the plain text/HTML body used by SMTP, Slack, Discord and
 Telegram, when they are not empty, followed by the `Dashboard:` link of the event
 when `APP_URL` is set.

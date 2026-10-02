@@ -23,6 +23,24 @@ type StatsService struct {
 // NewStatsService builds the statistics service.
 func NewStatsService(db *gorm.DB) *StatsService { return &StatsService{db: db} }
 
+// storedPrecision is the fraction of a second the datetime columns hold: GORM
+// creates them as datetime(3).
+const storedPrecision = time.Millisecond
+
+// queryTime floors an instant to the precision the columns store, and every bound
+// of every window this package sends goes through it.
+//
+// It is not cosmetic. The bounds are built from time.Now(), which carries
+// nanoseconds, and the driver puts them into the statement as they are:
+// '2026-10-01 20:36:27.303124327'. A temporal literal with nine fractional
+// digits is finer than the column type and finer than the server compares, so the
+// range condition stops being usable and the plan falls back to whatever index
+// covers the other column alone. On heartbeats that is the difference between
+// reading a few thousand index entries and walking the whole retained history:
+// the same predicate estimates 4 873 349 rows with a nanosecond bound and 32 499
+// with a millisecond one.
+func queryTime(t time.Time) time.Time { return t.Truncate(storedPrecision) }
+
 // windowRow is the aggregate of one monitor, shaped like the single query the
 // History used to run, so the mapping to the API payload did not have to change
 // when the computation moved behind the hourly rollups.
@@ -96,7 +114,13 @@ type historyWindowSet struct {
 }
 
 // newHistoryWindowSet lays out the periods of one History call.
+//
+// The instant is floored to the precision the columns store before anything is
+// derived from it, which is what keeps every bound the boundary query binds
+// usable as an index range (see queryTime). Doing it here and not at the call
+// site means no caller can hand the query a nanosecond bound by accident.
 func newHistoryWindowSet(now time.Time, windowHours int) historyWindowSet {
+	now = queryTime(now)
 	set := historyWindowSet{
 		selected: windowHours,
 		indexOf:  map[int]int{},
@@ -135,36 +159,45 @@ func (s historyWindowSet) rollupInside(window int, bucket time.Time) bool {
 	return !bucket.Before(spec.leadEnd) && bucket.Before(s.endHour)
 }
 
-// rawInside reports whether a raw heartbeat belongs to the window AND is not
-// already counted by a rollup bucket: the partial hour the window starts in, and
-// the hour in progress.
-func (s historyWindowSet) rawInside(window int, at time.Time) bool {
-	spec := s.windows[window]
-	if at.Before(spec.start) {
-		return false
-	}
-	return at.Before(spec.leadEnd) || !at.Before(s.endHour)
+// historyRange is a half-open [start, end) time range of heartbeats plus the
+// periods it completes. A zero end is the hour in progress, which no clock
+// bounds.
+type historyRange struct {
+	start   time.Time
+	end     time.Time
+	windows []int
 }
 
-// historyRange is a half-open [start, end) time range.
-type historyRange struct {
-	start time.Time
-	end   time.Time
+// serves reports whether the range feeds the period at the given index.
+func (r historyRange) serves(window int) bool {
+	for _, index := range r.windows {
+		if index == window {
+			return true
+		}
+	}
+	return false
 }
 
 // boundaryRanges returns the raw ranges of one History call. They are disjoint
 // by construction - one range per window for the hour the window starts in, plus
 // the hour in progress - so a heartbeat selected by two ranges can never be
-// counted twice.
+// counted twice. Every range also carries the periods it belongs to, which is
+// what lets the query aggregate each range on its own: the hour in progress
+// counts for every window, the partial hour a window starts in only for that
+// window.
 func (s historyWindowSet) boundaryRanges() []historyRange {
-	ranges := []historyRange{{start: s.endHour}}
-	for _, spec := range s.windows {
+	all := make([]int, len(s.windows))
+	for i := range all {
+		all[i] = i
+	}
+	ranges := []historyRange{{start: s.endHour, windows: all}}
+	for i, spec := range s.windows {
 		end := spec.leadEnd
 		if end.After(s.endHour) {
 			end = s.endHour
 		}
 		if spec.start.Before(end) {
-			ranges = append(ranges, historyRange{start: spec.start, end: end})
+			ranges = append(ranges, historyRange{start: spec.start, end: end, windows: []int{i}})
 		}
 	}
 	return ranges
@@ -205,24 +238,6 @@ func (t *historyTotals) addRollup(row historyRollupRow) {
 	if row.Total > 0 {
 		t.observe(row.LatencyMin, row.LatencyMax)
 	}
-}
-
-// addRaw folds one boundary heartbeat into the period. The statuses mirror the
-// CASE expressions of the raw aggregate, and Total moves for every heartbeat, so
-// a status a future release may add still counts exactly like COUNT(*) did.
-func (t *historyTotals) addRaw(row historyRawRow) {
-	switch models.HeartbeatStatus(row.Status) {
-	case models.StatusUp:
-		t.up++
-		t.upLatSum += row.LatencyMS
-		t.upLatCnt++
-	case models.StatusDown:
-		t.down++
-	case models.StatusPending:
-		t.pending++
-	}
-	t.total++
-	t.observe(row.LatencyMS, row.LatencyMS)
 }
 
 // observe widens the latency range of the period.
@@ -299,7 +314,8 @@ func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHou
 	if err != nil {
 		return nil, err
 	}
-	boundary, err := s.historyBoundaryHeartbeats(ctx, monitorIDs, set)
+	boundaryRanges := set.boundaryRanges()
+	boundary, err := s.historyBoundaryHeartbeats(ctx, monitorIDs, boundaryRanges)
 	if err != nil {
 		return nil, err
 	}
@@ -321,11 +337,17 @@ func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHou
 			}
 		}
 	}
-	for _, heartbeat := range boundary {
-		list := accumulate(heartbeat.MonitorID)
+	// Every boundary range arrives reduced to one row per monitor, so folding it
+	// into the periods is a handful of additions instead of one per heartbeat.
+	for _, aggregate := range boundary {
+		if aggregate.RangeIndex < 0 || aggregate.RangeIndex >= len(boundaryRanges) {
+			continue
+		}
+		list := accumulate(aggregate.MonitorID)
+		window := boundaryRanges[aggregate.RangeIndex]
 		for i := range set.windows {
-			if set.rawInside(i, heartbeat.CreatedAt) {
-				list[i].addRaw(heartbeat)
+			if window.serves(i) {
+				list[i].addRollup(aggregate.rollup())
 			}
 		}
 	}
@@ -386,12 +408,40 @@ type historyRollupRow struct {
 	LatencyMax     int64     `gorm:"column:latency_max"`
 }
 
-// historyRawRow is the subset of a heartbeat the boundary aggregation needs.
-type historyRawRow struct {
-	MonitorID uint      `gorm:"column:monitor_id"`
-	Status    int       `gorm:"column:status"`
-	LatencyMS int64     `gorm:"column:latency_ms"`
-	CreatedAt time.Time `gorm:"column:created_at"`
+// historyBoundaryRow is one (range, monitor) aggregate of the boundary
+// heartbeats. The counters are the ones a rollup bucket holds, so the periods
+// accumulate it with addRollup; Total counts every heartbeat of the range,
+// whatever its status, exactly like the COUNT(*) it replaced.
+type historyBoundaryRow struct {
+	// RangeIndex indexes the ranges the query was built from, which is what says
+	// which periods the counters belong to.
+	RangeIndex     int   `gorm:"column:range_index"`
+	MonitorID      uint  `gorm:"column:monitor_id"`
+	Up             int64 `gorm:"column:up"`
+	Down           int64 `gorm:"column:down"`
+	Pending        int64 `gorm:"column:pending"`
+	Maintenance    int64 `gorm:"column:maintenance"`
+	Total          int64 `gorm:"column:total"`
+	UpLatencySum   int64 `gorm:"column:up_latency_sum"`
+	UpLatencyCount int64 `gorm:"column:up_latency_count"`
+	LatencyMin     int64 `gorm:"column:latency_min"`
+	LatencyMax     int64 `gorm:"column:latency_max"`
+}
+
+// rollup shapes the aggregate as the bucket the periods accumulate.
+func (r historyBoundaryRow) rollup() historyRollupRow {
+	return historyRollupRow{
+		MonitorID:      r.MonitorID,
+		Up:             r.Up,
+		Down:           r.Down,
+		Pending:        r.Pending,
+		Maintenance:    r.Maintenance,
+		Total:          r.Total,
+		UpLatencySum:   r.UpLatencySum,
+		UpLatencyCount: r.UpLatencyCount,
+		LatencyMin:     r.LatencyMin,
+		LatencyMax:     r.LatencyMax,
+	}
 }
 
 // historyRollups reads the hourly buckets the periods of the call cover.
@@ -408,30 +458,53 @@ func (s *StatsService) historyRollups(ctx context.Context, monitorIDs []uint, se
 	return rows, nil
 }
 
-// historyBoundaryHeartbeats reads the raw heartbeats of the hours the rollups do
-// not cover: the partial hour every window starts in, plus the hour in progress.
-// The ranges are disjoint, so the OR of conditions cannot return a heartbeat
-// twice.
-func (s *StatsService) historyBoundaryHeartbeats(ctx context.Context, monitorIDs []uint, set historyWindowSet) ([]historyRawRow, error) {
-	ranges := set.boundaryRanges()
-	conditions := make([]string, 0, len(ranges))
-	args := make([]any, 0, 1+2*len(ranges))
-	args = append(args, monitorIDs)
-	for _, window := range ranges {
-		if window.end.IsZero() {
-			conditions = append(conditions, "(created_at >= ?)")
-			args = append(args, window.start)
-			continue
+// historyBoundaryAggregate is one branch of the boundary query: the counters of
+// one (range, monitor) pair, shaped exactly like a rollup bucket so the periods
+// can fold it with addRollup.
+//
+// The reduction is the one the incremental rollup upsert maintains: the status
+// counters mirror its switch, the average latency only moves for an "up"
+// heartbeat, and MIN/MAX cover every heartbeat of the range.
+const historyBoundaryAggregate = `
+	SELECT %d AS range_index, monitor_id,
+	       SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END)          AS up,
+	       SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END)          AS down,
+	       SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END)          AS pending,
+	       SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END)          AS maintenance,
+	       COUNT(*)                                             AS total,
+	       SUM(CASE WHEN status = 1 THEN latency_ms ELSE 0 END) AS up_latency_sum,
+	       SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END)          AS up_latency_count,
+	       COALESCE(MIN(latency_ms), 0)                         AS latency_min,
+	       COALESCE(MAX(latency_ms), 0)                         AS latency_max
+	FROM heartbeats
+	WHERE monitor_id IN ? AND created_at >= ?`
+
+// historyBoundaryHeartbeats reads the heartbeats of the ranges the rollups do
+// not cover - the partial hour every window starts in, plus the hour in progress
+// - reduced in the database to one row per (range, monitor).
+//
+// One aggregate per range, each with its own GROUP BY, instead of a WHERE with an
+// OR over all of them: every branch is then a single bounded range on
+// (monitor_id, created_at) that the server reduces before anything crosses the
+// wire, so the client folds at most monitors x ranges rows instead of one row per
+// heartbeat (the boundary hours of a dense installation hold tens of thousands of
+// them per monitor).
+func (s *StatsService) historyBoundaryHeartbeats(ctx context.Context, monitorIDs []uint, ranges []historyRange) ([]historyBoundaryRow, error) {
+	branches := make([]string, 0, len(ranges))
+	args := make([]any, 0, 3*len(ranges))
+	for i, window := range ranges {
+		branch := fmt.Sprintf(historyBoundaryAggregate, i)
+		args = append(args, monitorIDs, window.start)
+		if !window.end.IsZero() {
+			branch += " AND created_at < ?"
+			args = append(args, window.end)
 		}
-		conditions = append(conditions, "(created_at >= ? AND created_at < ?)")
-		args = append(args, window.start, window.end)
+		branch += " GROUP BY monitor_id"
+		branches = append(branches, branch)
 	}
 
-	var rows []historyRawRow
-	if err := s.db.WithContext(ctx).Model(&models.Heartbeat{}).
-		Select("monitor_id, status, latency_ms, created_at").
-		Where("monitor_id IN ? AND ("+strings.Join(conditions, " OR ")+")", args...).
-		Find(&rows).Error; err != nil {
+	var rows []historyBoundaryRow
+	if err := s.db.WithContext(ctx).Raw(strings.Join(branches, " UNION ALL "), args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("loading the boundary heartbeats: %w", err)
 	}
 	return rows, nil
@@ -439,7 +512,7 @@ func (s *StatsService) historyBoundaryHeartbeats(ctx context.Context, monitorIDs
 
 // Window returns the statistics of a single monitor for the last N hours.
 func (s *StatsService) Window(ctx context.Context, monitorID uint, hours int) (*models.UptimeStats, error) {
-	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	since := queryTime(time.Now().UTC().Add(-time.Duration(hours) * time.Hour))
 
 	type aggRow struct {
 		Up      int64    `gorm:"column:up"`

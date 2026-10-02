@@ -15,7 +15,7 @@ func TestPropagationFields(t *testing.T) {
 	for _, field := range propagationFields(template) {
 		seen[field] = true
 	}
-	if seen["tags"] || seen["group_ids"] {
+	if seen["tags"] || seen["group_id"] {
 		t.Fatalf("groups and tags must never be propagated: %v", propagationFields(template))
 	}
 	if seen["notification_ids"] {

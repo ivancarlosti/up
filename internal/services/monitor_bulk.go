@@ -55,39 +55,27 @@ type BulkReport struct {
 type BulkOptions struct {
 	Text       string
 	TemplateID uint
-	// GroupIDs is the single group the new monitors join. The key is still the
-	// deprecated list form: only the first entry is used (see bulkGroupIDs), and
-	// it wins over the group the template carries.
-	GroupIDs []uint
+	// GroupID is the single group the new monitors join. A nil pointer means the
+	// request did not mention a group at all, so the group the template carries
+	// applies - the same "not mentioned" contract the monitor form follows. 0
+	// means "no group" and wins over the template, and any other id names the
+	// group.
+	GroupID *uint
 	// Active overrides the template default; nil keeps it.
 	Active *bool
 	DryRun bool
 }
 
-// bulkGroupIDs resolves the group a bulk created monitor joins.
+// bulkGroupID resolves the group a bulk created monitor joins.
 //
-// A nil list means the request did not mention a group at all, so the group the
-// template carries applies - the same "not mentioned" contract the monitor form
-// follows. An empty list means "no group" and wins over the template, and a filled
-// one names the group. Both sides are the deprecated list form, so only their first
-// usable entry counts.
-func bulkGroupIDs(requested, fromTemplate []uint) []uint {
-	if requested == nil {
-		return templateGroupIDs(fromTemplate)
+// The request decides when it mentions one (0 included: an explicit "no group" is
+// a decision), otherwise the group the template carries applies, and 0 when there
+// is none.
+func bulkGroupID(requested *uint, fromTemplate uint) uint {
+	if requested != nil {
+		return *requested
 	}
-	if id := firstGroupID(requested); id != 0 {
-		return []uint{id}
-	}
-	return []uint{}
-}
-
-// templateGroupIDs is the group a template carries, as the deprecated one element
-// list. A template that still names several keeps the first.
-func templateGroupIDs(ids []uint) []uint {
-	if id := firstGroupID(ids); id != 0 {
-		return []uint{id}
-	}
-	return []uint{}
+	return fromTemplate
 }
 
 // ParseBulkText turns pasted text into rows.

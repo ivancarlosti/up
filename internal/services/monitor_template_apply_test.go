@@ -31,7 +31,7 @@ func TestPlanApply(t *testing.T) {
 			},
 		},
 		NotificationIDs: []uint{1},
-		GroupIDs:        []uint{},
+		GroupID:         0, // the monitor has no group of its own
 	}
 	template := &models.MonitorTemplate{
 		Type: models.MonitorTypeHTTP,
@@ -45,7 +45,7 @@ func TestPlanApply(t *testing.T) {
 			RunOn:           "all",
 			Tags:            "new",
 			NotificationIDs: []uint{1, 2},
-			GroupIDs:        []uint{7},
+			GroupID:         7,
 		},
 	}
 
@@ -67,7 +67,7 @@ func TestPlanApply(t *testing.T) {
 	// Groups and tags belong to the monitor, never to the template: two monitors
 	// can follow the same template and live in different groups with different
 	// tags, so neither is ever part of the diff.
-	for _, field := range []string{"tags", "group_ids"} {
+	for _, field := range []string{"tags", "group_id"} {
 		if _, ok := byField[field]; ok {
 			t.Fatalf("%s must not be part of the template fields", field)
 		}
@@ -107,11 +107,11 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 		Defaults: models.TemplateDefaults{
 			IntervalSeconds: 30,
 			NotificationIDs: []uint{1},
-			GroupIDs:        []uint{2, 3},
+			GroupID:         2, // must never reach a monitor through a bulk apply
 		},
 	}
 
-	updated, notificationIDs, groupIDs := applyTemplate(monitor, template, []string{"config", "interval_seconds", "notification_ids"})
+	updated, notificationIDs := applyTemplate(monitor, template, []string{"config", "interval_seconds", "notification_ids"})
 	if updated.Config.URL != "https://api.example.com/health" {
 		t.Fatalf("the target changed to %q", updated.Config.URL)
 	}
@@ -121,8 +121,13 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	if updated.IntervalSeconds != 30 {
 		t.Fatalf("interval = %d", updated.IntervalSeconds)
 	}
-	if len(notificationIDs) != 1 || groupIDs != nil {
-		t.Fatalf("links: notifications=%v groups=%v (the groups must be left alone)", notificationIDs, groupIDs)
+	if len(notificationIDs) != 1 {
+		t.Fatalf("links: notifications=%v (the groups must be left alone)", notificationIDs)
+	}
+	// The group of the monitor and the group of the template are both untouched:
+	// a bulk apply never moves a monitor.
+	if updated.GroupID != monitor.GroupID {
+		t.Fatalf("the group changed from %d to %d", monitor.GroupID, updated.GroupID)
 	}
 	// The original monitor is not mutated (the diff was computed from it).
 	if monitor.Config.Method != "GET" || monitor.IntervalSeconds != 0 {
@@ -130,12 +135,12 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	}
 	// TCP and DNS keep their own target as well.
 	tcpMonitor := &models.Monitor{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Host: "db.internal", Port: 3306}}
-	tcpUpdated, _, _ := applyTemplate(tcpMonitor, &models.MonitorTemplate{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Port: 5432}}, []string{"config"})
+	tcpUpdated, _ := applyTemplate(tcpMonitor, &models.MonitorTemplate{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Port: 5432}}, []string{"config"})
 	if tcpUpdated.Config.Host != "db.internal" || tcpUpdated.Config.Port != 3306 {
 		t.Fatalf("the tcp target changed: %s:%d", tcpUpdated.Config.Host, tcpUpdated.Config.Port)
 	}
 	dnsMonitor := &models.Monitor{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{Hostname: "example.com"}}
-	dnsUpdated, _, _ := applyTemplate(dnsMonitor, &models.MonitorTemplate{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{RecordType: "AAAA"}}, []string{"config"})
+	dnsUpdated, _ := applyTemplate(dnsMonitor, &models.MonitorTemplate{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{RecordType: "AAAA"}}, []string{"config"})
 	if dnsUpdated.Config.Hostname != "example.com" || dnsUpdated.Config.RecordType != "AAAA" {
 		t.Fatalf("the dns target changed: %+v", dnsUpdated.Config)
 	}
@@ -143,7 +148,7 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	// fallback of the bulk importer, never a silent repoint of a monitor. The SNI
 	// and the TLS switches are probe options of the template and do apply.
 	sslMonitor := &models.Monitor{Type: models.MonitorTypeSSL, Config: models.MonitorConfig{Host: "mail.example.com", Port: 465}}
-	sslUpdated, _, _ := applyTemplate(sslMonitor, &models.MonitorTemplate{
+	sslUpdated, _ := applyTemplate(sslMonitor, &models.MonitorTemplate{
 		Type:   models.MonitorTypeSSL,
 		Config: models.MonitorConfig{Port: 993, ServerName: "smtp.example.com", IgnoreTLS: true},
 	}, []string{"config"})
@@ -179,7 +184,7 @@ func TestApplyTemplateKeepsAuth(t *testing.T) {
 		Config: models.MonitorConfig{Method: "POST"}.WithoutAuth(),
 	}
 
-	updated, _, _ := applyTemplate(monitor, template, []string{"config"})
+	updated, _ := applyTemplate(monitor, template, []string{"config"})
 	if updated.Config.AuthType != "basic" || updated.Config.BasicUser != "operator" || updated.Config.BasicPass != "hunter2" {
 		t.Fatalf("the monitor authentication was lost: %+v", updated.Config)
 	}
@@ -194,7 +199,7 @@ func TestApplyTemplateKeepsAuth(t *testing.T) {
 	template.Config = models.MonitorConfig{
 		Method: "POST", AuthType: "bearer", BearerToken: "from-a-bypassed-write",
 	}
-	updated, _, _ = applyTemplate(anonymous, template, []string{"config"})
+	updated, _ = applyTemplate(anonymous, template, []string{"config"})
 	if updated.Config.AuthType != "" || updated.Config.BearerToken != "" {
 		t.Fatalf("the template leaked credentials into the monitor: %+v", updated.Config)
 	}

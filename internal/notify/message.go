@@ -46,15 +46,10 @@ type Message struct {
 	MonitorTags []string
 	// MonitorGroup is the name of the single group the monitor belongs to, and
 	// MonitorGroupID is its id; both are empty when the monitor belongs to no
-	// group.
+	// group. They are the only group fields: a monitor belongs to one group, so
+	// there is no plural form to keep in step.
 	MonitorGroup   string
 	MonitorGroupID uint
-	// MonitorGroups is DEPRECATED: it carries the same group as a zero or one
-	// element array, which is what a body template written before the single
-	// group rule reads ({{range .MonitorGroups}}). GroupsCSV is the same data as
-	// one comma separated string, and it stays the flat form operators already
-	// have in their templates. Both go away with the next release.
-	MonitorGroups []string
 	// Message is the check result message ("200 - OK", "connection refused"...).
 	Message string
 	// LatencyMS is the latency of the heartbeat that triggered the event.
@@ -90,18 +85,11 @@ const (
 // populated payload.
 func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status models.AggregateStatus,
 	detail string, latencyMS int64, nodeID, instanceURL string, group *models.MonitorGroupRef) Message {
-	// The deprecated array form is derived from the single group, and it stays an
-	// EMPTY array when there is no group: a nil slice would render as null through
-	// {{json .MonitorGroups}}, which reads like a bug on the receiving side.
 	groupName := ""
 	groupID := uint(0)
-	groupNames := []string{}
 	if group != nil {
 		groupID = group.ID
 		groupName = group.Name
-		if groupName != "" {
-			groupNames = []string{groupName}
-		}
 	}
 	return Message{
 		Event:              string(event),
@@ -114,7 +102,6 @@ func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status 
 		MonitorTags:        monitor.TagList(),
 		MonitorGroup:       groupName,
 		MonitorGroupID:     groupID,
-		MonitorGroups:      groupNames,
 		Message:            detail,
 		LatencyMS:          latencyMS,
 		NodeID:             nodeID,
@@ -176,16 +163,10 @@ func (m Message) TagsCSV() string {
 	return joinCSV(m.MonitorTags)
 }
 
-// GroupsCSV is the monitor's groups as one comma separated string, the flat form
-// of MonitorGroups ({{.GroupsCSV}} in a body template).
-func (m Message) GroupsCSV() string {
-	return joinCSV(m.MonitorGroups)
-}
-
 // joinCSV trims and drops the empty values but keeps the caller's order, so the
-// flat form lists tags and groups exactly like the array form does. It does not
-// use models.JoinList on purpose: that helper sorts its items, which would lose
-// the group sort order and make the two forms disagree.
+// flat form lists tags exactly like the array form does. It does not use
+// models.JoinList on purpose: that helper sorts its items, and the two forms of
+// the same list must not disagree.
 func joinCSV(items []string) string {
 	cleaned := make([]string, 0, len(items))
 	for _, item := range items {
@@ -238,9 +219,9 @@ func (m Message) RenderBody(bodyTemplate string) (string, error) {
 	return buf.String(), nil
 }
 
-// jsonPayload is the default webhook body. Tags and groups travel both as
-// arrays (what a consumer parses) and as comma separated strings (what a human
-// reads in a log line).
+// jsonPayload is the default webhook body. Tags travel both as an array (what a
+// consumer parses) and as a comma separated string (what a human reads in a log
+// line); the group is a single value, so group/group_id are the whole of it.
 func (m Message) jsonPayload() map[string]any {
 	return map[string]any{
 		"event":   m.Event,
@@ -250,15 +231,11 @@ func (m Message) jsonPayload() map[string]any {
 		"status":  m.Status,
 		"message": m.Message,
 		// group and group_id are the single group of the monitor ("" and 0 when
-		// it belongs to none). groups and groups_csv are DEPRECATED mirrors of
-		// the same value: they keep a body written before the single group rule
-		// working, and they go away with the next release.
+		// it belongs to none).
 		"group":        m.MonitorGroup,
 		"group_id":     m.MonitorGroupID,
 		"tags":         m.MonitorTags,
-		"groups":       m.MonitorGroups,
 		"tags_csv":     m.TagsCSV(),
-		"groups_csv":   m.GroupsCSV(),
 		"latency_ms":   m.LatencyMS,
 		"node":         m.NodeID,
 		"timestamp":    m.Timestamp.Format(time.RFC3339),

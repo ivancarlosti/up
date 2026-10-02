@@ -25,7 +25,7 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		OriginNodeID:    "up-node-1",
 		Revision:        3,
 		NotificationIDs: []uint{7, 8},
-		GroupIDs:        []uint{9},
+		GroupID:         9,
 		Status:          models.AggregateDown,
 		Uptime24h:       99.5,
 		Votes:           []models.NodeVote{{NodeID: "up-node-1", Online: true}},
@@ -53,11 +53,11 @@ func TestBuildMonitorPayloadKeepsLocalIdentityOffTheWire(t *testing.T) {
 		`"votes"`,
 		`"uptime_24h"`,
 		`"last_latency_ms"`,
-		`"group_ids"`,
+		`"group_id"`,
 		`"notification_ids"`,
 		// The relations are separate entities now: a group or channel list here
 		// would give the relation two writers.
-		`"group_uuids"`,
+		`"group_uuid"`,
 		`"notification_uuids"`,
 	} {
 		if strings.Contains(wire, forbidden) {
@@ -109,19 +109,19 @@ func TestBuildMonitorTemplatePayloadDropsLocalDefaultLinks(t *testing.T) {
 			IntervalSeconds: 60,
 			RunOn:           "all",
 			NotificationIDs: []uint{7, 8},
-			GroupIDs:        []uint{9},
+			GroupID:         9,
 		},
 	}
-	payload, err := BuildMonitorTemplatePayload(template, []string{"group-a"}, []string{"chan-a"})
+	payload, err := BuildMonitorTemplatePayload(template, "group-a", []string{"chan-a"})
 	if err != nil {
 		t.Fatalf("building the payload: %v", err)
 	}
 	wire := string(payload)
 
-	if strings.Contains(wire, `"notification_ids":[7,8]`) || strings.Contains(wire, `"group_ids":[9]`) {
+	if strings.Contains(wire, `"notification_ids":[7,8]`) || strings.Contains(wire, `"group_id":9`) {
 		t.Errorf("the template defaults must not carry local link ids:\n%s", wire)
 	}
-	if !strings.Contains(wire, `"notification_uuids":["chan-a"]`) || !strings.Contains(wire, `"group_uuids":["group-a"]`) {
+	if !strings.Contains(wire, `"notification_uuids":["chan-a"]`) || !strings.Contains(wire, `"group_uuid":"group-a"`) {
 		t.Errorf("the template links must travel as uuids:\n%s", wire)
 	}
 }

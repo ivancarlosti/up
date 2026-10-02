@@ -200,9 +200,12 @@ func (s *MonitorService) applyManualDomainDate(ctx context.Context, monitor *mod
 	}
 }
 
-// Create inserts a monitor, links the notification channels and the groups and
+// Create inserts a monitor, links the notification channels and the group and
 // creates the aggregated state row.
-func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, notificationIDs, groupIDs []uint) error {
+//
+// groupID is the single group the monitor joins: nil and 0 both mean "no group"
+// (a create has no current group to keep), any other id is the group it belongs to.
+func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, notificationIDs []uint, groupID *uint) error {
 	if err := s.Validate(monitor); err != nil {
 		return err
 	}
@@ -225,7 +228,7 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 		if err := replaceMonitorNotifications(tx, monitor.ID, notificationIDs); err != nil {
 			return err
 		}
-		if err := setMonitorGroup(tx, monitor.ID, groupIDs); err != nil {
+		if err := setMonitorGroup(tx, monitor.ID, groupID); err != nil {
 			return err
 		}
 		state := models.MonitorState{
@@ -252,9 +255,9 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 	return nil
 }
 
-// Update saves the editable fields of a monitor. A nil notificationIDs/groupIDs
+// Update saves the editable fields of a monitor. A nil notificationIDs/groupID
 // keeps the current links, exactly like the update endpoint always did.
-func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, notificationIDs, groupIDs []uint) error {
+func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, notificationIDs []uint, groupID *uint) error {
 	if err := s.Validate(monitor); err != nil {
 		return err
 	}
@@ -329,8 +332,8 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 				return err
 			}
 		}
-		if groupIDs != nil {
-			if err := setMonitorGroup(tx, monitor.ID, groupIDs); err != nil {
+		if groupID != nil {
+			if err := setMonitorGroup(tx, monitor.ID, groupID); err != nil {
 				return err
 			}
 		}
@@ -470,38 +473,36 @@ func replaceMonitorNotifications(tx *gorm.DB, monitorID uint, notificationIDs []
 // setMonitorGroup sets the single group of a monitor (the reverse of
 // replaceMonitorGroupMembers: here the monitor is the fixed side).
 //
-// A monitor belongs to at most one group, so a LIST is accepted only for
-// compatibility: an older client still sends group_ids, and its first usable entry
-// is what the monitor keeps instead of the request failing (the key disappears with
-// the next release). A nil slice means "leave the current group alone" and an empty
-// one means "no group", the same contract the notification links follow.
+// The pointer carries the whole contract of the notification links: nil means
+// "leave the current group alone" (an update that does not mention it), 0 means
+// "no group" and any other id is the group the monitor joins.
 //
 // The membership is replaced rather than updated in place, and the caller publishes
 // the before/after diff (publishMonitor), so a peer sees exactly what moved.
-func setMonitorGroup(tx *gorm.DB, monitorID uint, groupIDs []uint) error {
-	if groupIDs == nil {
+func setMonitorGroup(tx *gorm.DB, monitorID uint, groupID *uint) error {
+	if groupID == nil {
 		return nil
 	}
-	groupID := firstGroupID(groupIDs)
-	if groupID != 0 {
-		if err := validateGroupIDs(tx, []uint{groupID}); err != nil {
+	id := *groupID
+	if id != 0 {
+		if err := validateGroupID(tx, id); err != nil {
 			return err
 		}
 	}
 	order := 1
-	if groupID != 0 {
+	if id != 0 {
 		// A monitor that stays in its group keeps its position inside it; one that
 		// moves goes to the END of the group it joins, so a save never silently
 		// reorders a group the operator did not touch.
 		var existing models.MonitorGroupMember
-		switch err := tx.Where("monitor_id = ? AND group_id = ?", monitorID, groupID).
+		switch err := tx.Where("monitor_id = ? AND group_id = ?", monitorID, id).
 			Take(&existing).Error; {
 		case err == nil:
 			order = existing.SortOrder
 		case err == gorm.ErrRecordNotFound:
 			var last int
 			if err := tx.Model(&models.MonitorGroupMember{}).
-				Where("group_id = ?", groupID).
+				Where("group_id = ?", id).
 				Select("COALESCE(MAX(sort_order), 0)").
 				Scan(&last).Error; err != nil {
 				return err
@@ -514,9 +515,9 @@ func setMonitorGroup(tx *gorm.DB, monitorID uint, groupIDs []uint) error {
 	if err := tx.Where("monitor_id = ?", monitorID).Delete(&models.MonitorGroupMember{}).Error; err != nil {
 		return err
 	}
-	if groupID == 0 {
+	if id == 0 {
 		return nil
 	}
-	member := models.MonitorGroupMember{GroupID: groupID, MonitorID: monitorID, SortOrder: order}
+	member := models.MonitorGroupMember{GroupID: id, MonitorID: monitorID, SortOrder: order}
 	return tx.Create(&member).Error
 }

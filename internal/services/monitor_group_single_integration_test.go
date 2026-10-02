@@ -125,36 +125,41 @@ func TestSingleGroupLive(t *testing.T) {
 		t.Fatalf("the second consolidation changed the memberships: %v", got)
 	}
 
-	// The write path: a list is accepted (the deprecated group_ids) but only its
-	// first usable entry survives.
-	if err := setMonitorGroup(tx, monitor.ID, []uint{groups[1].ID, groups[2].ID}); err != nil {
-		t.Fatalf("setMonitorGroup with a list: %v", err)
+	// The write path: the pointer carries the whole contract — an id joins the
+	// group, nil keeps the current one and 0 leaves the monitor without a group.
+	second := groups[1].ID
+	if err := setMonitorGroup(tx, monitor.ID, &second); err != nil {
+		t.Fatalf("setMonitorGroup(second): %v", err)
 	}
 	if got := groupIDsOfMonitor(t, tx, monitor.ID); len(got) != 1 || got[0] != groups[1].ID {
-		t.Fatalf("setMonitorGroup([second, third]) = %v, want only the second group", got)
+		t.Fatalf("setMonitorGroup(second) = %v, want only the second group", got)
 	}
-	// nil keeps the current group, an empty list clears it.
+	// nil keeps the current group...
 	if err := setMonitorGroup(tx, monitor.ID, nil); err != nil {
 		t.Fatalf("setMonitorGroup(nil): %v", err)
 	}
 	if got := groupIDsOfMonitor(t, tx, monitor.ID); len(got) != 1 || got[0] != groups[1].ID {
 		t.Fatalf("setMonitorGroup(nil) = %v, want the current group kept", got)
 	}
-	if err := setMonitorGroup(tx, monitor.ID, []uint{}); err != nil {
-		t.Fatalf("setMonitorGroup(nothing): %v", err)
+	// ...and zero clears it.
+	none := uint(0)
+	if err := setMonitorGroup(tx, monitor.ID, &none); err != nil {
+		t.Fatalf("setMonitorGroup(0): %v", err)
 	}
 	if got := groupIDsOfMonitor(t, tx, monitor.ID); len(got) != 0 {
-		t.Fatalf("setMonitorGroup([]) = %v, want no group", got)
+		t.Fatalf("setMonitorGroup(0) = %v, want no group", got)
 	}
 	// An unknown group is a 400, and the memberships are left alone.
-	err = setMonitorGroup(tx, monitor.ID, []uint{999999})
+	unknown := uint(999999)
+	err = setMonitorGroup(tx, monitor.ID, &unknown)
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.Code != i18n.CodeMonitorGroupInvalid {
 		t.Fatalf("setMonitorGroup(an unknown group) = %v, want %s", err, i18n.CodeMonitorGroupInvalid)
 	}
 	// The group editor MOVES a monitor: adding it to another group takes it out of
 	// the one it was in.
-	if err := setMonitorGroup(tx, monitor.ID, []uint{groups[0].ID}); err != nil {
+	first := groups[0].ID
+	if err := setMonitorGroup(tx, monitor.ID, &first); err != nil {
 		t.Fatalf("setMonitorGroup(first): %v", err)
 	}
 	if err := tx.Transaction(func(inner *gorm.DB) error {

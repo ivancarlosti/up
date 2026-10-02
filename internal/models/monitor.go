@@ -191,11 +191,6 @@ type Monitor struct {
 	GroupID   uint             `gorm:"-" json:"group_id"`
 	GroupName string           `gorm:"-" json:"group_name"`
 	Group     *MonitorGroupRef `gorm:"-" json:"group"`
-	// GroupIDs is DEPRECATED and mirrors GroupID as a zero or one element list, so
-	// an older client keeps reading an answer: the key goes away with the next
-	// release. A write still accepts it (see monitorPayload) and keeps its first
-	// usable entry.
-	GroupIDs []uint `gorm:"-" json:"group_ids"`
 	// Certificate is the last TLS certificate read by a probe (only when the
 	// monitor watches its certificate).
 	Certificate *CertificateInfo `gorm:"-" json:"certificate,omitempty"`

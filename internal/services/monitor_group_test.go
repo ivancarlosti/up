@@ -11,11 +11,11 @@ import (
 
 // TestErrInternalKeepsNestedAPIError documents why a validation error raised
 // inside a transaction is not flattened into a 500: the operator must receive
-// the field level code and message (the group_ids validation is the case that
+// the field level code and message (the group_id validation is the case that
 // exposed it).
 func TestErrInternalKeepsNestedAPIError(t *testing.T) {
 	nested := fmt.Errorf("creating monitor: %w",
-		ErrBadRequest(i18n.CodeMonitorGroupInvalid, "group_ids contains an unknown group"))
+		ErrBadRequest(i18n.CodeMonitorGroupInvalid, "group_id names an unknown group"))
 
 	got := ErrInternal(nested)
 	if got.Status != http.StatusBadRequest {
@@ -24,7 +24,7 @@ func TestErrInternalKeepsNestedAPIError(t *testing.T) {
 	if got.Code != i18n.CodeMonitorGroupInvalid {
 		t.Fatalf("code = %q, want %q", got.Code, i18n.CodeMonitorGroupInvalid)
 	}
-	if got.Message != "group_ids contains an unknown group" {
+	if got.Message != "group_id names an unknown group" {
 		t.Fatalf("message = %q", got.Message)
 	}
 

@@ -234,7 +234,7 @@
     "cloneHelp": "副本从干净的历史记录开始：不会复制心跳。",
     "cloneName": "副本名称（留空 = \"名称 (副本)\"）",
     "copyNotifications": "复制通知渠道",
-    "copyGroups": "复制分组",
+    "copyGroup": "复制分组",
     "runOnSome": "一组节点",
     "targetNodes": "节点",
     "runOnSomeHelp": "以逗号分隔的节点 ID。只有这些节点探测该监控项，也只有它们对其状态投票。",
@@ -284,7 +284,7 @@
     "cloneName": "副本名称（留空 = \"名称 (副本)\"）",
     "cloneDeep": "克隆组内的监控项",
     "cloneDeepHelp": "每个监控项都会以 (副本) 后缀复制；不会复制心跳历史。",
-    "copyLinks": "复制每个监控项的渠道和分组",
+    "copyLinks": "复制每个监控项的通知渠道",
     "deleteTitle": "删除分组",
     "deleteWarning": "该分组将被删除；其中的监控项不受影响。"
   },

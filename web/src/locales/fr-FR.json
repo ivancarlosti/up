@@ -234,7 +234,7 @@
     "cloneHelp": "La copie démarre avec un historique vierge : les battements ne sont pas copiés.",
     "cloneName": "Nom de la copie (vide = \"nom (copie)\")",
     "copyNotifications": "Copier les canaux de notification",
-    "copyGroups": "Copier le groupe",
+    "copyGroup": "Copier le groupe",
     "runOnSome": "Un ensemble de nœuds",
     "targetNodes": "Nœuds",
     "runOnSomeHelp": "Identifiants de nœuds séparés par des virgules. Seuls ces nœuds sondent le moniteur, et seuls ils votent sur son statut.",
@@ -284,7 +284,7 @@
     "cloneName": "Nom de la copie (vide = \"nom (copie)\")",
     "cloneDeep": "Dupliquer les moniteurs du groupe",
     "cloneDeepHelp": "Chaque moniteur est dupliqué avec un suffixe (copie) ; l'historique des battements n'est pas copié.",
-    "copyLinks": "Copier les canaux et le groupe de chaque moniteur",
+    "copyLinks": "Copier les canaux de notification de chaque moniteur",
     "deleteTitle": "Supprimer le groupe",
     "deleteWarning": "Le groupe est supprimé ; les moniteurs qu'il contient restent intacts."
   },

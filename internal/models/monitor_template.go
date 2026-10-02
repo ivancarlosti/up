@@ -101,11 +101,12 @@ type TemplateDefaults struct {
 	DomainWatch    bool   `json:"domain_watch"`
 	DomainNotify   bool   `json:"domain_notify"`
 	DomainWarnDays string `json:"domain_warn_days"`
-	// NotificationIDs and GroupIDs are the links applied to the new monitors.
+	// NotificationIDs and GroupID are the links applied to the new monitors.
 	NotificationIDs []uint `json:"notification_ids"`
-	// GroupIDs is kept for compatibility for the same reason: the groups of a
-	// monitor are the operator's choice.
-	GroupIDs []uint `json:"group_ids"`
+	// GroupID is the single group the monitors created from the template join
+	// (0 = no group). A template is a blueprint: it carries the group its
+	// monitors are expected to live in, and one monitor lives in one group.
+	GroupID uint `json:"group_id"`
 }
 
 // TemplateDefaultFields lists the fields that can be applied to existing
@@ -243,9 +244,6 @@ func (t *MonitorTemplate) Normalize() {
 	}
 	if t.Defaults.NotificationIDs == nil {
 		t.Defaults.NotificationIDs = []uint{}
-	}
-	if t.Defaults.GroupIDs == nil {
-		t.Defaults.GroupIDs = []uint{}
 	}
 	t.LinkScope.Normalize()
 	t.Config.Normalize(t.Type)

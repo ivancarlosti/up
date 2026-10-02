@@ -234,7 +234,7 @@
     "cloneHelp": "La copia empieza con historial limpio: los heartbeats no se copian.",
     "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
     "copyNotifications": "Copiar los canales de notificación",
-    "copyGroups": "Copiar el grupo",
+    "copyGroup": "Copiar el grupo",
     "runOnSome": "Un conjunto de nodos",
     "targetNodes": "Nodos",
     "runOnSomeHelp": "Ids de nodo separados por comas. Solo estos nodos sondean el monitor y solo ellos votan por su estado.",
@@ -284,7 +284,7 @@
     "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
     "cloneDeep": "Clonar los monitores del grupo",
     "cloneDeepHelp": "Cada monitor se duplica con el sufijo (copy); el historial de heartbeats no se copia.",
-    "copyLinks": "Copiar los canales y el grupo de cada monitor",
+    "copyLinks": "Copiar los canales de notificación de cada monitor",
     "deleteTitle": "Eliminar grupo",
     "deleteWarning": "El grupo se elimina; los monitores que contiene permanecen."
   },

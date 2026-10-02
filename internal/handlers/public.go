@@ -54,7 +54,6 @@ func (h *Container) health(c *gin.Context) {
 	c.JSON(http.StatusOK, payload)
 }
 
-
 // version returns the build metadata.
 func (h *Container) version(c *gin.Context) {
 	api.OK(c, gin.H{
@@ -127,16 +126,15 @@ func (h *Container) dashboard(c *gin.Context) {
 	}
 
 	summary := gin.H{
-		"total":         len(monitors),
-		"up":            0,
-		"down":          0,
-		"degraded":      0,
-		"pending":       0,
-		"maintenance":   0,
-		"unknown":       0,
-		"paused":        0,
-		"heartbeats_1h": int64(0),
-		"ws_clients":    0,
+		"total":       len(monitors),
+		"up":          0,
+		"down":        0,
+		"degraded":    0,
+		"pending":     0,
+		"maintenance": 0,
+		"unknown":     0,
+		"paused":      0,
+		"ws_clients":  0,
 	}
 	for _, monitor := range monitors {
 		if !monitor.Active {
@@ -157,9 +155,6 @@ func (h *Container) dashboard(c *gin.Context) {
 		default:
 			summary["unknown"] = summary["unknown"].(int) + 1
 		}
-	}
-	if count, countErr := h.Heartbeats.PingStats(ctx); countErr == nil {
-		summary["heartbeats_1h"] = count
 	}
 	if h.Hub != nil {
 		summary["ws_clients"] = h.Hub.ClientCount()

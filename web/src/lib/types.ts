@@ -166,12 +166,6 @@ export interface Monitor {
   group_id: number
   group_name: string
   group: MonitorGroupRef | null
-  /**
-   * @deprecated Mirrors `group_id` as a zero or one element list, for the requests
-   * and the clients written before the single group rule. It disappears with the
-   * next release: read `group_id` and `group_name`.
-   */
-  group_ids: number[]
   // Certificate watching (see docs/monitors.md §9).
   cert_watch: boolean
   cert_notify: boolean
@@ -204,8 +198,6 @@ export type MonitorPayload = Partial<Omit<Monitor, 'id'>> & {
    * monitor already has, while 0 moves it to no group.
    */
   group_id?: number
-  /** @deprecated Use `group_id`: only its first entry is honoured. */
-  group_ids?: number[]
 }
 
 /**
@@ -242,7 +234,8 @@ export type MonitorGroupPayload = Partial<MonitorGroup> & { monitor_ids?: number
 export interface MonitorCloneOptions {
   name?: string
   copy_notifications?: boolean
-  copy_groups?: boolean
+  /** Puts the copy in the same group as the original. */
+  copy_group?: boolean
 }
 
 /** Options of a group clone (POST /api/monitor-groups/:id/clone). */
@@ -438,8 +431,6 @@ export interface BulkOptions {
    * omits it falls back to the group the template carries.
    */
   group_id?: number
-  /** @deprecated Use `group_id`: only its first entry is honoured. */
-  group_ids?: number[]
   active?: boolean
   dry_run?: boolean
 }
@@ -493,7 +484,6 @@ export interface DashboardResponse {
     maintenance: number
     unknown: number
     paused: number
-    heartbeats_1h: number
     ws_clients: number
     cluster?: ClusterStatus
   }

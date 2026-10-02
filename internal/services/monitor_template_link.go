@@ -40,19 +40,13 @@ type LinkOptions struct {
 	TemplateID uint
 	// Scope is the selection of the run: the whole type, some groups (by uuid)
 	// or some tags. It is persisted on the template once the run succeeds, so
-	// the dialog reopens on the same decision.
+	// the dialog reopens on the same decision. An omitted scope (kind empty)
+	// means "every monitor of the type".
 	//
-	// A zero scope (kind empty) means "the request did not decide": GroupIDs is
-	// then honoured for compatibility, otherwise the type scope applies.
+	// The selection is a set of groups, which is why it lists group uuids: the
+	// groups a MONITOR belongs to is a single one, the groups a RUN covers is a
+	// list.
 	Scope models.TemplateLinkScope
-	// GroupIDs limits the run to the monitors that belong to at least one of
-	// these groups, by local id.
-	//
-	// Deprecated: it is the pre-scope API of the endpoint (the id of a group is
-	// not a cluster-wide identity, see TemplateLinkScope). It keeps working so an
-	// old client does not silently link everything, and it is translated to the
-	// uuid form before the run so both entry points share one implementation.
-	GroupIDs []uint
 	// DryRun computes the preview without writing anything.
 	DryRun bool
 }
@@ -103,9 +97,9 @@ func (s *MonitorTemplateService) Propagate(ctx context.Context, templateID uint)
 		if len(planApply(monitor, template, fields)) == 0 {
 			continue
 		}
-		next, notificationIDs, groupIDs := applyTemplate(monitor, template, fields)
+		next, notificationIDs := applyTemplate(monitor, template, fields)
 		next.TemplateUUID = template.UUID
-		if err := s.mono.Update(ctx, next, notificationIDs, groupIDs); err != nil {
+		if err := s.mono.Update(ctx, next, notificationIDs, nil); err != nil {
 			s.log.Warn("could not propagate the template",
 				"template", template.ID, "monitor_id", monitor.ID, "error", err)
 			continue
@@ -232,22 +226,10 @@ func (s *MonitorTemplateService) existingGroupUUIDs(ctx context.Context, uuids [
 	return kept, nil
 }
 
-// groupUUIDsByID translates the deprecated id-based selection of the endpoint
-// into the uuid form a scope stores.
-func (s *MonitorTemplateService) groupUUIDsByID(ctx context.Context, ids []uint) ([]string, error) {
-	var uuids []string
-	if err := s.db.WithContext(ctx).Model(&models.MonitorGroup{}).
-		Where("id IN ?", ids).Order("id ASC").Pluck("uuid", &uuids).Error; err != nil {
-		return nil, ErrInternal(fmt.Errorf("resolving the selected monitor groups: %w", err))
-	}
-	return uuids, nil
-}
-
 // prepareLinkScope turns the options of a run into the scope it applies and
 // stores.
 //
-// A request without a scope falls back to the deprecated GroupIDs (an older
-// client must keep linking exactly what it asked for) and then to the type scope.
+// A request without a scope means the type scope ("every monitor of this type").
 // A group scope is pruned of the groups that no longer exist; if none of them is
 // left the run is refused, because "the groups I selected are the groups I want"
 // and silently running over the whole type — or over nobody — would be worse than
@@ -255,15 +237,7 @@ func (s *MonitorTemplateService) groupUUIDsByID(ctx context.Context, ids []uint)
 func (s *MonitorTemplateService) prepareLinkScope(ctx context.Context, opts LinkOptions) (models.TemplateLinkScope, error) {
 	scope := opts.Scope
 	if scope.IsZero() {
-		if len(opts.GroupIDs) > 0 {
-			uuids, err := s.groupUUIDsByID(ctx, opts.GroupIDs)
-			if err != nil {
-				return scope, err
-			}
-			scope = models.TemplateLinkScope{Kind: models.TemplateScopeGroups, GroupUUIDs: uuids}
-		} else {
-			scope = models.TemplateLinkScope{Kind: models.TemplateScopeType}
-		}
+		scope = models.TemplateLinkScope{Kind: models.TemplateScopeType}
 	}
 	scope.Normalize()
 	if problem := scope.Valid(); problem != "" {
@@ -429,9 +403,9 @@ func (s *MonitorTemplateService) LinkAll(ctx context.Context, opts LinkOptions) 
 		if !differs {
 			continue
 		}
-		next, notificationIDs, groupIDs := applyTemplate(monitor, template, fields)
+		next, notificationIDs := applyTemplate(monitor, template, fields)
 		next.TemplateUUID = template.UUID
-		if err := s.mono.Update(ctx, next, notificationIDs, groupIDs); err != nil {
+		if err := s.mono.Update(ctx, next, notificationIDs, nil); err != nil {
 			s.log.Warn("could not link the monitor to the template",
 				"template", template.ID, "monitor_id", monitor.ID, "error", err)
 			continue

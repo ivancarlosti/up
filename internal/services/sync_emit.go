@@ -120,10 +120,14 @@ func BuildMonitorNotificationPayload(monitorUUID, notificationUUID string) ([]by
 // monitor when the template is used), so those two fields are cleared here and
 // travel as uuids instead: a local id on the wire would be meaningless on the
 // receiver, and worse, silently wrong.
-func BuildMonitorTemplatePayload(t *models.MonitorTemplate, groupUUIDs, notificationUUIDs []string) ([]byte, error) {
+//
+// Only the notification channels stay a list: a monitor has many, while the group
+// of the template default is a single reference (groupUUID, empty when the
+// template does not name one).
+func BuildMonitorTemplatePayload(t *models.MonitorTemplate, groupUUID string, notificationUUIDs []string) ([]byte, error) {
 	defaults := t.Defaults
 	defaults.NotificationIDs = nil
-	defaults.GroupIDs = nil
+	defaults.GroupID = 0
 
 	return json.Marshal(models.MonitorTemplatePayload{
 		UUID:         t.UUID,
@@ -138,7 +142,7 @@ func BuildMonitorTemplatePayload(t *models.MonitorTemplate, groupUUIDs, notifica
 		Defaults:    defaults,
 		LinkScope:   t.LinkScope,
 
-		GroupUUIDs:        orEmpty(groupUUIDs),
+		GroupUUID:         groupUUID,
 		NotificationUUIDs: orEmpty(notificationUUIDs),
 	})
 }
@@ -380,9 +384,13 @@ func (e *SyncEmitter) EmitMonitorTemplate(ctx context.Context, tx *gorm.DB, id u
 		return fmt.Errorf("reading the template to publish: %w", err)
 	}
 	groupUUIDs, err := uuidList(ctx, tx,
-		`SELECT uuid FROM monitor_groups WHERE id IN ? ORDER BY uuid`, row.Defaults.GroupIDs)
+		`SELECT uuid FROM monitor_groups WHERE id = ? ORDER BY uuid`, row.Defaults.GroupID)
 	if err != nil {
 		return err
+	}
+	groupUUID := ""
+	if len(groupUUIDs) > 0 {
+		groupUUID = groupUUIDs[0]
 	}
 	notificationUUIDs, err := uuidList(ctx, tx,
 		`SELECT uuid FROM notifications WHERE id IN ? ORDER BY uuid`, row.Defaults.NotificationIDs)
@@ -390,7 +398,7 @@ func (e *SyncEmitter) EmitMonitorTemplate(ctx context.Context, tx *gorm.DB, id u
 		return err
 	}
 	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.MonitorTemplate{}, row.ID)
-	payload, err := BuildMonitorTemplatePayload(&row, groupUUIDs, notificationUUIDs)
+	payload, err := BuildMonitorTemplatePayload(&row, groupUUID, notificationUUIDs)
 	if err != nil {
 		return err
 	}

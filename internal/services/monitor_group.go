@@ -148,26 +148,6 @@ func (s *MonitorGroupService) MonitorIDs(ctx context.Context, groupID uint) ([]u
 	return ids, nil
 }
 
-// GroupsForMonitors returns the group ids of every given monitor (one query),
-// used to decorate the monitor payloads.
-func (s *MonitorGroupService) GroupsForMonitors(ctx context.Context, monitorIDs []uint) (map[uint][]uint, error) {
-	out := map[uint][]uint{}
-	if len(monitorIDs) == 0 {
-		return out, nil
-	}
-	var members []models.MonitorGroupMember
-	if err := s.db.WithContext(ctx).
-		Where("monitor_id IN ?", monitorIDs).
-		Order("group_id ASC").
-		Find(&members).Error; err != nil {
-		return nil, ErrInternal(err)
-	}
-	for _, member := range members {
-		out[member.MonitorID] = append(out[member.MonitorID], member.GroupID)
-	}
-	return out, nil
-}
-
 // Create stores a group and its members.
 func (s *MonitorGroupService) Create(ctx context.Context, group *models.MonitorGroup, monitorIDs []uint) error {
 	group.Name = strings.TrimSpace(group.Name)
@@ -349,9 +329,12 @@ func (s *MonitorGroupService) Clone(ctx context.Context, id uint, opts MonitorGr
 	if opts.Deep && s.mono != nil {
 		monitorIDs = make([]uint, 0, len(source.MonitorIDs))
 		for _, monitorID := range source.MonitorIDs {
+			// The copy joins the NEW group (Create below puts it there), so its
+			// source group must NOT travel with it: copying it would briefly —
+			// and confusingly — park the clone next to its neighbour.
 			cloned, cloneErr := s.mono.Clone(ctx, monitorID, MonitorCloneOptions{
 				CopyNotifications: opts.CopyLinks,
-				CopyGroups:        opts.CopyLinks,
+				CopyGroup:         false,
 			})
 			if cloneErr != nil {
 				return nil, cloneErr
@@ -437,22 +420,6 @@ func (s *MonitorGroupService) uniqueName(ctx context.Context, base string) (stri
 		fmt.Sprintf("could not find a free name for %q", base))
 }
 
-// firstGroupID returns the first usable id of a group list, or 0 when the list
-// holds none.
-//
-// The monitor form writes ONE group now, but a request may still send the
-// deprecated group_ids list: keeping its first entry is what turns "two groups"
-// into "the first group" without failing the request, and it is the only place the
-// truncation is decided.
-func firstGroupID(ids []uint) uint {
-	for _, id := range ids {
-		if id != 0 {
-			return id
-		}
-	}
-	return 0
-}
-
 // replaceMonitorGroupMembers rewrites the members of a group, validating that
 // the monitors exist so a deleted monitor cannot leave a dangling membership.
 //
@@ -488,22 +455,18 @@ func replaceMonitorGroupMembers(tx *gorm.DB, groupID uint, monitorIDs []uint) er
 	return nil
 }
 
-// validateGroupIDs checks that every group exists. A nil slice means "keep the
-// current links" and is accepted without touching the database.
-func validateGroupIDs(tx *gorm.DB, groupIDs []uint) error {
-	if groupIDs == nil {
-		return nil
-	}
-	ids := uniqueIDs(groupIDs)
-	if len(ids) == 0 {
-		return nil
-	}
+// validateGroupID checks that a group exists, so a monitor can never be written
+// with a membership that points at nothing.
+//
+// It is only called with a non zero id: 0 means "no group" and never reaches the
+// database (see setMonitorGroup).
+func validateGroupID(tx *gorm.DB, groupID uint) error {
 	var found int64
-	if err := tx.Model(&models.MonitorGroup{}).Where("id IN ?", ids).Count(&found).Error; err != nil {
+	if err := tx.Model(&models.MonitorGroup{}).Where("id = ?", groupID).Count(&found).Error; err != nil {
 		return err
 	}
-	if int(found) != len(ids) {
-		return ErrBadRequest(i18n.CodeMonitorGroupInvalid, "group_ids contains an unknown group")
+	if found == 0 {
+		return ErrBadRequest(i18n.CodeMonitorGroupInvalid, "group_id names an unknown group")
 	}
 	return nil
 }

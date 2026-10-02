@@ -14,12 +14,14 @@ import (
 // ConsolidateSingleGroupMembership collapses the membership of every monitor to a
 // single group, keeping the first group the monitor is shown under.
 //
-// It is the boot step that brings the data in line with the rule the rest of this
-// release already enforces: a monitor belongs to at most one group. The write paths
-// truncate the deprecated group_ids list to its first entry, so a monitor that
-// belonged to three groups kept belonging to three until something rewrote it - and
-// the only thing that rewrites a membership is an edit of that monitor, one monitor
-// at a time. That is not a migration, hence this pass.
+// It is the boot step that brings legacy data in line with the rule the rest of
+// this release already enforces: a monitor belongs to at most one group. A database
+// written by an older release can still hold a monitor in several groups, because
+// the write paths of that release accepted a `group_ids` list and every group
+// editor used to ADD to the list. This release replaced all of them (a monitor's
+// group is `group_id`, replaced, never appended), but a stored row is not an edit:
+// nothing rewrites the memberships of a monitor until that monitor is saved, and the
+// only thing that saves it is the operator. That is not a migration, hence this pass.
 //
 // The keeper is the group that comes FIRST in the group list the operator sees
 // (`monitor_groups.sort_order`, then the id), so the monitor stays under the heading

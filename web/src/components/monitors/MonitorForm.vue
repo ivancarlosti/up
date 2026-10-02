@@ -47,9 +47,8 @@ function emptyForm(): MonitorPayload {
     tags: '',
     config: { method: 'GET', encoding: 'json', auth_type: 'none', accepted_status_codes: '200-299', max_redirects: 10, record_type: 'A', resolver_server: '1.1.1.1', ip_family: 'auto', headers: [] },
     notification_ids: [],
-    // The single group of the monitor, and the deprecated list that mirrors it.
+    // The single group of the monitor (0 = no group).
     group_id: 0,
-    group_ids: [],
     template_uuid: '',
     cert_watch: false,
     cert_notify: false,
@@ -197,16 +196,12 @@ const groupOptions = computed(() => [
 
 /**
  * groupValue is the single group of the form. The Select reports what the browser
- * hands it (a string), so the value is converted once, here, and the deprecated
- * `group_ids` list is kept in step with it: a body built on the multi group form
- * reads the same group.
+ * hands it (a string), so the value is converted once, here.
  */
 const groupValue = computed({
   get: () => String(form.group_id ?? 0),
   set: (value: string) => {
-    const id = Number(value) || 0
-    form.group_id = id
-    form.group_ids = id ? [id] : []
+    form.group_id = Number(value) || 0
   },
 })
 

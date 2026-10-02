@@ -54,7 +54,7 @@ func ErrConflict(code, message string) *APIError {
 //
 // A nested *APIError keeps its own status and code: a validation performed
 // inside a transaction must reach the caller as a 400 with its stable code
-// instead of being flattened into a 500 "ERR_INTERNAL" (which is how a group_ids
+// instead of being flattened into a 500 "ERR_INTERNAL" (which is how a group_id
 // validation used to look from the outside).
 func ErrInternal(err error) *APIError {
 	var apiErr *APIError

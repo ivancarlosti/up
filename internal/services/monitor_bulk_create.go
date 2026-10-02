@@ -80,8 +80,8 @@ func (s *MonitorService) BulkCreate(ctx context.Context, opts BulkOptions, templ
 		notificationIDs := template.Defaults.NotificationIDs
 		// One group per monitor: the request wins over the template, which is only
 		// the blueprint of the import.
-		groupIDs := bulkGroupIDs(opts.GroupIDs, template.Defaults.GroupIDs)
-		if createErr := s.Create(ctx, monitor, notificationIDs, groupIDs); createErr != nil {
+		groupID := bulkGroupID(opts.GroupID, template.Defaults.GroupID)
+		if createErr := s.Create(ctx, monitor, notificationIDs, &groupID); createErr != nil {
 			result.Status = "failed"
 			result.Error = createErr.Error()
 			report.Failed++

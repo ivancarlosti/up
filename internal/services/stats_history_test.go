@@ -20,6 +20,45 @@ func TestHeartbeatRollupUpsertParameterCount(t *testing.T) {
 	}
 }
 
+// TestQueryTimeFloorsToStoredPrecision guards the precision of every bound the
+// window queries bind.
+//
+// A bound carrying nanoseconds is sent as a temporal literal finer than the
+// datetime(3) column it is compared with, and the server then stops using it as
+// an index range: the boundary query of a listing is planned as if the range
+// covered the whole retained history (measured on a 5 M heartbeat fixture:
+// 4 873 349 estimated rows instead of 32 499), which turns a dashboard load from
+// under a second into twenty. The floor is therefore not cosmetic, and it has to
+// survive in the layout the query is built from.
+func TestQueryTimeFloorsToStoredPrecision(t *testing.T) {
+	in := time.Date(2026, 10, 1, 20, 36, 27, 303124327, time.UTC)
+	got := queryTime(in)
+	want := time.Date(2026, 10, 1, 20, 36, 27, 303000000, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("queryTime(%s) = %s, want %s", in, got, want)
+	}
+	if got.Unix() != in.Unix() {
+		t.Fatalf("queryTime must not move the instant to another second: %s -> %s", in, got)
+	}
+
+	// Whatever the caller passes, the bounds of the periods - the values the
+	// boundary query binds - are stored precision.
+	set := newHistoryWindowSet(in, 720)
+	for _, window := range set.boundaryRanges() {
+		if window.start.Nanosecond()%int(storedPrecision) != 0 {
+			t.Errorf("boundary range starts at %s: finer than the stored precision", window.start)
+		}
+		if !window.end.IsZero() && window.end.Nanosecond()%int(storedPrecision) != 0 {
+			t.Errorf("boundary range ends at %s: finer than the stored precision", window.end)
+		}
+	}
+	for _, spec := range set.windows {
+		if spec.start.Nanosecond()%int(storedPrecision) != 0 {
+			t.Errorf("%d h window starts at %s: finer than the stored precision", spec.hours, spec.start)
+		}
+	}
+}
+
 // TestCeilHour covers the round-up that splits a window between the rollups and
 // the raw heartbeats: an instant already on the hour is left alone, anything
 // else moves to the next one.
@@ -90,20 +129,34 @@ func TestHistoryWindowSetLayout(t *testing.T) {
 	if selected.rollupInside(day, selected.endHour) {
 		t.Error("the hour in progress must not be counted from a rollup")
 	}
-	if !selected.rawInside(day, time.Date(2026, 9, 25, 21, 30, 0, 0, time.UTC)) {
-		t.Error("a heartbeat in the partial start hour must be counted raw")
+
+	// What the rollups do not cover is read raw: the hour in progress, open
+	// ended, and the hour every window starts in. Those are the boundary ranges
+	// the query aggregates, and each one knows the periods it feeds.
+	ranges := selected.boundaryRanges()
+	if got := len(ranges); got != len(selected.windows)+1 {
+		t.Fatalf("%d boundary ranges for %d windows, want one per window plus the hour in progress",
+			got, len(selected.windows))
 	}
-	if selected.rawInside(day, time.Date(2026, 9, 25, 22, 30, 0, 0, time.UTC)) {
-		t.Error("a heartbeat in a whole hour must not be counted raw")
+	if !ranges[0].start.Equal(selected.endHour) || !ranges[0].end.IsZero() {
+		t.Errorf("the hour in progress must be the open ended boundary range, got [%s, %s)",
+			ranges[0].start, ranges[0].end)
 	}
-	if !selected.rawInside(day, now) {
-		t.Error("a heartbeat in the hour in progress must be counted raw")
+	if !ranges[0].serves(day) {
+		t.Error("the hour in progress belongs to every period, the 24 h one included")
 	}
-	if !selected.rawInside(day, selected.windows[day].start) {
-		t.Error("a heartbeat exactly at the start of the window must be counted")
+	leadStart, leadEnd := selected.windows[day].start, selected.windows[day].leadEnd
+	lead := 0
+	for _, window := range ranges[1:] {
+		if window.start.Equal(leadStart) && window.end.Equal(leadEnd) {
+			lead++
+			if len(window.windows) != 1 || !window.serves(day) {
+				t.Errorf("the partial start hour of the 24 h window must feed it alone, feeds %v", window.windows)
+			}
+		}
 	}
-	if selected.rawInside(day, time.Date(2026, 9, 25, 21, 0, 0, 0, time.UTC)) {
-		t.Error("a heartbeat before the window start must not be counted")
+	if lead != 1 {
+		t.Errorf("the partial start hour of the 24 h window appears in %d boundary ranges, want 1", lead)
 	}
 
 	// A window that is also one of the fixed ones must not be laid out twice.
@@ -123,8 +176,8 @@ func TestHistoryWindowSetLayout(t *testing.T) {
 }
 
 // TestHistoryBoundaryRangesDisjoint checks the property the query relies on: the
-// raw ranges never overlap, so the OR of conditions cannot return a heartbeat
-// twice and double its counter.
+// raw ranges never overlap, so a heartbeat is aggregated by exactly one range and
+// can never be counted twice, and every range declares the periods it feeds.
 func TestHistoryBoundaryRangesDisjoint(t *testing.T) {
 	now := time.Date(2026, 9, 26, 21, 17, 42, 0, time.UTC)
 	set := newHistoryWindowSet(now, 336)
@@ -136,6 +189,9 @@ func TestHistoryBoundaryRangesDisjoint(t *testing.T) {
 	}
 	if ranges[0].start != set.endHour || !ranges[0].end.IsZero() {
 		t.Fatalf("the first range must be the open ended hour in progress, got [%s, %s)", ranges[0].start, ranges[0].end)
+	}
+	if len(ranges[0].windows) != len(set.windows) {
+		t.Errorf("the hour in progress feeds %v, want every period", ranges[0].windows)
 	}
 	tail := ranges[0]
 	for i := 1; i < len(ranges); i++ {
@@ -149,8 +205,10 @@ func TestHistoryBoundaryRangesDisjoint(t *testing.T) {
 			}
 		}
 	}
-	// Every window must have its partial start hour covered by one range.
-	for _, spec := range set.windows {
+	// Every window must have its partial start hour covered by one range, and by
+	// a range that feeds that window and no other: a partial hour belongs to the
+	// period it starts.
+	for i, spec := range set.windows {
 		if !spec.start.Before(spec.leadEnd) {
 			continue
 		}
@@ -158,6 +216,10 @@ func TestHistoryBoundaryRangesDisjoint(t *testing.T) {
 		for _, window := range ranges {
 			if window.start.Equal(spec.start) && window.end.Equal(spec.leadEnd) {
 				found = true
+				if len(window.windows) != 1 || !window.serves(i) {
+					t.Errorf("the start hour of the %d h window feeds %v, want only that period",
+						spec.hours, window.windows)
+				}
 				break
 			}
 		}
@@ -169,8 +231,9 @@ func TestHistoryBoundaryRangesDisjoint(t *testing.T) {
 
 // TestHistorySplitMatchesRawAggregate is the equivalence proof of the change:
 // the same heartbeats, reduced into hourly rollups exactly like the upsert does
-// on write and completed by the raw boundary hours, must produce the counters
-// and the latency figures of the single raw aggregate the query used to run.
+// on write, completed by the boundary ranges aggregated exactly like
+// historyBoundaryAggregate does in SQL, must produce the counters and the latency
+// figures of the single raw aggregate the query used to run.
 func TestHistorySplitMatchesRawAggregate(t *testing.T) {
 	now := time.Date(2026, 9, 26, 21, 17, 42, 0, time.UTC)
 	set := newHistoryWindowSet(now, 336)
@@ -225,6 +288,44 @@ func TestHistorySplitMatchesRawAggregate(t *testing.T) {
 		}
 	}
 
+	// The boundary ranges historyBoundaryHeartbeats aggregates, reduced here the
+	// way the SQL of each branch does it: one row per range for the single
+	// monitor, with the counters of the beats it covers.
+	ranges := set.boundaryRanges()
+	boundary := make([]historyBoundaryRow, 0, len(ranges))
+	for i, window := range ranges {
+		row := historyBoundaryRow{RangeIndex: i, MonitorID: 1}
+		for _, b := range beats {
+			if b.at.Before(window.start) || (!window.end.IsZero() && !b.at.Before(window.end)) {
+				continue
+			}
+			if row.Total == 0 {
+				row.LatencyMin, row.LatencyMax = b.latency, b.latency
+			} else {
+				if b.latency < row.LatencyMin {
+					row.LatencyMin = b.latency
+				}
+				if b.latency > row.LatencyMax {
+					row.LatencyMax = b.latency
+				}
+			}
+			row.Total++
+			switch b.status {
+			case models.StatusUp:
+				row.Up++
+				row.UpLatencySum += b.latency
+				row.UpLatencyCount++
+			case models.StatusDown:
+				row.Down++
+			case models.StatusPending:
+				row.Pending++
+			case models.StatusMaintenance:
+				row.Maintenance++
+			}
+		}
+		boundary = append(boundary, row)
+	}
+
 	got := make([]historyTotals, len(set.windows))
 	for _, row := range rollups {
 		for i := range set.windows {
@@ -233,25 +334,47 @@ func TestHistorySplitMatchesRawAggregate(t *testing.T) {
 			}
 		}
 	}
-	for _, b := range beats {
-		raw := historyRawRow{MonitorID: 1, Status: int(b.status), LatencyMS: b.latency, CreatedAt: b.at}
+	// Exactly the loop History runs: every range folded into the periods it
+	// serves, and nothing else.
+	for _, row := range boundary {
 		for i := range set.windows {
-			if set.rawInside(i, b.at) {
-				got[i].addRaw(raw)
+			if ranges[row.RangeIndex].serves(i) {
+				got[i].addRollup(row.rollup())
 			}
 		}
 	}
 
-	// The reference is the raw aggregate: every heartbeat at or after the start
-	// of the window, whatever hour it falls in.
+	// The reference is the raw aggregate the query used to run: every heartbeat
+	// at or after the start of the window, whatever hour it falls in, reduced
+	// directly into the same shape.
 	want := make([]historyTotals, len(set.windows))
 	for _, b := range beats {
-		raw := historyRawRow{MonitorID: 1, Status: int(b.status), LatencyMS: b.latency, CreatedAt: b.at}
 		for i, spec := range set.windows {
 			if b.at.Before(spec.start) {
 				continue
 			}
-			want[i].addRaw(raw)
+			if !want[i].hasMinMax {
+				want[i].minMS, want[i].maxMS = b.latency, b.latency
+				want[i].hasMinMax = true
+			} else {
+				if b.latency < want[i].minMS {
+					want[i].minMS = b.latency
+				}
+				if b.latency > want[i].maxMS {
+					want[i].maxMS = b.latency
+				}
+			}
+			want[i].total++
+			switch b.status {
+			case models.StatusUp:
+				want[i].up++
+				want[i].upLatSum += b.latency
+				want[i].upLatCnt++
+			case models.StatusDown:
+				want[i].down++
+			case models.StatusPending:
+				want[i].pending++
+			}
 		}
 	}
 

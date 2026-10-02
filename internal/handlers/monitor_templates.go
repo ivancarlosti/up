@@ -13,25 +13,19 @@ func (h *Container) bulkCreateMonitors(c *gin.Context) {
 	var payload struct {
 		Text       string `json:"text"`
 		TemplateID uint   `json:"template_id"`
-		// GroupID is the single group the new monitors join. GroupIDs is the
-		// deprecated list form: it follows the same contract and only its first
-		// entry is honoured (an omitted GroupID falls back to it).
-		GroupID  *uint  `json:"group_id"`
-		GroupIDs []uint `json:"group_ids"`
-		Active   *bool  `json:"active"`
-		DryRun   bool   `json:"dry_run"`
+		// GroupID is the single group the new monitors join. An omitted key
+		// leaves the choice to the template (its own default group applies).
+		GroupID *uint `json:"group_id"`
+		Active  *bool `json:"active"`
+		DryRun  bool  `json:"dry_run"`
 	}
 	if !bindJSON(c, &payload) {
 		return
 	}
-	var groupIDs *[]uint
-	if payload.GroupIDs != nil {
-		groupIDs = &payload.GroupIDs
-	}
 	report, createdIDs, err := h.Monitors.BulkCreate(c.Request.Context(), services.BulkOptions{
 		Text:       payload.Text,
 		TemplateID: payload.TemplateID,
-		GroupIDs:   monitorGroupSelection(payload.GroupID, groupIDs),
+		GroupID:    payload.GroupID,
 		Active:     payload.Active,
 		DryRun:     payload.DryRun,
 	}, h.MonitorTemplates)
@@ -160,12 +154,10 @@ func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 		return
 	}
 	var payload struct {
-		// Scope is the selection of the run. An omitted scope falls back to
-		// group_ids (the pre-scope payload) and then to "every monitor of the
-		// type", so an older client keeps meaning what it meant.
-		Scope    models.TemplateLinkScope `json:"scope"`
-		GroupIDs []uint                   `json:"group_ids"`
-		DryRun   bool                     `json:"dry_run"`
+		// Scope is the selection of the run: the whole type, some groups or
+		// some tags. An omitted scope means "every monitor of the type".
+		Scope  models.TemplateLinkScope `json:"scope"`
+		DryRun bool                     `json:"dry_run"`
 	}
 	// A wet run may be sent with an empty body.
 	if c.Request.ContentLength > 0 {
@@ -176,7 +168,6 @@ func (h *Container) linkAllMonitorTemplate(c *gin.Context) {
 	result, err := h.MonitorTemplates.LinkAll(c.Request.Context(), services.LinkOptions{
 		TemplateID: id,
 		Scope:      payload.Scope,
-		GroupIDs:   payload.GroupIDs,
 		DryRun:     payload.DryRun,
 	})
 	if err != nil {

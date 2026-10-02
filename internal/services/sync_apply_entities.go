@@ -187,6 +187,26 @@ func (s *SyncService) uniqueName(ctx context.Context, tx *gorm.DB, model any, co
 	return "", fmt.Errorf("no free name for %q after %d attempts", name, maxNameAttempts)
 }
 
+// resolveLink maps ONE uuid to its local id, recording the reference as pending
+// when the row has not arrived yet. It is the singular form of resolveLinks, used
+// where the reference is a single one (the default group of a template).
+func (s *SyncService) resolveLink(ctx context.Context, tx *gorm.DB, containerEntity, containerUUID, kind, entity, uuid string) (uint, error) {
+	if strings.TrimSpace(uuid) == "" {
+		return 0, nil
+	}
+	id, ok, err := s.localID(ctx, tx, entity, uuid)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		if err := s.recordPendingLink(ctx, tx, containerEntity, containerUUID, kind, uuid); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	return id, nil
+}
+
 // resolveLinks maps uuids to local ids, recording every uuid that has not arrived
 // yet as a pending link.
 //
@@ -272,8 +292,8 @@ func (s *SyncService) applyTemplate(ctx context.Context, tx *gorm.DB, change mod
 
 // writeTemplate inserts or refreshes the local row of a template.
 func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload models.MonitorTemplatePayload, localID uint) (uint, bool, error) {
-	groupIDs, err := s.resolveLinks(ctx, tx,
-		models.EntityMonitorTemplate, payload.UUID, "group_uuids", models.EntityMonitorGroup, payload.GroupUUIDs)
+	groupID, err := s.resolveLink(ctx, tx,
+		models.EntityMonitorTemplate, payload.UUID, "group_uuid", models.EntityMonitorGroup, payload.GroupUUID)
 	if err != nil {
 		return 0, false, err
 	}
@@ -290,7 +310,7 @@ func (s *SyncService) writeTemplate(ctx context.Context, tx *gorm.DB, payload mo
 	// The defaults keep their links as local ids; they travel as uuids and are
 	// resolved above.
 	defaults := payload.Defaults
-	defaults.GroupIDs = groupIDs
+	defaults.GroupID = groupID
 	defaults.NotificationIDs = notificationIDs
 
 	// The scope of the last link run. It is written only when the payload carries

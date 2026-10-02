@@ -714,20 +714,35 @@ WHERE monitor_id IN (?) AND bucket_at >= ? AND bucket_at < ?;
 
 The boundary hours, whose ranges are disjoint by construction so a heartbeat can
 never be counted twice (one range per window for the hour it starts in, plus the
-hour in progress):
+hour in progress). Each range is aggregated on its own and its `GROUP BY`
+reduces it to one row per monitor before anything leaves the server:
 
 ```sql
-SELECT monitor_id, status, latency_ms, created_at
+SELECT 0 AS range_index, monitor_id, SUM(...), COUNT(*), MIN(latency_ms), MAX(latency_ms)
 FROM heartbeats
-WHERE monitor_id IN (?)
-  AND ((created_at >= ? AND created_at < ?)   -- the hour the window starts in
-    OR (created_at >= ?));                    -- the hour in progress
+WHERE monitor_id IN (?) AND created_at >= ?              -- the hour in progress
+GROUP BY monitor_id
+UNION ALL
+SELECT 1, monitor_id, ...
+FROM heartbeats
+WHERE monitor_id IN (?) AND created_at >= ? AND created_at < ?   -- the hour a window starts in
+GROUP BY monitor_id;
 ```
 
 The counters are then summed in Go. The latency figures keep the shape of the
 aggregate they replace: the average is the one of the `up` checks, rounded to the
 four fractional digits MySQL returns for a division, and the minimum and the
 maximum cover every heartbeat of the window.
+
+**Bounds are stored precision.** Every datetime bound a window query binds is
+floored to the millisecond first (`queryTime` in `internal/services/stats.go`),
+because the columns are `datetime(3)`. A bound built from `time.Now()` carries
+nanoseconds and reaches the server as `2026-10-01 20:36:27.303124327`: a literal
+finer than the column type stops being usable as an index range, and the plan
+falls back to whatever index covers the other column alone. On a 5 M heartbeat
+fixture the same predicate estimates **4 873 349** rows with a nanosecond bound
+and **32 499** with a millisecond one - 17 s against 0.2 s for one dashboard
+load. `TestQueryTimeFloorsToStoredPrecision` pins the floor.
 
 Why the numbers are identical: a rollup row is the exact reduction of its hour,
 so adding whole hours and completing the partial ones reproduces the single
@@ -792,18 +807,20 @@ ORDER BY h.monitor_id, h.node_id;
 ```
 
 **Compact heartbeat bars** (`internal/services/stats_series.go`, one row per
-monitor and slot, oldest first; the window follows the global uptime period):
+monitor and slot, oldest first; the window follows the global uptime period). The
+slots are whole hours - one per hour of the window plus the hour in progress - so
+the rollups can answer them, and the cost is bounded by monitors x slots rows
+whatever the size of the history:
 
 ```sql
 SELECT monitor_id,
-       FLOOR(TIMESTAMPDIFF(SECOND, ?, created_at) / ?) AS bucket,
-       SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END)     AS downs,
-       SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END)     AS pendings,
-       SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END)     AS maintenances,
-       COUNT(*)                                        AS total,
-       AVG(latency_ms)                                 AS latency
-FROM heartbeats
-WHERE created_at >= ? AND monitor_id IN (?)
+       FLOOR(TIMESTAMPDIFF(HOUR, ?, bucket_at) / ?) AS bucket,
+       SUM(down)                                    AS downs,
+       SUM(pending)                                 AS pendings,
+       SUM(maintenance)                             AS maintenances,
+       SUM(total)                                   AS total
+FROM heartbeat_rollups
+WHERE bucket_at >= ? AND monitor_id IN (?)
 GROUP BY monitor_id, bucket;
 ```
 

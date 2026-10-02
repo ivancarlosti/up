@@ -206,11 +206,10 @@ TCP and DNS example:
 `notification_ids` replaces the links on every update; omit the field to keep the
 current links, send `[]` to clear them.
 
-`group_id` is the single group of the monitor and follows the same contract: omit
-the field to keep the current group, send `0` (or an empty `group_ids`) to move the
-monitor to no group. The deprecated `group_ids` list is still accepted for one
-release and only its first entry is honoured; the response mirrors the group back
-as `group_ids` (a zero or one element list) for the clients that still read it.
+`group_id` is the group of the monitor and follows the same contract: omit the
+field to keep the current group, send `0` to move the monitor to no group. The
+payload answers with `group_id`, `group_name` and the nested `group` object, and
+the listing filters with `?group_id=`.
 
 ## 6. Other operations
 
@@ -260,16 +259,16 @@ those tags is **not rewritten** (its revision does not move), a row that would
 overflow the column fails alone with a message, and `dry_run: true` returns the
 same before/after per row without writing. Every written row goes through the
 ordinary monitor write path, so the revision advances, the cluster is told and
-nothing else in the row (target, groups, channels, template link) moves.
+nothing else in the row (target, group, channels, template link) moves.
 
 ### Clone
 
 `POST /api/monitors/:id/clone` with an optional
-`{"name": "...", "copy_notifications": true, "copy_groups": true}` body. Without
+`{"name": "...", "copy_notifications": true, "copy_group": true}` body. Without
 a name the copy is `<name> (copy)` (and `(2)`, `(3)`… when that one is taken).
 
 What is copied: the type, every configuration field, the scheduling options and
-`run_on`, plus the notification links and the groups when asked. What is **not**
+`run_on`, plus the notification links and the group when asked. What is **not**
 copied: the heartbeat history and the aggregated state, so a copy starts with a
 clean history and never inherits an old incident.
 
@@ -292,21 +291,20 @@ Rules that matter in practice:
 
 - A monitor belongs to **one** group. On the monitor payload `group_id` follows the
   same contract as `notification_ids`: omitted keeps the current group, `0` clears
-  it. The deprecated `group_ids` list is still accepted (its first entry is kept)
-  and the response mirrors `group_id` back as a zero or one element list; both keys
-  disappear with the next release.
+  it, and an id moves the monitor into that group.
 - Adding a monitor to a group from the group side (`PUT
   /api/monitor-groups/:id/monitors`) MOVES it out of the group it was in: a monitor
   claimed by two groups appeared twice on a status page that included both, which
   is what the single row per monitor in `monitor_group_members` prevents.
 - Group names are unique (`409 ERR_MONITOR_GROUP_INVALID`); the ids in
-  `monitor_ids`/`group_ids` are validated, so a typo answers
+  `monitor_ids` are validated, so a typo answers
   `400 ERR_MONITOR_GROUP_INVALID` instead of creating a dangling link.
 - Deleting a monitor removes its memberships; deleting a group keeps the
   monitors (it is a hard delete, so the name is free again immediately).
 - The clone is **shallow by default** (an empty group with the same settings).
   With `deep: true` every monitor inside is cloned too, each one with its
-  `(copy)` name and, with `copy_links`, its channels and groups.
+  `(copy)` name and, with `copy_links`, its channels. The monitor joins the new
+  group instead of the group it was cloned from.
 
 ## 8. Templates
 
@@ -758,10 +756,12 @@ the fixed `uptime_24h`/`uptime_7d`/`uptime_30d` columns of the public API, with 
 single grouped query (`StatsService.History`).
 
 The *Heartbeat* column draws a bucketed snapshot of the same window
-(`StatsService.RecentBars`: one grouped query bounded by monitors x 30 slots,
-never a query per monitor and never updated live), so the column stays cheap even
-on a large installation. An empty slot (paused monitor, or a gap in the history)
-is drawn in the muted "no data" colour.
+(`StatsService.RecentBars`: one grouped query over the hourly rollups, bounded by
+monitors x slots, never a query per monitor and never updated live), so the column
+stays cheap even on a large installation. Every slot is a whole hour - one per
+hour of the window plus the hour in progress - which is both what keeps the column
+readable on a wide window and what lets the rollups answer it. An empty slot
+(paused monitor, or a gap in the history) is drawn in the muted "no data" colour.
 
 The rules (`web/src/lib/sort.ts`):
 

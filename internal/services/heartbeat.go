@@ -161,16 +161,3 @@ func (s *HeartbeatService) PurgeOlderThan(ctx context.Context, before time.Time)
 	}
 	return result.RowsAffected, nil
 }
-
-// PingStats summarises how many heartbeats were stored recently, which is handy
-// to verify that the scheduler is running.
-func (s *HeartbeatService) PingStats(ctx context.Context) (int64, error) {
-	var count int64
-	err := s.db.WithContext(ctx).Model(&models.Heartbeat{}).
-		Where("created_at >= ?", time.Now().UTC().Add(-time.Hour)).
-		Count(&count).Error
-	if err != nil {
-		return 0, ErrInternal(err)
-	}
-	return count, nil
-}

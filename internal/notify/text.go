@@ -21,8 +21,6 @@ func (m Message) Text() string {
 		fmt.Fprintf(&b, "Tags    : %s\n", tags)
 	}
 	if group := m.MonitorGroup; group != "" {
-		// The single group of the monitor. The deprecated array form carries
-		// exactly the same name, so the two can never disagree.
 		fmt.Fprintf(&b, "Group   : %s\n", group)
 	}
 	fmt.Fprintf(&b, "Latency : %d ms\n", m.LatencyMS)

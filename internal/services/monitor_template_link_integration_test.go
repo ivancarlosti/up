@@ -134,8 +134,9 @@ func TestLinkAllRescopesLive(t *testing.T) {
 	detachedRevision := rowOf(t, tx, detached.ID).Revision
 
 	// --- the preview ---------------------------------------------------------
+	groupScope := models.TemplateLinkScope{Kind: models.TemplateScopeGroups, GroupUUIDs: []string{scopedGroup.UUID}}
 	preview, err := templates.LinkAll(ctx,
-		LinkOptions{TemplateID: template.ID, GroupIDs: []uint{scopedGroup.ID}, DryRun: true})
+		LinkOptions{TemplateID: template.ID, Scope: groupScope, DryRun: true})
 	if err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestLinkAllRescopesLive(t *testing.T) {
 	}
 
 	// --- the run -------------------------------------------------------------
-	result, err := templates.LinkAll(ctx, LinkOptions{TemplateID: template.ID, GroupIDs: []uint{scopedGroup.ID}})
+	result, err := templates.LinkAll(ctx, LinkOptions{TemplateID: template.ID, Scope: groupScope})
 	if err != nil {
 		t.Fatalf("link run: %v", err)
 	}
@@ -277,9 +278,9 @@ func templateOf(t *testing.T, tx *gorm.DB, id uint) models.MonitorTemplate {
 // TestLinkScopeLive pins what the link dialog depends on: the scope of a run is
 // STORED on the template (so re-opening the dialog shows the decision instead of
 // "every monitor of this type"), a dry run stores nothing, a tag scope matches
-// whole tags only, the deprecated group_ids payload is translated to uuids, an
-// edit that does not carry a scope keeps the stored one, and a scope naming a
-// group that no longer exists is pruned or refused.
+// whole tags only, a group scope resolves its uuids, an edit that does not carry
+// a scope keeps the stored one, and a scope naming a group that no longer exists
+// is pruned or refused.
 func TestLinkScopeLive(t *testing.T) {
 	tx := scratchTx(t)
 	ctx := context.Background()
@@ -378,27 +379,28 @@ func TestLinkScopeLive(t *testing.T) {
 		t.Fatalf("the tag scope was not stored: %+v", stored.LinkScope)
 	}
 
-	// --- the deprecated group_ids payload -------------------------------------
-	// An older client sends ids and no scope: the run must narrow to what it
-	// asked for (never to the whole type) and remember the group by uuid.
-	legacy, err := templates.LinkAll(ctx, LinkOptions{TemplateID: template.ID, GroupIDs: []uint{group.ID}, DryRun: true})
+	// --- a group scope, previewed ---------------------------------------------
+	// A group scope is stored as uuids (a run covers many groups, a monitor
+	// belongs to one), so it must resolve back even before anything is written.
+	groupScope := models.TemplateLinkScope{Kind: models.TemplateScopeGroups, GroupUUIDs: []string{group.UUID}}
+	previewed, err := templates.LinkAll(ctx, LinkOptions{TemplateID: template.ID, Scope: groupScope, DryRun: true})
 	if err != nil {
-		t.Fatalf("legacy dry run: %v", err)
+		t.Fatalf("group dry run: %v", err)
 	}
-	if legacy.Scope.Kind != models.TemplateScopeGroups || len(legacy.Scope.GroupUUIDs) != 1 ||
-		legacy.Scope.GroupUUIDs[0] != group.UUID {
-		t.Fatalf("group_ids was not translated to the uuid of the group: %+v", legacy.Scope)
+	if previewed.Scope.Kind != models.TemplateScopeGroups || len(previewed.Scope.GroupUUIDs) != 1 ||
+		previewed.Scope.GroupUUIDs[0] != group.UUID {
+		t.Fatalf("the group scope was not resolved to the uuid of the group: %+v", previewed.Scope)
 	}
-	if legacy.Monitors != 1 || legacy.Linked != 1 || legacy.Unlinked != 1 {
-		t.Fatalf("legacy dry run = %+v, want only the member of the group in scope", legacy)
+	if previewed.Monitors != 1 || previewed.Linked != 1 || previewed.Unlinked != 1 {
+		t.Fatalf("group dry run = %+v, want only the member of the group in scope", previewed)
 	}
 
-	applied, err := templates.LinkAll(ctx, LinkOptions{TemplateID: template.ID, GroupIDs: []uint{group.ID}})
+	applied, err := templates.LinkAll(ctx, LinkOptions{TemplateID: template.ID, Scope: groupScope})
 	if err != nil {
-		t.Fatalf("legacy run: %v", err)
+		t.Fatalf("group run: %v", err)
 	}
 	if applied.Monitors != 1 || applied.Linked != 1 || applied.Unlinked != 1 {
-		t.Fatalf("legacy run = %+v, want the member linked and the tagged follower released", applied)
+		t.Fatalf("group run = %+v, want the member linked and the tagged follower released", applied)
 	}
 	if got := rowOf(t, tx, gamma.ID); got.TemplateUUID != template.UUID || got.IntervalSeconds != 120 {
 		t.Errorf("the group member did not follow the template: %+v", got)

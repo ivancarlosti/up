@@ -70,7 +70,7 @@ const groupFilter = ref('')
 const cloneOpen = ref(false)
 const cloning = ref(false)
 const cloneSource = ref<Monitor | null>(null)
-const cloneForm = reactive<MonitorCloneOptions>({ name: '', copy_notifications: true, copy_groups: true })
+const cloneForm = reactive<MonitorCloneOptions>({ name: '', copy_notifications: true, copy_group: true })
 
 /**
  * The summary box currently selected: it filters the table below, and clicking
@@ -375,7 +375,7 @@ function openClone(monitor: Monitor): void {
   cloneSource.value = monitor
   cloneForm.name = ''
   cloneForm.copy_notifications = true
-  cloneForm.copy_groups = true
+  cloneForm.copy_group = true
   cloneOpen.value = true
 }
 
@@ -386,7 +386,7 @@ async function submitClone(): Promise<void> {
     await api.cloneMonitor(cloneSource.value.id, {
       name: cloneForm.name?.trim() || undefined,
       copy_notifications: cloneForm.copy_notifications,
-      copy_groups: cloneForm.copy_groups,
+      copy_group: cloneForm.copy_group,
     })
     cloneOpen.value = false
     toasts.success(t('common.saved'))
@@ -537,7 +537,7 @@ onMounted(async () => {
         </div>
         <div class="grid gap-2">
           <Switch v-model="cloneForm.copy_notifications as boolean">{{ t('monitor.copyNotifications') }}</Switch>
-          <Switch v-model="cloneForm.copy_groups as boolean">{{ t('monitor.copyGroups') }}</Switch>
+          <Switch v-model="cloneForm.copy_group as boolean">{{ t('monitor.copyGroup') }}</Switch>
         </div>
       </div>
       <template #footer>

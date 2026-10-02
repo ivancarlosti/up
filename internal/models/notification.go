@@ -121,7 +121,6 @@ const DefaultWebhookBodyTemplate = `{
   "tags": {{json .MonitorTags}},
   "group": "{{.MonitorGroup}}",
   "group_id": {{.MonitorGroupID}},
-  "groups": {{json .MonitorGroups}},
   "latency_ms": {{.LatencyMS}},
   "node": "{{.NodeID}}",
   "timestamp": "{{.Timestamp}}"
