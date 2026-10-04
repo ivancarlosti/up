@@ -95,6 +95,25 @@ function selectBox(box: SummaryBox): void {
   activeBox.value = activeBox.value === box ? 'all' : box
 }
 
+/** hasActiveFilters is true when any filter narrows the table. */
+const hasActiveFilters = computed(
+  () =>
+    activeBox.value !== 'all' ||
+    groupFilter.value !== '' ||
+    typeFilter.value !== '' ||
+    statusFilter.value !== '' ||
+    search.value.trim() !== '',
+)
+
+/** clearFilters resets every filter back to its neutral state. */
+function clearFilters(): void {
+  activeBox.value = 'all'
+  groupFilter.value = ''
+  typeFilter.value = ''
+  statusFilter.value = ''
+  search.value = ''
+}
+
 const list = computed(() => monitors.monitors)
 
 /** certificatesExpiring counts the certificates that expire within the window. */
@@ -460,7 +479,7 @@ onMounted(async () => {
       <Select v-model="typeFilter" class="w-40" :options="typeOptions" />
       <Select v-model="statusFilter" class="w-40" :options="statusFilterOptions" />
       <Input v-model="search" class="max-w-xs" :placeholder="t('dashboard.searchPlaceholder')" />
-      <Button v-if="activeBox !== 'all'" variant="outline" size="sm" @click="activeBox = 'all'">
+      <Button v-if="hasActiveFilters" variant="outline" size="sm" @click="clearFilters">
         {{ t('dashboard.clearFilter') }}
       </Button>
       <div class="ms-auto flex flex-wrap items-center gap-2">
