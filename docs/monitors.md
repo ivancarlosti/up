@@ -306,6 +306,14 @@ Rules that matter in practice:
   `(copy)` name and, with `copy_links`, its channels. The monitor joins the new
   group instead of the group it was cloned from.
 
+In the UI (Admin > Monitor groups) the groups table lists the **name** (with its
+description), the **number of monitors** the group holds (`monitor_count`, not the
+names) and the position; the edit dialog is a **search box plus a member list**:
+typing filters the monitors by name, type or tags, clicking a result moves it into
+the group's member list (each member shows its template and its tags), and the
+remove button takes it out again. The search/pick pair replaces the checkbox grid
+of the first releases, which did not scale past a few dozen monitors.
+
 ## 8. Templates
 
 A template is a monitor without a target: the probe type and its options plus the
@@ -680,6 +688,11 @@ exist.
 | Daily job + TLD rules + target list | `web/src/views/admin/AdminExpiryView.vue` |
 | Public status page | `web/src/views/StatusPagePublicView.vue` |
 
+The group dialog (`AdminMonitorGroupsView.vue`) is a search box over the name, the
+type and the tags plus a member list: the picker offers the monitors that are not
+in the group yet, a click moves one in, and the tag badges on a member come from
+the same `monitor.tags` string the monitors table renders.
+
 Changing the type of a monitor clears the fields that do not belong to the
 selected one: the probe options of the previous type (`config`), the certificate
 switches when the new type cannot read a certificate, the domain switches and the
@@ -708,17 +721,20 @@ and the bulk tag dialog (`BulkTagsDialog.vue`, opened from the dashboard toolbar
 reuses the same read to offer the tags a rename can start from.
 
 All texts come from `web/src/locales/*.json` (`monitor.*`, `monitorDetail.*`,
-`certificate.*`, `domain.*`, `expiry.*`, `templates.*`, `bulkTags.*`).
+`groups.*`, `certificate.*`, `domain.*`, `expiry.*`, `templates.*`, `bulkTags.*`).
 
 ### Sorting the monitors table
 
 Every column of the dashboard monitors table except
-*Actions* and *Heartbeat* is a sort button: name, type, groups, certificate,
+*Actions* and *Heartbeat* is a sort button: name, type, groups, tags, certificate,
 domain, status, interval and uptime. Clicking a header sorts
 ascending, clicking it again reverses the direction; the choice is remembered per
 browser (`localStorage`, key `up.admin.monitors.sort`) and announced to screen
 readers through `aria-sort`. The persistence lives in `web/src/lib/monitor-sort.ts`,
-the comparators in `web/src/lib/sort.ts`.
+the comparators in `web/src/lib/sort.ts`. The *Tags* column renders one badge per
+tag (`common.tags`, the comma separated `monitor.tags` split on the comma) and an
+em dash when the monitor carries none; a monitor without a tag sorts to the
+bottom of the column in both directions, exactly like a monitor without a group.
 
 ### Sorting and filtering the other admin tables
 

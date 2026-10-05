@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Boxes, Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Boxes, Copy, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
-import Checkbox from '@/components/ui/Checkbox.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -66,11 +65,48 @@ function blank(): MonitorGroupPayload {
   return { name: '', description: '', sort_order: 0, monitor_ids: [] }
 }
 
+/**
+ * filteredMonitors is the picker list: the monitors whose name, type or tags
+ * match the search term, whatever their membership. It is the raw material of
+ * `availableMonitors` below (the ones that can still be added).
+ */
 const filteredMonitors = computed(() => {
   const term = search.value.trim().toLowerCase()
   if (!term) return monitors.value
-  return monitors.value.filter((monitor) => monitor.name.toLowerCase().includes(term))
+  return monitors.value.filter((monitor) =>
+    [monitor.name, monitor.type, monitor.tags].some((value) => (value ?? '').toLowerCase().includes(term)),
+  )
 })
+
+/**
+ * availableMonitors is what the picker offers: the monitors matching the search
+ * that are not already in the group. A monitor belongs to one group, so removing
+ * it from the list and re-adding it is the way to move it here.
+ */
+const availableMonitors = computed(() => {
+  const selected = new Set(form.monitor_ids ?? [])
+  return filteredMonitors.value.filter((monitor) => !selected.has(monitor.id))
+})
+
+/**
+ * selectedMonitors resolves the ids the group carries into the monitor objects
+ * the member list below the picker renders (id order preserved; an id without a
+ * matching monitor - a stale selection - is dropped).
+ */
+const selectedMonitors = computed(() => {
+  const byId = new Map(monitors.value.map((monitor) => [monitor.id, monitor]))
+  return (form.monitor_ids ?? [])
+    .map((id) => byId.get(id))
+    .filter((monitor): monitor is Monitor => monitor !== undefined)
+})
+
+/** tagList splits the comma separated tags of a monitor into badge labels. */
+function tagList(monitor: Monitor): string[] {
+  return (monitor.tags ?? '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
 
 /** filteredGroups applies the text filter of the table (name and description). */
 const filteredGroups = computed(() => {
@@ -99,10 +135,6 @@ async function load(): Promise<void> {
   }
 }
 
-function monitorName(id: number): string {
-  return monitors.value.find((monitor) => monitor.id === id)?.name ?? String(id)
-}
-
 function openCreate(): void {
   editing.value = null
   Object.assign(form, blank())
@@ -122,11 +154,16 @@ function openEdit(group: MonitorGroup): void {
   dialogOpen.value = true
 }
 
-function toggleMonitor(id: number, value: boolean): void {
+/** addMonitor puts a monitor at the end of the group's member list. */
+function addMonitor(id: number): void {
   const ids = new Set(form.monitor_ids ?? [])
-  if (value) ids.add(id)
-  else ids.delete(id)
+  ids.add(id)
   form.monitor_ids = [...ids]
+}
+
+/** removeMonitor takes a monitor out of the group's member list. */
+function removeMonitor(id: number): void {
+  form.monitor_ids = (form.monitor_ids ?? []).filter((current) => current !== id)
 }
 
 async function save(): Promise<void> {
@@ -265,14 +302,7 @@ onMounted(load)
                   {{ group.description }}
                 </span>
               </td>
-              <td>
-                <div class="flex flex-wrap items-center gap-1">
-                  <Badge v-for="id in group.monitor_ids" :key="id" variant="outline">{{ monitorName(id) }}</Badge>
-                  <span v-if="!group.monitor_ids.length" class="text-[11px] text-muted-foreground">
-                    {{ t('groups.noMonitors') }}
-                  </span>
-                </div>
-              </td>
+              <td class="whitespace-nowrap tabular-nums">{{ group.monitor_count }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ group.sort_order }}</td>
               <td class="text-end">
                 <div class="flex items-center justify-end gap-1">
@@ -329,16 +359,61 @@ onMounted(load)
         <div class="grid gap-2 sm:col-span-2">
           <Label :help="t('groups.monitorsHelp')">{{ t('groups.monitors') }}</Label>
           <Input id="group-search" v-model="search" :placeholder="t('groups.searchMonitors')" />
-          <div class="flex flex-wrap gap-4">
-            <Checkbox
-              v-for="monitor in filteredMonitors"
+          <!--
+            The picker: the monitors matching the search that are not in the
+            group yet. Clicking one adds it to the member list below (a monitor
+            belongs to one group, so this is how it is moved here).
+          -->
+          <div v-if="availableMonitors.length" class="max-h-44 overflow-y-auto rounded-md border border-border">
+            <button
+              v-for="monitor in availableMonitors"
               :key="monitor.id"
-              :model-value="(form.monitor_ids ?? []).includes(monitor.id)"
-              @update:model-value="toggleMonitor(monitor.id, $event)"
+              type="button"
+              class="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-start text-sm last:border-b-0 hover:bg-muted"
+              :title="t('groups.addMonitor')"
+              :aria-label="t('groups.addMonitor')"
+              @click="addMonitor(monitor.id)"
             >
-              {{ monitor.name }}
-            </Checkbox>
+              <Plus class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span class="truncate">{{ monitor.name }}</span>
+              <Badge variant="secondary" class="ms-auto shrink-0">{{ monitor.type }}</Badge>
+              <Badge v-if="monitor.template_name" variant="outline" class="shrink-0">
+                {{ monitor.template_name }}
+              </Badge>
+            </button>
           </div>
+          <p v-else class="text-[11px] text-muted-foreground">
+            {{ search ? t('common.noMatch') : t('groups.allAdded') }}
+          </p>
+
+          <!-- The members of the group, each with its template and its tags. -->
+          <Label class="mt-1">{{ t('groups.members', { count: selectedMonitors.length }) }}</Label>
+          <div v-if="selectedMonitors.length" class="flex flex-col gap-1">
+            <div
+              v-for="monitor in selectedMonitors"
+              :key="monitor.id"
+              class="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm"
+            >
+              <span class="truncate font-medium">{{ monitor.name }}</span>
+              <Badge v-if="monitor.template_name" variant="outline" class="shrink-0">
+                {{ monitor.template_name }}
+              </Badge>
+              <Badge v-for="tag in tagList(monitor)" :key="tag" variant="secondary" class="shrink-0">
+                {{ tag }}
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="ms-auto shrink-0 text-status-down"
+                :title="t('groups.removeMonitor')"
+                :aria-label="t('groups.removeMonitor')"
+                @click="removeMonitor(monitor.id)"
+              >
+                <X class="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+          <p v-else class="text-[11px] text-muted-foreground">{{ t('groups.noMonitors') }}</p>
         </div>
       </div>
 

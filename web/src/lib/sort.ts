@@ -14,6 +14,7 @@ export type MonitorSortKey =
   | 'name'
   | 'type'
   | 'group'
+  | 'tags'
   | 'certificate'
   | 'domain'
   | 'status'
@@ -42,6 +43,7 @@ export const monitorSortKeys: MonitorSortKey[] = [
   'name',
   'type',
   'group',
+  'tags',
   'certificate',
   'domain',
   'status',
@@ -110,6 +112,17 @@ export function compareMonitors(
     case 'group': {
       const left = groupLabelOf(a, context)
       const right = groupLabelOf(b, context)
+      if (!left && !right) return byName()
+      if (!left) return 1
+      if (!right) return -1
+      return sign * left.localeCompare(right, context.locale) || byName()
+    }
+    case 'tags': {
+      // The raw comma separated list is what is compared: the column renders
+      // one badge per tag, and a monitor without a tag sinks to the bottom in
+      // both directions, like a monitor without a group.
+      const left = (a.tags ?? '').trim()
+      const right = (b.tags ?? '').trim()
       if (!left && !right) return byName()
       if (!left) return 1
       if (!right) return -1

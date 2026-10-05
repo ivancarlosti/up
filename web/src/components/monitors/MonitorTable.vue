@@ -79,6 +79,18 @@ function shows(action: MonitorTableAction): boolean {
 function targetLink(monitor: Monitor): string {
   return monitorTargetURL(monitor) ?? ''
 }
+
+/**
+ * tagList splits the comma separated tags of a monitor into badge labels. The
+ * column renders one badge per tag; a monitor with no tag falls back to the
+ * em dash the other empty cells use.
+ */
+function tagList(monitor: Monitor): string[] {
+  return (monitor.tags ?? '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
 </script>
 
 <template>
@@ -115,6 +127,13 @@ function targetLink(monitor: Monitor): string {
               :active="props.sort.key"
               :direction="props.sort.direction"
               @toggle="emit('sort', 'group')"
+            />
+            <SortHeader
+              :label="t('common.tags')"
+              column="tags"
+              :active="props.sort.key"
+              :direction="props.sort.direction"
+              @toggle="emit('sort', 'tags')"
             />
             <SortHeader
               v-if="hasCertificates"
@@ -197,6 +216,12 @@ function targetLink(monitor: Monitor): string {
             <td><Badge variant="secondary">{{ monitor.type }}</Badge></td>
             <td>
               <Badge v-if="monitor.group_name" variant="outline">{{ monitor.group_name }}</Badge>
+              <span v-else class="text-muted-foreground">—</span>
+            </td>
+            <td>
+              <div v-if="tagList(monitor).length" class="flex flex-wrap items-center gap-1">
+                <Badge v-for="tag in tagList(monitor)" :key="tag" variant="secondary">{{ tag }}</Badge>
+              </div>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td v-if="hasCertificates">

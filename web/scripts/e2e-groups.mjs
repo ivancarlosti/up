@@ -86,9 +86,22 @@ function setValue(page, selector, value, event = 'input') {
   })()`)
 }
 
-/** toggleCheckbox clicks the reka-ui checkbox that carries the given label. */
-function toggleCheckbox(page, label) {
-  return toggleControl(page, 'checkbox', label)
+/**
+ * addMonitor types a monitor name in the search box of the open group dialog and
+ * clicks its row in the picker, which moves the monitor into the member list.
+ * The dialog is a search box plus a member list now, not a checkbox grid.
+ */
+async function addMonitor(page, name) {
+  await setValue(page, '#group-search', name)
+  await sleep(300)
+  return page.evaluate(`(() => {
+    const row = [...document.querySelectorAll('[role="dialog"] button')].find((button) =>
+      ((button.innerText ?? '').split('\\n')[0] ?? '').trim() === ${JSON.stringify(name)},
+    )
+    if (!row) return false
+    row.click()
+    return true
+  })()`)
 }
 
 /**
@@ -106,21 +119,14 @@ function toggleFirstSwitch(page) {
   })()`)
 }
 
-/** toggleControl clicks the reka-ui control (checkbox/switch) of a label. */
-function toggleControl(page, role, label) {
-  return page.evaluate(`(() => {
-    const target = [...document.querySelectorAll('label')].find((el) => el.innerText.trim() === ${JSON.stringify(label)})
-    const control = target && target.querySelector('button[role=${JSON.stringify(role)}], button')
-    if (!control) return false
-    control.click()
-    return true
-  })()`)
-}
-
-/** groupRows returns the name and the text of every row of the groups table. */
+/**
+ * groupRows returns the name, the monitor count and the text of every row of
+ * the groups table.
+ */
 function groupRows(page) {
   return page.evaluate(`(() => [...document.querySelectorAll('table tbody tr')].map((row) => ({
     name: ((row.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim(),
+    count: (row.querySelectorAll('td')[1]?.innerText ?? '').trim(),
     text: row.innerText.replace(/\\s+/g, ' '),
   })))()`)
 }
@@ -190,17 +196,16 @@ try {
   check('new group dialog opens', await clickButton(page, LABELS.newGroup))
   await sleep(500)
   await setValue(page, '#group-name', groupName)
-  for (const name of monitorNames) check(`monitor checkbox "${name}"`, await toggleCheckbox(page, name))
+  for (const name of monitorNames) check(`add monitor "${name}"`, await addMonitor(page, name))
   check('save the group', await clickButton(page, LABELS.save))
   await sleep(1500)
   const afterCreate = await groupRows(page)
-  check('group created in the UI', afterCreate.some((row) => row.name === groupName))
-  check(
-    'group shows both monitors',
-    (afterCreate.find((row) => row.name === groupName)?.text ?? '').includes(monitorNames[0]),
-  )
+  const groupRow = afterCreate.find((row) => row.name === groupName)
+  check('group created in the UI', Boolean(groupRow))
+  check('group row shows the monitor count', groupRow?.count === '2', groupRow?.count)
   const group = await groupById(page, groupName)
   check('group persisted through the API', Boolean(group))
+  check('group holds both monitors', (group?.monitor_ids ?? []).length === 2, String((group?.monitor_ids ?? []).length))
   if (group) created.groups.push(group.id)
 
   // --- shallow clone (default name) ----------------------------------------
