@@ -66,6 +66,7 @@
     "dashboard": "Dashboard",
     "monitors": "Monitors",
     "monitorGroups": "Monitor groups",
+    "monitorTags": "Monitor tags",
     "monitorTemplates": "Monitor templates",
     "notifications": "Notifications",
     "expiry": "TLD/SSL expiration",
@@ -291,6 +292,24 @@
     "copyLinks": "Copy the notification channels of each monitor",
     "deleteTitle": "Delete group",
     "deleteWarning": "The group is removed; the monitors inside it stay untouched."
+  },
+  "tags": {
+    "title": "Monitor tags",
+    "subtitle": "Every tag in use and how many monitors carry it. Tags are free form labels on a monitor; renaming one here updates every monitor that carries it.",
+    "filterPlaceholder": "Filter tags",
+    "empty": "No tag in use",
+    "emptyHint": "Tags are typed on a monitor; they appear here as soon as one uses them.",
+    "monitors": "Monitors",
+    "rename": "Rename",
+    "renameTitle": "Rename tag",
+    "newName": "New name",
+    "renameHint": "The new name replaces the tag on every monitor that carries it. Tags are compared whole and case insensitively.",
+    "affected": "{count} monitors carry this tag",
+    "mergeWarning": "The tag \"{tag}\" already exists: these monitors are merged under it.",
+    "preview": "Preview",
+    "willUpdate": "{updated} will be updated, {unchanged} already up to date.",
+    "apply": "Apply rename",
+    "renamed": "Tag renamed"
   },
   "templates": {
     "title": "Monitor templates",

@@ -66,6 +66,7 @@
     "dashboard": "Panel",
     "monitors": "Monitores",
     "monitorGroups": "Grupos de monitores",
+    "monitorTags": "Etiquetas de monitores",
     "monitorTemplates": "Plantillas de monitor",
     "notifications": "Notificaciones",
     "expiry": "Expiración TLD/SSL",
@@ -291,6 +292,24 @@
     "copyLinks": "Copiar los canales de notificación de cada monitor",
     "deleteTitle": "Eliminar grupo",
     "deleteWarning": "El grupo se elimina; los monitores que contiene permanecen."
+  },
+  "tags": {
+    "title": "Etiquetas de monitores",
+    "subtitle": "Cada etiqueta en uso y cuántos monitores la llevan. Las etiquetas son libres en el monitor; renombrar una aquí actualiza todos los monitores que la llevan.",
+    "filterPlaceholder": "Filtrar etiquetas",
+    "empty": "Ninguna etiqueta en uso",
+    "emptyHint": "Las etiquetas se escriben en un monitor; aparecen aquí en cuanto uno las usa.",
+    "monitors": "Monitores",
+    "rename": "Renombrar",
+    "renameTitle": "Renombrar etiqueta",
+    "newName": "Nuevo nombre",
+    "renameHint": "El nuevo nombre reemplaza la etiqueta en todos los monitores que la llevan. Las etiquetas se comparan completas y sin distinguir mayúsculas.",
+    "affected": "{count} monitores llevan esta etiqueta",
+    "mergeWarning": "La etiqueta \"{tag}\" ya existe: estos monitores se combinan bajo ella.",
+    "preview": "Vista previa",
+    "willUpdate": "{updated} se actualizarán, {unchanged} ya están al día.",
+    "apply": "Aplicar renombrado",
+    "renamed": "Etiqueta renombrada"
   },
   "templates": {
     "title": "Plantillas de monitor",

@@ -66,6 +66,7 @@
     "dashboard": "Tableau de bord",
     "monitors": "Moniteurs",
     "monitorGroups": "Groupes de moniteurs",
+    "monitorTags": "Étiquettes des moniteurs",
     "monitorTemplates": "Modèles de moniteurs",
     "notifications": "Notifications",
     "expiry": "Expiration TLD/SSL",
@@ -291,6 +292,24 @@
     "copyLinks": "Copier les canaux de notification de chaque moniteur",
     "deleteTitle": "Supprimer le groupe",
     "deleteWarning": "Le groupe est supprimé ; les moniteurs qu'il contient restent intacts."
+  },
+  "tags": {
+    "title": "Étiquettes des moniteurs",
+    "subtitle": "Chaque étiquette utilisée et le nombre de moniteurs qui la portent. Les étiquettes sont libres sur un moniteur ; renommer l'une ici met à jour tous les moniteurs qui la portent.",
+    "filterPlaceholder": "Filtrer les étiquettes",
+    "empty": "Aucune étiquette utilisée",
+    "emptyHint": "Les étiquettes se saisissent sur un moniteur ; elles apparaissent ici dès qu'un moniteur les utilise.",
+    "monitors": "Moniteurs",
+    "rename": "Renommer",
+    "renameTitle": "Renommer l'étiquette",
+    "newName": "Nouveau nom",
+    "renameHint": "Le nouveau nom remplace l'étiquette sur tous les moniteurs qui la portent. Les étiquettes sont comparées entièrement et sans tenir compte de la casse.",
+    "affected": "{count} moniteurs portent cette étiquette",
+    "mergeWarning": "L'étiquette « {tag} » existe déjà : ces moniteurs sont fusionnés sous celle-ci.",
+    "preview": "Aperçu",
+    "willUpdate": "{updated} seront mis à jour, {unchanged} déjà à jour.",
+    "apply": "Appliquer le renommage",
+    "renamed": "Étiquette renommée"
   },
   "templates": {
     "title": "Modèles de moniteurs",

@@ -66,6 +66,7 @@
     "dashboard": "仪表盘",
     "monitors": "监控项",
     "monitorGroups": "监控组",
+    "monitorTags": "监控标签",
     "monitorTemplates": "监控模板",
     "notifications": "通知",
     "expiry": "TLD/SSL 到期",
@@ -291,6 +292,24 @@
     "copyLinks": "复制每个监控项的通知渠道",
     "deleteTitle": "删除分组",
     "deleteWarning": "该分组将被删除；其中的监控项不受影响。"
+  },
+  "tags": {
+    "title": "监控标签",
+    "subtitle": "正在使用的每个标签以及携带它的监控数量。标签是监控上的自由填写项；在此重命名会更新所有携带它的监控。",
+    "filterPlaceholder": "筛选标签",
+    "empty": "没有正在使用的标签",
+    "emptyHint": "标签在监控上填写；一旦有监控使用就会出现在这里。",
+    "monitors": "监控",
+    "rename": "重命名",
+    "renameTitle": "重命名标签",
+    "newName": "新名称",
+    "renameHint": "新名称会替换所有携带该标签的监控上的标签。标签按整体且不区分大小写进行比较。",
+    "affected": "{count} 个监控携带此标签",
+    "mergeWarning": "标签“{tag}”已存在：这些监控将合并到它之下。",
+    "preview": "预览",
+    "willUpdate": "将更新 {updated} 个，{unchanged} 个已是最新。",
+    "apply": "应用重命名",
+    "renamed": "标签已重命名"
   },
   "templates": {
     "title": "监控模板",

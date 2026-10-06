@@ -11,6 +11,7 @@ import {
   Network,
   ShieldCheck,
   SlidersHorizontal,
+  Tags,
   Globe,
 } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
@@ -27,6 +28,7 @@ const route = useRoute()
 const items = computed(() => [
   { name: 'dashboard', to: { name: 'dashboard' }, icon: LayoutDashboard, label: 'nav.dashboard' },
   { name: 'monitor-groups', to: { name: 'admin-monitor-groups' }, icon: FolderTree, label: 'nav.monitorGroups' },
+  { name: 'monitor-tags', to: { name: 'admin-monitor-tags' }, icon: Tags, label: 'nav.monitorTags' },
   { name: 'monitor-templates', to: { name: 'admin-monitor-templates' }, icon: FileCog, label: 'nav.monitorTemplates' },
   { name: 'notifications', to: { name: 'admin-notifications' }, icon: Bell, label: 'nav.notifications' },
   { name: 'expiry', to: { name: 'admin-expiry' }, icon: CalendarClock, label: 'nav.expiry' },

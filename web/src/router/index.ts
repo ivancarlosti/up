@@ -29,6 +29,12 @@ const router = createRouter({
       meta: { auth: true, app: true },
     },
     {
+      path: '/admin/monitor-tags',
+      name: 'admin-monitor-tags',
+      component: () => import('@/views/admin/AdminMonitorTagsView.vue'),
+      meta: { auth: true, app: true },
+    },
+    {
       path: '/admin/monitor-templates',
       name: 'admin-monitor-templates',
       component: () => import('@/views/admin/AdminMonitorTemplatesView.vue'),

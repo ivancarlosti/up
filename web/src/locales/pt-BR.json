@@ -66,6 +66,7 @@
     "dashboard": "Painel",
     "monitors": "Monitores",
     "monitorGroups": "Grupos de monitores",
+    "monitorTags": "Tags de monitores",
     "monitorTemplates": "Templates de monitor",
     "notifications": "Notificações",
     "expiry": "Expiração TLD/SSL",
@@ -291,6 +292,24 @@
     "copyLinks": "Copiar os canais de notificação de cada monitor",
     "deleteTitle": "Excluir grupo",
     "deleteWarning": "O grupo é removido; os monitores dentro dele permanecem."
+  },
+  "tags": {
+    "title": "Tags de monitores",
+    "subtitle": "Cada tag em uso e quantos monitores a carregam. As tags são livres no monitor; renomear uma aqui atualiza todos os monitores que a carregam.",
+    "filterPlaceholder": "Filtrar tags",
+    "empty": "Nenhuma tag em uso",
+    "emptyHint": "As tags são digitadas no monitor; elas aparecem aqui assim que um monitor as usa.",
+    "monitors": "Monitores",
+    "rename": "Renomear",
+    "renameTitle": "Renomear tag",
+    "newName": "Novo nome",
+    "renameHint": "O novo nome substitui a tag em todos os monitores que a carregam. As tags são comparadas por inteiro e sem diferenciar maiúsculas.",
+    "affected": "{count} monitores carregam esta tag",
+    "mergeWarning": "A tag \"{tag}\" já existe: estes monitores são mesclados sob ela.",
+    "preview": "Prévia",
+    "willUpdate": "{updated} serão atualizados, {unchanged} já estão em dia.",
+    "apply": "Aplicar renomeação",
+    "renamed": "Tag renomeada"
   },
   "templates": {
     "title": "Templates de monitor",

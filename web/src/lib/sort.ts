@@ -1,4 +1,4 @@
-import type { ExpiryTarget, Monitor, MonitorGroup, MonitorTemplate, StatusPage } from './types'
+import type { ExpiryTarget, Monitor, MonitorGroup, MonitorTemplate, StatusPage, TagUsage } from './types'
 
 /**
  * Sorting of the admin tables.
@@ -302,6 +302,47 @@ export function sortMonitorGroups(
   context: LocaleSortContext,
 ): MonitorGroup[] {
   return [...groups].sort((a, b) => compareMonitorGroups(a, b, key, direction, context))
+}
+
+/**
+ * The columns of the monitor tags table an operator can sort by.
+ *
+ * "tag" is the label itself and "monitors" is how many monitors carry it. A tag
+ * has no id (it is a free form list on the monitor), so the name is the only
+ * stable fallback: two rows with the same count never swap places between renders.
+ */
+export type MonitorTagSortKey = 'tag' | 'monitors'
+
+/** The columns accepted by the tags table (guards a stale localStorage value). */
+export const monitorTagSortKeys: MonitorTagSortKey[] = ['tag', 'monitors']
+
+/** compareMonitorTags orders two rows for a column. */
+export function compareMonitorTags(
+  a: TagUsage,
+  b: TagUsage,
+  key: MonitorTagSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): number {
+  const sign = direction === 'asc' ? 1 : -1
+  const byTag = () => sign * a.tag.localeCompare(b.tag, context.locale)
+
+  switch (key) {
+    case 'monitors':
+      return sign * (a.monitors - b.monitors) || byTag()
+    default:
+      return byTag()
+  }
+}
+
+/** sortMonitorTags returns a sorted copy (the list a view holds is not mutated). */
+export function sortMonitorTags(
+  tags: TagUsage[],
+  key: MonitorTagSortKey,
+  direction: SortDirection,
+  context: LocaleSortContext,
+): TagUsage[] {
+  return [...tags].sort((a, b) => compareMonitorTags(a, b, key, direction, context))
 }
 
 /**
