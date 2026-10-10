@@ -399,6 +399,7 @@
     "targetsHelp": "What the job actually looks up: monitors that share an endpoint or a registrable domain are a single row.",
     "targetLabel": "Target",
     "targetMonitorsLabel": "Monitors",
+    "targetSni": "SNI",
     "targetKindCertificate": "Certificate",
     "targetKindDomain": "Domain",
     "targetManual": "manual date",

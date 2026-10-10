@@ -399,6 +399,7 @@
     "targetsHelp": "जॉब वास्तव में क्या खोजती है: एक ही एंडपॉइंट या पंजीकरण-योग्य डोमेन साझा करने वाले मॉनिटर एक ही पंक्ति बनाते हैं।",
     "targetLabel": "लक्ष्य",
     "targetMonitorsLabel": "मॉनिटर",
+    "targetSni": "SNI",
     "targetKindCertificate": "प्रमाणपत्र",
     "targetKindDomain": "डोमेन",
     "targetManual": "मैनुअल तिथि",

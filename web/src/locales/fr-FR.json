@@ -399,6 +399,7 @@
     "targetsHelp": "Ce que la tâche recherche réellement : les moniteurs qui partagent un point de terminaison ou un domaine enregistrable forment une seule ligne.",
     "targetLabel": "Cible",
     "targetMonitorsLabel": "Moniteurs",
+    "targetSni": "SNI",
     "targetKindCertificate": "Certificat",
     "targetKindDomain": "Domaine",
     "targetManual": "date manuelle",

@@ -399,6 +399,7 @@
     "targetsHelp": "O que o job realmente consulta: monitores que compartilham um endpoint ou um domínio registrável são uma única linha.",
     "targetLabel": "Alvo",
     "targetMonitorsLabel": "Monitores",
+    "targetSni": "SNI",
     "targetKindCertificate": "Certificado",
     "targetKindDomain": "Domínio",
     "targetManual": "data manual",

@@ -399,6 +399,7 @@
     "targetsHelp": "任务实际查询的内容：共享同一端点或可注册域名的监控项合并为一行。",
     "targetLabel": "目标",
     "targetMonitorsLabel": "监控项",
+    "targetSni": "SNI",
     "targetKindCertificate": "证书",
     "targetKindDomain": "域名",
     "targetManual": "手动日期",

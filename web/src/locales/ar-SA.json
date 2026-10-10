@@ -399,6 +399,7 @@
     "targetsHelp": "ما تبحث عنه المهمة فعليًا: المراقبات التي تتشارك نقطة نهاية أو نطاقًا قابلًا للتسجيل تُدمج في سطر واحد.",
     "targetLabel": "الهدف",
     "targetMonitorsLabel": "المراقبات",
+    "targetSni": "SNI",
     "targetKindCertificate": "شهادة",
     "targetKindDomain": "نطاق",
     "targetManual": "تاريخ يدوي",

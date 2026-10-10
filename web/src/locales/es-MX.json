@@ -399,6 +399,7 @@
     "targetsHelp": "Lo que el trabajo consulta realmente: los monitores que comparten un endpoint o un dominio registrable son una sola fila.",
     "targetLabel": "Objetivo",
     "targetMonitorsLabel": "Monitores",
+    "targetSni": "SNI",
     "targetKindCertificate": "Certificado",
     "targetKindDomain": "Dominio",
     "targetManual": "fecha manual",

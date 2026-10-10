@@ -292,6 +292,24 @@ function targetBadge(target: ExpiryTarget): string {
   }
 }
 
+/**
+ * dialHost strips the port from a certificate's dial address ("host:443",
+ * "[::1]:443") so the SNI can be compared with the host actually dialled: the
+ * label already shows the address, so repeating an SNI identical to it is noise.
+ */
+function dialHost(address?: string): string {
+  if (!address) return ''
+  const match = address.match(/^\[(.+)\]:\d+$/) ?? address.match(/^(.+):\d+$/)
+  return (match ? match[1] : address).toLowerCase()
+}
+
+/** sniFor returns the SNI of a certificate target only when it adds information. */
+function sniFor(target: ExpiryTarget): string {
+  const sni = target.server_name ?? ''
+  if (!sni) return ''
+  return sni.toLowerCase() === dialHost(target.address ?? target.label) ? '' : sni
+}
+
 async function saveSettings(): Promise<void> {
   saving.value = true
   try {
@@ -647,12 +665,13 @@ onMounted(load)
               <td class="min-w-[16rem]">
                 <span class="block break-all font-mono">{{ target.label }}</span>
                 <span
-                  v-if="target.server_name && target.server_name !== target.address"
+                  v-if="sniFor(target)"
                   class="block text-[11px] text-muted-foreground"
                 >
-                  {{ target.server_name }}
+                  <span class="font-medium">{{ t('expiry.targetSni') }}:</span> {{ sniFor(target) }}
                 </span>
                 <span class="block text-[11px] text-muted-foreground">
+                  <span class="font-medium">{{ t('expiry.targetMonitorsLabel') }}:</span>
                   {{ target.monitors.map((monitor) => monitor.name).join(', ') }}
                 </span>
                 <!-- The RDAP registry status (domain targets only): protocol
