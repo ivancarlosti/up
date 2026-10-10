@@ -23,12 +23,20 @@
 | `run_on_nodes` | - | - | comma separated node ids, required when `run_on=some` |
 | `tags` | - | 255 chars | comma separated, used by filters, status pages and tag scopes |
 
-### Retries and the `pending` status
+### Retries, verdicts and "check now"
 
 A failing probe is retried up to `retries` times, waiting
-`retries_interval_seconds` between attempts. The heartbeat of a retried check is
-stored with `important=false`, so uptime statistics and notifications only react
-to the definitive verdict. `retries=0` means "report the first failure".
+`retries_interval_seconds` between attempts. Only the definitive verdict of the
+execution is stored, and it is stored with `important=true`: uptime statistics
+and notifications react to the verdict, not to every attempt. `retries=0` means
+"report the first failure".
+
+A heartbeat that is not a definitive verdict (`important=false`) cannot open or
+close an incident: it refreshes the "last check" the interface shows, but the
+next scheduled verdict decides what happens. That is what a manual **Check now**
+on a monitor with retries stores: it preempts any in-flight retry backoff and
+runs a single attempt, so the operator sees the result at once - without being
+paged for a failure the configured policy would still have been retrying.
 
 ### Address family (`config.ip_family`)
 

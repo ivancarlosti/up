@@ -35,8 +35,11 @@ type Heartbeat struct {
 	LatencyMS  int64  `gorm:"index:idx_hb_stats,priority:4" json:"latency_ms"`
 	StatusCode int    `json:"status_code"`
 	Message    string `gorm:"size:500" json:"message"`
-	// Important is false while a monitor is still retrying, so notifications
-	// are only triggered once the retries are exhausted.
+	// Important is true when the heartbeat is the monitor's definitive verdict
+	// and may therefore open or close an incident. The scheduler stores the
+	// final verdict of every scheduled execution; a manual "check now" that
+	// bypasses a retry policy stores an unimportant one, so one failing probe
+	// does not alert while the monitor's own policy would still be retrying.
 	Important bool `gorm:"not null;default:false" json:"important"`
 
 	CreatedAt time.Time `gorm:"index:idx_hb_monitor_time,priority:2;index:idx_hb_monitor_node,priority:3;index:idx_hb_stats,priority:2" json:"created_at"`

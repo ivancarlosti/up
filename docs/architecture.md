@@ -168,7 +168,7 @@ sequenceDiagram
 
     W->>CK: Check(monitor) with timeout
     CK-->>W: Result{status, latency, code, message}
-    Note over W: retries until the retry budget is exhausted
+    Note over W: retries until the retry budget is exhausted<br/>(a manual Check now preempts the backoff with a single attempt)
     W->>HB: Record(heartbeat) with node_id
     HB->>DB: INSERT heartbeats
     HB->>WS: Publish("heartbeat")

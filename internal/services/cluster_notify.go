@@ -34,7 +34,7 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 	}
 
 	now := time.Now().UTC()
-	detail, latency, nodeID := s.latestDetail(ctx, monitorID)
+	detail, latency, nodeID, important := s.latestDetail(ctx, monitorID)
 
 	var state models.MonitorState
 	err = s.db.WithContext(ctx).First(&state, monitorID).Error
@@ -46,6 +46,34 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 	}
 
 	previous := state.Status
+
+	// A heartbeat that is not the monitor's definitive verdict (a manual
+	// "check now" that bypassed a retry policy) must not open or close an
+	// incident: a single failing probe would alert while the monitor's own
+	// policy would still be retrying. It still refreshes the "last check"
+	// display and the live badge, and the next scheduled verdict decides what
+	// happens to the incident.
+	if !important {
+		state.LastMessage = detail
+		state.LastLatency = latency
+		state.LastCheckAt = &now
+		state.UpdatedAt = now
+		if err := s.saveStateDisplay(ctx, &state); err != nil {
+			return err
+		}
+		s.publish("monitor.status", map[string]any{
+			"monitor_id": monitor.ID,
+			"status":     status,
+			"previous":   previous,
+			"changed":    false,
+			"votes":      votes,
+			"message":    detail,
+			"latency_ms": latency,
+			"checked_at": now,
+		})
+		return nil
+	}
+
 	transition := previous != "" && previous != models.AggregateUnknown && previous != status
 
 	notify := transition
@@ -381,16 +409,36 @@ func (s *ClusterService) saveState(ctx context.Context, state *models.MonitorSta
 	}).Create(state).Error
 }
 
-// latestDetail returns the newest heartbeat details of a monitor.
-func (s *ClusterService) latestDetail(ctx context.Context, monitorID uint) (string, int64, string) {
+// stateDisplayColumns is the subset of the state a heartbeat refreshes when it
+// is not a definitive verdict: the "last check" display moves, but the incident
+// bookkeeping (status, changed_at, notified*) is left to the policy verdict.
+func stateDisplayColumns() []string {
+	return []string{"last_message", "last_latency", "last_check_at", "updated_at"}
+}
+
+// saveStateDisplay upserts only the display columns of the aggregated monitor
+// state, so a manual "check now" shows up in the UI without its non-definitive
+// verdict opening or closing an incident.
+func (s *ClusterService) saveStateDisplay(ctx context.Context, state *models.MonitorState) error {
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "monitor_id"}},
+		DoUpdates: clause.AssignmentColumns(stateDisplayColumns()),
+	}).Create(state).Error
+}
+
+// latestDetail returns the newest heartbeat details of a monitor, together with
+// whether that heartbeat is a definitive verdict (see models.Heartbeat.Important).
+// A monitor with no heartbeat reports important=true so the caller keeps its
+// normal behavior.
+func (s *ClusterService) latestDetail(ctx context.Context, monitorID uint) (string, int64, string, bool) {
 	var hb models.Heartbeat
 	if err := s.db.WithContext(ctx).
 		Where("monitor_id = ?", monitorID).
 		Order("id DESC").
 		First(&hb).Error; err != nil {
-		return "", 0, s.cfg.NodeID
+		return "", 0, s.cfg.NodeID, true
 	}
-	return hb.Message, hb.LatencyMS, hb.NodeID
+	return hb.Message, hb.LatencyMS, hb.NodeID, hb.Important
 }
 
 // States returns the aggregated state of every monitor (used by the public API

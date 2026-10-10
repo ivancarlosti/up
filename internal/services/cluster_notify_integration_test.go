@@ -232,4 +232,53 @@ func TestNotificationPipelineLive(t *testing.T) {
 	if token := sent()[1].token; token != "abc123" {
 		t.Errorf("the repeated alert must carry the token too, got %q", token)
 	}
+
+	// Phase 4: a manual "check now" (an Important=false heartbeat) is not the
+	// monitor's verdict. It must refresh the display without opening the
+	// incident, so the operator does not get paged for their own diagnostic
+	// click while the retry policy would still be retrying.
+	if err := tx.Model(&models.MonitorState{}).Where("monitor_id = ?", monitor.ID).
+		UpdateColumns(map[string]any{
+			"status": models.AggregateUp, "changed_at": now, "notified_at": nil,
+		}).Error; err != nil {
+		t.Fatalf("resetting the state to up: %v", err)
+	}
+	if err := tx.Create(&models.Heartbeat{
+		MonitorID: monitor.ID, NodeID: nodeID, Status: models.StatusDown, Important: false,
+		Message: "manual check", CreatedAt: now.Add(time.Second),
+	}).Error; err != nil {
+		t.Fatalf("creating the manual heartbeat: %v", err)
+	}
+	nextWindow()
+	if err := cluster.EvaluateAndNotify(ctx, monitor.ID); err != nil {
+		t.Fatalf("evaluating the manual heartbeat: %v", err)
+	}
+	if got := sent(); len(got) != 2 {
+		t.Errorf("a non-definitive manual heartbeat must not alert, got %d requests", len(got))
+	}
+	manual := loadState()
+	if manual.Status != models.AggregateUp {
+		t.Errorf("a non-definitive manual heartbeat must not change the incident, status = %q", manual.Status)
+	}
+	if manual.LastCheckAt == nil || !manual.LastCheckAt.After(now) {
+		t.Errorf("the manual heartbeat must still refresh last_check_at, got %v", manual.LastCheckAt)
+	}
+
+	// The next scheduled verdict (Important=true) is what opens the incident.
+	if err := tx.Create(&models.Heartbeat{
+		MonitorID: monitor.ID, NodeID: nodeID, Status: models.StatusDown, Important: true,
+		Message: "policy verdict", CreatedAt: now.Add(2 * time.Second),
+	}).Error; err != nil {
+		t.Fatalf("creating the verdict heartbeat: %v", err)
+	}
+	nextWindow()
+	if err := cluster.EvaluateAndNotify(ctx, monitor.ID); err != nil {
+		t.Fatalf("evaluating the verdict heartbeat: %v", err)
+	}
+	if got := sent(); len(got) != 3 {
+		t.Fatalf("the definitive verdict must alert, got %d requests", len(got))
+	}
+	if state := loadState(); state.Status != models.AggregateDown {
+		t.Errorf("the definitive verdict must record the incident, status = %q", state.Status)
+	}
 }

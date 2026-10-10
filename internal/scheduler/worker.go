@@ -40,10 +40,18 @@ func (w *worker) run(ctx context.Context) {
 			return
 		case <-timer.C:
 			// A reload may have changed the interval in the meantime.
-			w.executeOnce(ctx)
+			if w.executeOnce(ctx, false) {
+				// A "check now" arrived while the retry backoff was sleeping: it
+				// broke the wait (instead of queueing behind it), so the owed
+				// manual check runs right here as a single attempt.
+				w.executeOnce(ctx, true)
+			}
 			timer.Reset(w.interval())
 		case <-w.trigger:
-			w.executeOnce(ctx)
+			// Only reachable while the worker is idle: w.trigger is also the
+			// interrupt an in-flight backoff selects on, and this branch cannot
+			// run at the same time as that execution.
+			w.executeOnce(ctx, true)
 		}
 	}
 }
@@ -83,11 +91,15 @@ func (w *worker) interval() time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// executeOnce reloads the monitor state and runs a single probe.
-func (w *worker) executeOnce(ctx context.Context) {
+// executeOnce reloads the monitor state and runs a single execution.
+//
+// singleShot marks a manual "check now", which bypasses the retry policy so the
+// operator gets a heartbeat immediately. It returns true when a check-now broke
+// an in-flight retry backoff (the caller then owes an immediate single-shot run).
+func (w *worker) executeOnce(ctx context.Context, singleShot bool) bool {
 	monitor := w.current()
 	if monitor == nil {
-		return
+		return false
 	}
 	// Reload from the database so a paused monitor stops immediately and a
 	// changed configuration takes effect without restarting the worker.
@@ -95,13 +107,13 @@ func (w *worker) executeOnce(ctx context.Context) {
 	if err != nil {
 		w.scheduler.log.Warn("could not reload the monitor before checking",
 			"monitor_id", monitor.ID, "error", err)
-		return
+		return false
 	}
 	if !fresh.Active {
-		return
+		return false
 	}
 	w.update(fresh)
-	w.scheduler.execute(ctx, fresh, w.probeFamily(fresh))
+	return w.scheduler.execute(ctx, fresh, w.probeFamily(fresh), singleShot, w.trigger)
 }
 
 // probeFamily returns the address family of this execution and advances the
