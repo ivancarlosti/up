@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -181,5 +183,50 @@ func TestMatchWhoisParser(t *testing.T) {
 	}
 	if MatchWhoisParser(parsers, "example.com") != nil {
 		t.Fatal("a domain outside the configured suffixes must not match")
+	}
+}
+
+// TestDomainInfoMarshalJSON pins the wire contract of the decorated domain
+// object: a lookup that read no date (not_found, unsupported, error) exposes
+// "expires_at": null instead of Go's zero time "0001-01-01T00:00:00Z", which the
+// UI painted as a real date. It mirrors TestHeartbeatSummaryMarshalJSON.
+func TestDomainInfoMarshalJSON(t *testing.T) {
+	checkedAt := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	missing := DomainInfo{Domain: "saranszky.com", Status: DomainStatusNotFound, CheckedAt: checkedAt}
+
+	encoded, err := json.Marshal(missing)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"expires_at":null`) {
+		t.Fatalf("a missing date must be null, got %s", encoded)
+	}
+	if strings.Contains(string(encoded), "0001-01-01") {
+		t.Fatalf("the zero time must never reach the API: %s", encoded)
+	}
+
+	// A known date still round trips (always UTC, the wire format of the API).
+	date := time.Date(2028, 1, 9, 19, 2, 41, 0, time.UTC)
+	known := DomainInfo{Domain: "example.com", Status: DomainStatusOK, ExpiresAt: date, CheckedAt: date}
+	encoded, err = json.Marshal(&known)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"expires_at":"2028-01-09T19:02:41Z"`) {
+		t.Fatalf("a known date must round trip, got %s", encoded)
+	}
+
+	// The decorated monitor carries the same object: the fix must apply there too.
+	// created_at/updated_at are set so the only zero time left in the payload is
+	// the one this test is about.
+	encoded, err = json.Marshal(Monitor{Domain: &missing, CreatedAt: checkedAt, UpdatedAt: checkedAt})
+	if err != nil {
+		t.Fatalf("marshal monitor: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"domain":{"domain":"saranszky.com"`) {
+		t.Fatalf("the decorated monitor must carry the domain, got %s", encoded)
+	}
+	if strings.Contains(string(encoded), "0001-01-01") {
+		t.Fatalf("the decorated monitor must not leak the zero time: %s", encoded)
 	}
 }

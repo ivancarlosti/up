@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -54,7 +55,9 @@ type DomainInfo struct {
 	Domain string `json:"domain"`
 	// Registrar is the sponsoring registrar when the registry publishes it.
 	Registrar string `json:"registrar,omitempty"`
-	// ExpiresAt is the registry expiry date (zero when the status is not ok).
+	// ExpiresAt is the registry expiry date. A lookup that read no date leaves it
+	// at the zero value, which is exposed as null (see MarshalJSON) instead of
+	// Go's "0001-01-01T00:00:00Z".
 	ExpiresAt time.Time `json:"expires_at"`
 	// Source is where ExpiresAt came from.
 	Source DomainSource `json:"source,omitempty"`
@@ -68,6 +71,26 @@ type DomainInfo struct {
 	CheckedAt time.Time `json:"checked_at"`
 	// CheckedByNode is the cluster node that performed the lookup.
 	CheckedByNode string `json:"checked_by_node,omitempty"`
+}
+
+// MarshalJSON keeps the internal observation (a zero ExpiresAt is the norm for a
+// not_found, unsupported or error status) but exposes it as null. Go would
+// otherwise render the zero time as "0001-01-01T00:00:00Z", which the UI painted
+// as a real date. It mirrors Heartbeat.MarshalJSON.
+func (d DomainInfo) MarshalJSON() ([]byte, error) {
+	type domainAlias DomainInfo
+	var expires *time.Time
+	if !d.ExpiresAt.IsZero() {
+		utc := d.ExpiresAt.UTC()
+		expires = &utc
+	}
+	return json.Marshal(struct {
+		domainAlias
+		ExpiresAt *time.Time `json:"expires_at"`
+	}{
+		domainAlias: domainAlias(d),
+		ExpiresAt:   expires,
+	})
 }
 
 // HasExpiry reports whether a usable expiry date is present.

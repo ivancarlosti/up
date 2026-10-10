@@ -186,7 +186,9 @@ The domain expiration watch rides along the same way: `domain_watch`,
 `domain_notify`, `domain_warn_days` and the optional manual date
 `domain_expires_at` (RFC3339 or `null`). When `domain_watch` is on, the decorated
 monitor carries a `domain` object (`domain`, `registrar`, `expires_at`, `source`,
-`status`, `days_left`, `checked_at`), and an incoherent configuration answers
+`status`, `days_left`, `checked_at`); `expires_at` is `null` (never the zero
+timestamp) when the lookup read no date, i.e. when `status` is `not_found`,
+`unsupported` or `error`. An incoherent configuration answers
 `400 ERR_MONITOR_DOMAIN_INVALID`.
 
 `config.ip_family` (`auto` | `alternate` | `ipv4` | `ipv6`, default `auto`;

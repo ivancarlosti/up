@@ -92,7 +92,8 @@ export type DomainStatus = 'ok' | 'not_found' | 'unsupported' | 'error'
 export interface DomainInfo {
   domain: string
   registrar?: string
-  expires_at: string
+  /** Registry expiry date, or null when the lookup read none (not_found/unsupported/error). */
+  expires_at: string | null
   source?: DomainSource
   status: DomainStatus
   error?: string
