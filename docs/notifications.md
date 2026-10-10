@@ -99,6 +99,8 @@ what a channel created from the UI uses):
   "dashboard_url": "{{.DashboardURL}}",
   "status": "{{.Status}}",
   "message": "{{.Message}}",
+  "domain_statuses": {{json .DomainStatuses}},
+  "domain_statuses_csv": "{{.DomainStatusCSV}}",
   "tags": {{json .MonitorTags}},
   "group": "{{.MonitorGroup}}",
   "group_id": {{.MonitorGroupID}},
@@ -121,6 +123,9 @@ Adding `dashboard_url` to the block only affects the channels saved after it
 appeared: a row that already stored a template keeps it verbatim (the dialog
 textarea has no *reset* button), so an existing channel picks the new field up
 only when the line is added by hand or the field is emptied before saving.
+`domain_statuses` and `domain_statuses_csv` follow the same rule: they are
+`[]`/`""` for every event that is not a domain reminder, and a channel whose
+template predates them simply never renders them.
 
 ### Slack
 
@@ -180,7 +185,7 @@ Available template data (the `notify.Message` struct):
 
 | Placeholder | Meaning |
 |---|---|
-| `{{.Event}}` | `down`, `up`, `test`, `cert_expiring` or `cert_expired` |
+| `{{.Event}}` | `down`, `up`, `test`, `cert_expiring`, `cert_expired`, `domain_expiring` or `domain_expired` |
 | `{{.Status}}` | aggregated status (`up`, `down`, `degraded`, `pending`, `maintenance`) |
 | `{{.Title}}` | `[DOWN] Monitor name` |
 | `{{.MonitorName}}`, `{{.MonitorType}}` | monitor identity |
@@ -189,6 +194,8 @@ Available template data (the `notify.Message` struct):
 | `{{.MonitorTags}}` | tags of the monitor, as an array (`["web","api"]`) |
 | `{{.MonitorGroup}}`, `{{.MonitorGroupID}}` | the group of the monitor (name and id; `""` and `0` when it belongs to none) |
 | `{{.TagsCSV}}` | the tags as one comma separated string (`web,api`) |
+| `{{.DomainStatuses}}` | registry status list of a domain reminder, as an array (`["client transfer prohibited"]`); empty for every other event and for a manual or WHOIS date |
+| `{{.DomainStatusCSV}}` | the same registry statuses as one comma separated string (`client transfer prohibited,active`) |
 | `{{.Message}}` | check result detail (`200 OK`, `connection refused`, ...) |
 | `{{.LatencyMS}}` | latency in milliseconds (number) |
 | `{{.NodeID}}` | node that produced the heartbeat |
@@ -230,6 +237,17 @@ tags and the group of the monitor
 are also listed in the plain text/HTML body used by SMTP, Slack, Discord and
 Telegram, when they are not empty, followed by the `Dashboard:` link of the event
 when `APP_URL` is set.
+
+`{{.DomainStatuses}}` is the registry status list a `domain_expiring` /
+`domain_expired` reminder read from RDAP (RFC 9083: `active`,
+`client transfer prohibited`, `inactive`...). It is a slice, so use
+`{{json .DomainStatuses}}` in a JSON body or `{{.DomainStatusCSV}}` for the flat
+form, exactly like the tags. It is empty when the date came from the monitor form
+or from a WHOIS lookup, which publish no registry status. A domain reminder
+already carries the same information in human readable form: `{{.Message}}` ends
+with a `(status: …)` suffix after the registrar, and the plain text/HTML body used
+by SMTP, Slack, Discord and Telegram prints a `Registry:` line when the list is
+not empty.
 
 Example: Slack-compatible payload
 

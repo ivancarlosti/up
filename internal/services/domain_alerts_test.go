@@ -119,6 +119,30 @@ func TestDomainMessage(t *testing.T) {
 	if daily != "domain example.com still expires in 3 days, on 2027-05-01 (registrar: ACME Registrar)" {
 		t.Fatalf("daily message = %q", daily)
 	}
+
+	// A domain watched through RDAP also carries the registry status, after the
+	// registrar: it is what tells a locked registration from a plain expiring one.
+	locked := &models.MonitorDomain{
+		Domain:     "locked.com",
+		Registrar:  "ACME Registrar",
+		RDAPStatus: "client transfer prohibited,active",
+		ExpiresAt:  time.Date(2027, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	want := "domain locked.com expires in 12 days, on 2027-05-01 " +
+		"(registrar: ACME Registrar, status: client transfer prohibited,active)"
+	if got := domainMessage(locked, 12, false, ExpiryPlan{}); got != want {
+		t.Fatalf("status message = %q", got)
+	}
+
+	// Without a registrar the status stands alone, and the suffix keeps its shape.
+	bare := &models.MonitorDomain{
+		Domain:     "bare.com",
+		RDAPStatus: "inactive",
+		ExpiresAt:  time.Date(2027, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if got := domainMessage(bare, 5, false, ExpiryPlan{}); got != "domain bare.com expires in 5 days, on 2027-05-01 (status: inactive)" {
+		t.Fatalf("status-only message = %q", got)
+	}
 }
 
 // TestDayBucket keeps the "written at most once a day" rule honest.

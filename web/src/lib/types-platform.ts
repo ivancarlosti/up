@@ -466,6 +466,8 @@ export interface ExpiryTargetMonitor {
   days_left?: number
   expires_at?: string
   checked_at?: string
+  /** Registry status list of a domain target (empty for a certificate). */
+  rdap_status?: string[]
 }
 
 /**
@@ -487,6 +489,8 @@ export interface ExpiryTarget {
   days_left?: number
   expires_at?: string
   checked_at?: string
+  /** Registry status list of the most urgent monitor (domain targets only). */
+  rdap_status?: string[]
 }
 
 /** Response of GET /api/admin/expiry/targets. */

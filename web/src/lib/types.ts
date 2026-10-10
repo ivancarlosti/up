@@ -96,6 +96,8 @@ export interface DomainInfo {
   expires_at: string | null
   source?: DomainSource
   status: DomainStatus
+  /** Registry status list from the RDAP response (e.g. "client transfer prohibited"). Absent for manual dates, WHOIS lookups and errors. */
+  rdap_status?: string[]
   error?: string
   days_left: number
   checked_at: string

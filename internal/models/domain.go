@@ -63,6 +63,10 @@ type DomainInfo struct {
 	Source DomainSource `json:"source,omitempty"`
 	// Status is the outcome of the last lookup.
 	Status DomainStatus `json:"status"`
+	// RDAPStatus is the registry status list the RDAP response carried
+	// ("active", "client transfer prohibited"...). It is empty for a manual
+	// date and for a WHOIS lookup: only RDAP publishes it.
+	RDAPStatus []string `json:"rdap_status,omitempty"`
 	// Error carries the reason of a failed lookup (status=error).
 	Error string `json:"error,omitempty"`
 	// DaysLeft is the remaining validity, floored (see DaysLeft).
@@ -135,6 +139,10 @@ const (
 	MaxDomainLen          = 255
 	MaxDomainRegistrarLen = 200
 	MaxDomainErrorLen     = 500
+	// MaxDomainStatusLen bounds the CSV of the RDAP registry statuses. The
+	// list is short (a handful of two-to-three word phrases), so 255 bytes hold
+	// every realistic registry.
+	MaxDomainStatusLen = 255
 )
 
 // MonitorDomain is the stored domain expiration state of a monitor.
@@ -157,6 +165,11 @@ type MonitorDomain struct {
 	DaysLeft      int       `json:"days_left"`
 	CheckedAt     time.Time `json:"checked_at"`
 	CheckedByNode string    `gorm:"size:64" json:"checked_by_node"`
+	// RDAPStatus is the registry status list as a CSV ("active,client transfer
+	// prohibited"). The entries contain spaces, so the column is split on the
+	// comma alone (see SplitDomainStatus); it is empty for a manual date and for
+	// a WHOIS lookup, which publish no registry status.
+	RDAPStatus string `gorm:"size:255" json:"rdap_status"`
 	// NotifiedDays is the CSV list of warn thresholds already alerted ("30,7").
 	NotifiedDays string `gorm:"size:120" json:"notified_days"`
 	// LastNotifiedDay is the day bucket (unix/86400) of the last notification,
@@ -178,11 +191,64 @@ func (d *MonitorDomain) Info() *DomainInfo {
 		ExpiresAt:     d.ExpiresAt,
 		Source:        DomainSource(d.Source),
 		Status:        DomainStatus(d.Status),
+		RDAPStatus:    d.RDAPStatusList(),
 		Error:         d.Error,
 		DaysLeft:      d.DaysLeft,
 		CheckedAt:     d.CheckedAt,
 		CheckedByNode: d.CheckedByNode,
 	}
+}
+
+// RDAPStatusList returns the stored registry status list. It is the array form
+// of the CSV column, so the API and the notifications share the same split.
+func (d *MonitorDomain) RDAPStatusList() []string {
+	return SplitDomainStatus(d.RDAPStatus)
+}
+
+// SplitDomainStatus splits the CSV registry status list on the comma alone.
+//
+// It does not use SplitList on purpose: that helper also splits on whitespace,
+// and every RDAP entry is a phrase with spaces ("client transfer prohibited"),
+// which would be shredded into single words. A comma never appears inside an
+// entry, so the comma is the whole separator.
+func SplitDomainStatus(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+// JoinDomainStatus renders a registry status list as the stored CSV.
+//
+// It trims and dedupes the entries, keeps the registry order (the order matters
+// only for reading; the database value is stable because the registry answers
+// the same list every lookup) and stops before MaxDomainStatusLen: an entry that
+// would not fit is dropped whole instead of being cut in the middle.
+func JoinDomainStatus(values []string) string {
+	cleaned := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	length := 0
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		added := len(trimmed)
+		if len(cleaned) > 0 {
+			added++
+		}
+		if length+added > MaxDomainStatusLen {
+			break
+		}
+		seen[trimmed] = true
+		cleaned = append(cleaned, trimmed)
+		length += added
+	}
+	return strings.Join(cleaned, ",")
 }
 
 // NotifiedThresholds returns the thresholds already alerted.

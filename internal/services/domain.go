@@ -88,6 +88,7 @@ func (s *DomainService) Record(ctx context.Context, monitorID uint, nodeID strin
 		ExpiresAt:     info.ExpiresAt,
 		Source:        string(info.Source),
 		Status:        string(info.Status),
+		RDAPStatus:    models.JoinDomainStatus(info.RDAPStatus),
 		Error:         trimmed(info.Error, models.MaxDomainErrorLen),
 		DaysLeft:      info.DaysLeft,
 		CheckedAt:     info.CheckedAt,
@@ -97,7 +98,8 @@ func (s *DomainService) Record(ctx context.Context, monitorID uint, nodeID strin
 		current.Domain != row.Domain ||
 		!current.ExpiresAt.Equal(row.ExpiresAt) ||
 		current.DaysLeft != row.DaysLeft ||
-		current.Status != row.Status
+		current.Status != row.Status ||
+		current.RDAPStatus != row.RDAPStatus
 	// The columns of the notification memory are only set on insert: an update
 	// must not reset them.
 	if current == nil {
@@ -107,7 +109,7 @@ func (s *DomainService) Record(ctx context.Context, monitorID uint, nodeID strin
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "monitor_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"domain", "registrar", "expires_at", "source", "status", "error",
+			"domain", "registrar", "expires_at", "source", "status", "rdap_status", "error",
 			"days_left", "checked_at", "checked_by_node",
 		}),
 	}).Create(&row)

@@ -23,6 +23,11 @@ func (m Message) Text() string {
 	if group := m.MonitorGroup; group != "" {
 		fmt.Fprintf(&b, "Group   : %s\n", group)
 	}
+	// The registry status of a domain reminder (RDAP only): it explains a lock
+	// or an "inactive" registration next to the date.
+	if statuses := m.DomainStatusCSV(); statuses != "" {
+		fmt.Fprintf(&b, "Registry: %s\n", statuses)
+	}
 	fmt.Fprintf(&b, "Latency : %d ms\n", m.LatencyMS)
 	if m.NodeID != "" {
 		fmt.Fprintf(&b, "Node    : %s\n", m.NodeID)
@@ -50,6 +55,7 @@ func (m Message) HTML() string {
 		{"Detail", m.Message},
 		{"Tags", m.TagsCSV()},
 		{"Group", m.MonitorGroup},
+		{"Registry", m.DomainStatusCSV()},
 		{"Latency", fmt.Sprintf("%d ms", m.LatencyMS)},
 		{"Node", m.NodeID},
 		{"Time", m.Timestamp.Format(time.RFC1123)},

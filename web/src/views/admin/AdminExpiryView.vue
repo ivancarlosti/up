@@ -655,6 +655,15 @@ onMounted(load)
                 <span class="block text-[11px] text-muted-foreground">
                   {{ target.monitors.map((monitor) => monitor.name).join(', ') }}
                 </span>
+                <!-- The RDAP registry status (domain targets only): protocol
+                     values such as "client transfer prohibited", shown verbatim
+                     because the registry publishes them in English. -->
+                <span
+                  v-if="target.rdap_status?.length"
+                  class="block text-[11px] text-muted-foreground"
+                >
+                  {{ target.rdap_status.join(', ') }}
+                </span>
               </td>
               <td class="whitespace-nowrap tabular-nums">{{ target.monitors.length }}</td>
               <td class="whitespace-nowrap">

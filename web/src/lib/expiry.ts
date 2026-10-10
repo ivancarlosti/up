@@ -35,8 +35,10 @@ export function certificateTitle(certificate: CertificateInfo, locale: string): 
   return `${parts.join(' — ')} (${formatDateTime(certificate.not_after, locale)})`
 }
 
-/** domainTitle is the tooltip of a domain badge (registrar + expiry). */
+/** domainTitle is the tooltip of a domain badge (registrar + expiry + registry status). */
 export function domainTitle(domain: DomainInfo, locale: string): string {
   const parts = [domain.registrar, domain.domain].filter(Boolean)
-  return `${parts.join(' — ')} (${formatDateTime(domain.expires_at, locale)})`
+  const statuses = (domain.rdap_status ?? []).filter(Boolean)
+  const status = statuses.length > 0 ? ` [${statuses.join(', ')}]` : ''
+  return `${parts.join(' — ')} (${formatDateTime(domain.expires_at, locale)})${status}`
 }

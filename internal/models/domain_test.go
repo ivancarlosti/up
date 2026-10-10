@@ -204,16 +204,30 @@ func TestDomainInfoMarshalJSON(t *testing.T) {
 	if strings.Contains(string(encoded), "0001-01-01") {
 		t.Fatalf("the zero time must never reach the API: %s", encoded)
 	}
+	// A manual or a WHOIS observation advertises no registry status, so the
+	// field is omitted instead of travelling as null or [].
+	if strings.Contains(string(encoded), "rdap_status") {
+		t.Fatalf("an observation without a registry status must omit rdap_status: %s", encoded)
+	}
 
 	// A known date still round trips (always UTC, the wire format of the API).
 	date := time.Date(2028, 1, 9, 19, 2, 41, 0, time.UTC)
-	known := DomainInfo{Domain: "example.com", Status: DomainStatusOK, ExpiresAt: date, CheckedAt: date}
+	known := DomainInfo{
+		Domain:     "example.com",
+		Status:     DomainStatusOK,
+		ExpiresAt:  date,
+		RDAPStatus: []string{"active", "client transfer prohibited"},
+		CheckedAt:  date,
+	}
 	encoded, err = json.Marshal(&known)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	if !strings.Contains(string(encoded), `"expires_at":"2028-01-09T19:02:41Z"`) {
 		t.Fatalf("a known date must round trip, got %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"rdap_status":["active","client transfer prohibited"]`) {
+		t.Fatalf("the registry status list must round trip, got %s", encoded)
 	}
 
 	// The decorated monitor carries the same object: the fix must apply there too.
@@ -228,5 +242,58 @@ func TestDomainInfoMarshalJSON(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "0001-01-01") {
 		t.Fatalf("the decorated monitor must not leak the zero time: %s", encoded)
+	}
+}
+
+// TestSplitJoinDomainStatus pins the CSV column that stores the registry status.
+// Every RDAP entry is a phrase with spaces ("client transfer prohibited"), so the
+// separator is the comma alone: models.SplitList (which also splits on whitespace)
+// would shred each entry into single words.
+func TestSplitJoinDomainStatus(t *testing.T) {
+	// Split trims and drops the empties but is faithful: it keeps whatever the
+	// column holds, spaces and repeats included.
+	raw := "active,client transfer prohibited, client hold ,,active"
+	want := []string{"active", "client transfer prohibited", "client hold", "active"}
+	if got := SplitDomainStatus(raw); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("SplitDomainStatus(%q) = %v, want %v", raw, got, want)
+	}
+	// Join is the normalising half: it trims, drops the empties and the repeats,
+	// so the column it writes is stable whatever the registry sent.
+	if got := JoinDomainStatus([]string{"active", " active ", "", "client hold"}); got != "active,client hold" {
+		t.Fatalf("JoinDomainStatus = %q", got)
+	}
+	if got := SplitDomainStatus(""); len(got) != 0 {
+		t.Fatalf("a blank CSV must split to nothing, got %v", got)
+	}
+	if got := JoinDomainStatus(nil); got != "" {
+		t.Fatalf("no status must join to the empty string, got %q", got)
+	}
+}
+
+// TestJoinDomainStatusClipsToTheColumn keeps the insert from failing on the
+// varchar(255) column: an entry that would not fit is dropped whole, never cut in
+// the middle (a truncated registry phrase would be a lie).
+func TestJoinDomainStatusClipsToTheColumn(t *testing.T) {
+	long := strings.Repeat("x", MaxDomainStatusLen)
+	got := JoinDomainStatus([]string{long, "active"})
+	if len(got) > MaxDomainStatusLen {
+		t.Fatalf("JoinDomainStatus = %d bytes, want <= %d", len(got), MaxDomainStatusLen)
+	}
+	if got != long {
+		t.Fatalf("JoinDomainStatus dropped an entry that fits: %q", got)
+	}
+}
+
+// TestMonitorDomainRDAPStatusIsRoundTripped covers the storage conversion the API
+// and the notifications share: the column holds a CSV, Info() exposes the array.
+func TestMonitorDomainRDAPStatusIsRoundTripped(t *testing.T) {
+	row := &MonitorDomain{
+		Domain:     "example.com",
+		Status:     string(DomainStatusOK),
+		RDAPStatus: JoinDomainStatus([]string{"active", "client transfer prohibited"}),
+	}
+	info := row.Info()
+	if got := strings.Join(info.RDAPStatus, "|"); got != "active|client transfer prohibited" {
+		t.Fatalf("Info().RDAPStatus = %v", info.RDAPStatus)
 	}
 }

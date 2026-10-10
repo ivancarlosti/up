@@ -233,13 +233,14 @@ func ParseRDAP(domain string, body []byte, now time.Time) (*models.DomainInfo, e
 		return nil, fmt.Errorf("the rdap response carries no usable expiration event")
 	}
 	return &models.DomainInfo{
-		Domain:    domain,
-		Registrar: registrarFromRDAP(payload),
-		ExpiresAt: expiresAt,
-		Source:    models.DomainSourceRDAP,
-		Status:    models.DomainStatusOK,
-		DaysLeft:  models.DaysLeft(expiresAt, now),
-		CheckedAt: now,
+		Domain:     domain,
+		Registrar:  registrarFromRDAP(payload),
+		ExpiresAt:  expiresAt,
+		Source:     models.DomainSourceRDAP,
+		Status:     models.DomainStatusOK,
+		RDAPStatus: normalizeRDAPStatus(payload.Status),
+		DaysLeft:   models.DaysLeft(expiresAt, now),
+		CheckedAt:  now,
 	}, nil
 }
 
@@ -253,6 +254,34 @@ type rdapResponse struct {
 		Roles []string        `json:"roles"`
 		VCard json.RawMessage `json:"vcardArray"`
 	} `json:"entities"`
+	// Status is the registry status array (RFC 9083 section 5.6): "active",
+	// "client transfer prohibited", "inactive"... Registries word each entry
+	// with spaces, so it is kept verbatim (never split on whitespace).
+	Status []string `json:"status"`
+}
+
+// normalizeRDAPStatus trims the registry status list, drops the empty entries
+// and the duplicates, and keeps the registry order (which is the order the
+// operator reads on the registry page). A missing or blank array stays empty,
+// which is how manual and WHOIS observations come back too.
+func normalizeRDAPStatus(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // parseRDAPTime accepts the timestamp shapes registries actually send.

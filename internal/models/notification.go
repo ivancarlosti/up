@@ -118,6 +118,8 @@ const DefaultWebhookBodyTemplate = `{
   "dashboard_url": "{{.DashboardURL}}",
   "status": "{{.Status}}",
   "message": "{{.Message}}",
+  "domain_statuses": {{json .DomainStatuses}},
+  "domain_statuses_csv": "{{.DomainStatusCSV}}",
   "tags": {{json .MonitorTags}},
   "group": "{{.MonitorGroup}}",
   "group_id": {{.MonitorGroupID}},

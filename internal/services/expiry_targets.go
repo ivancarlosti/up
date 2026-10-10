@@ -31,6 +31,9 @@ type ExpiryTargetMonitor struct {
 	// ExpiresAt is the certificate NotAfter or the registry expiration.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	// RDAPStatus is the registry status list of a domain target. It is empty
+	// for a certificate, for a manual target and for a WHOIS lookup.
+	RDAPStatus []string `json:"rdap_status,omitempty"`
 }
 
 // ExpiryTarget is one deduplicated unit of work of the daily expiry job.
@@ -62,6 +65,9 @@ type ExpiryTarget struct {
 	DaysLeft  *int       `json:"days_left,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	// RDAPStatus mirrors the registry status list of the most urgent monitor
+	// (see summarizeExpiryTarget); it is empty for a certificate target.
+	RDAPStatus []string `json:"rdap_status,omitempty"`
 }
 
 // expiryPlan is the deduplicated worklist of one run, built from the monitor
@@ -212,6 +218,7 @@ func summarizeExpiryTarget(target *ExpiryTarget) {
 		target.ExpiresAt = chosen.ExpiresAt
 	}
 	target.CheckedAt = chosen.CheckedAt
+	target.RDAPStatus = chosen.RDAPStatus
 }
 
 // Targets returns the deduplicated worklist of the job with the observation
@@ -262,6 +269,7 @@ func (s *ExpiryService) Targets(ctx context.Context) ([]ExpiryTarget, error) {
 					state.DaysLeft = row.DaysLeft
 					state.ExpiresAt = timePtr(row.ExpiresAt)
 					state.CheckedAt = timePtr(row.CheckedAt)
+					state.RDAPStatus = row.RDAPStatusList()
 				}
 			}
 		}

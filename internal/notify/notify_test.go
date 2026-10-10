@@ -854,3 +854,105 @@ func mustParse(t *testing.T, raw string) *url.URL {
 	}
 	return parsed
 }
+
+// TestMessageDomainStatuses pins the registry status of a domain reminder: the
+// array and the flat form a body template can read, the JSON validity of the
+// dialog template that now offers the fields, and the readable `Registry:` line
+// of the plain text and HTML bodies.
+func TestMessageDomainStatuses(t *testing.T) {
+	monitor := &models.Monitor{
+		Name:   "Site",
+		Type:   models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{URL: "https://example.com"},
+	}
+	message := NewMessage(models.EventDomainExpiring, monitor, models.AggregateDegraded,
+		"domain example.com expires in 12 days, on 2027-05-01 (registrar: ACME, status: client transfer prohibited,active)",
+		0, "up-node-1", "https://up.example.com", nil,
+		WithDomainStatuses([]string{"client transfer prohibited", " active "}))
+
+	if got := strings.Join(message.DomainStatuses, "|"); got != "client transfer prohibited|active" {
+		t.Fatalf("DomainStatuses = %q, want the trimmed list", got)
+	}
+	if got := message.DomainStatusCSV(); got != "client transfer prohibited,active" {
+		t.Fatalf("DomainStatusCSV() = %q", got)
+	}
+
+	body, err := message.RenderBody(`{"statuses":{{json .DomainStatuses}},"csv":"{{.DomainStatusCSV}}"}`)
+	if err != nil {
+		t.Fatalf("render the body template: %v", err)
+	}
+	want := `{"statuses":["client transfer prohibited","active"],"csv":"client transfer prohibited,active"}`
+	if body != want {
+		t.Errorf("rendered body = %s, want %s", body, want)
+	}
+
+	// The dialog template offers the two fields and must stay valid JSON.
+	dialog, err := message.RenderBody(models.DefaultWebhookBodyTemplate)
+	if err != nil {
+		t.Fatalf("render the dialog template: %v", err)
+	}
+	var payload struct {
+		Statuses []string `json:"domain_statuses"`
+		CSV      string   `json:"domain_statuses_csv"`
+	}
+	if err := json.Unmarshal([]byte(dialog), &payload); err != nil {
+		t.Fatalf("the dialog template must stay valid JSON: %v (%s)", err, dialog)
+	}
+	if strings.Join(payload.Statuses, "|") != "client transfer prohibited|active" {
+		t.Errorf("dialog domain_statuses = %v (%s)", payload.Statuses, dialog)
+	}
+	if payload.CSV != "client transfer prohibited,active" {
+		t.Errorf("dialog domain_statuses_csv = %q (%s)", payload.CSV, dialog)
+	}
+
+	if text := message.Text(); !strings.Contains(text, "Registry: client transfer prohibited,active") {
+		t.Errorf("the text body must list the registry status:\n%s", text)
+	}
+	if html := message.HTML(); !strings.Contains(html, ">Registry</td><td><strong>client transfer prohibited,active</strong></td>") {
+		t.Errorf("the HTML body must list the registry status:\n%s", html)
+	}
+}
+
+// TestMessageWithoutDomainStatusesStaysUnchanged is the invariance guard: a status
+// event carries no registry status, so the default payload must not grow the two
+// keys and the plain bodies must not print an empty row. The dialog template keeps
+// the fields (they render as null/""), and it must stay valid JSON.
+func TestMessageWithoutDomainStatusesStaysUnchanged(t *testing.T) {
+	monitor := &models.Monitor{
+		Name:   "API",
+		Type:   models.MonitorTypeHTTP,
+		Config: models.MonitorConfig{URL: "https://api.example.com"},
+	}
+	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
+		"connection refused", 12, "up-node-1", "https://up.example.com", nil)
+
+	body, err := message.RenderBody("")
+	if err != nil {
+		t.Fatalf("render the default payload: %v", err)
+	}
+	if strings.Contains(body, "domain_statuses") {
+		t.Errorf("a non-domain event must not gain the registry status keys: %s", body)
+	}
+
+	dialog, err := message.RenderBody(models.DefaultWebhookBodyTemplate)
+	if err != nil {
+		t.Fatalf("render the dialog template: %v", err)
+	}
+	var payload struct {
+		Statuses []string `json:"domain_statuses"`
+		CSV      string   `json:"domain_statuses_csv"`
+	}
+	if err := json.Unmarshal([]byte(dialog), &payload); err != nil {
+		t.Fatalf("the dialog template must stay valid JSON: %v (%s)", err, dialog)
+	}
+	if len(payload.Statuses) != 0 || payload.CSV != "" {
+		t.Errorf("a non-domain event must render empty registry fields: %+v", payload)
+	}
+
+	if text := message.Text(); strings.Contains(text, "Registry") {
+		t.Errorf("the text body must omit the registry line when there is nothing to show:\n%s", text)
+	}
+	if html := message.HTML(); strings.Contains(html, ">Registry<") {
+		t.Errorf("the HTML body must omit the registry row when there is nothing to show:\n%s", html)
+	}
+}

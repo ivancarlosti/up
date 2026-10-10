@@ -1,6 +1,7 @@
 package expiry
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,42 @@ func TestParseRDAP(t *testing.T) {
 	}
 	if info.DaysLeft != models.DaysLeft(want, now) {
 		t.Fatalf("days_left = %d", info.DaysLeft)
+	}
+	// The fixture carries no status, so the observation advertises none.
+	if len(info.RDAPStatus) != 0 {
+		t.Fatalf("rdap_status = %v, want none", info.RDAPStatus)
+	}
+}
+
+// TestParseRDAPCarriesRegistryStatus pins the registry status list (RFC 9083).
+// Every entry is a phrase with spaces ("client transfer prohibited"), so it must
+// survive verbatim: the blanks and the duplicates are dropped, the order of the
+// registry is preserved, and an all-blank list is reported as none.
+func TestParseRDAPCarriesRegistryStatus(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	body := `{
+	  "events": [{"eventAction": "expiration", "eventDate": "2027-05-01T04:00:00Z"}],
+	  "status": ["client transfer prohibited", " active ", "active", "", "client delete prohibited"]
+	}`
+	info, err := ParseRDAP("example.com", []byte(body), now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"client transfer prohibited", "active", "client delete prohibited"}
+	if got := strings.Join(info.RDAPStatus, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("rdap_status = %v, want %v", info.RDAPStatus, want)
+	}
+
+	blank := `{
+	  "events": [{"eventAction": "expiration", "eventDate": "2027-05-01T04:00:00Z"}],
+	  "status": ["", "   "]
+	}`
+	info, err = ParseRDAP("example.com", []byte(blank), now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(info.RDAPStatus) != 0 {
+		t.Fatalf("an all-blank status list must be none, got %v", info.RDAPStatus)
 	}
 }
 

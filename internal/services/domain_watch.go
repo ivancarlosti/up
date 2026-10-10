@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ivancarlosti/up/internal/models"
+	"github.com/ivancarlosti/up/internal/notify"
 )
 
 // Evaluate decides whether a domain notification must be sent and, when it must,
@@ -56,7 +57,8 @@ func (s *DomainService) Evaluate(ctx context.Context, row *models.MonitorDomain,
 		status = models.AggregateDown
 	}
 	detail := domainMessage(row, daysLeft, expired, plan)
-	logs := s.notifications.Dispatch(ctx, monitor, plan.Event, status, detail, 0, s.cfg.NodeID)
+	logs := s.notifications.Dispatch(ctx, monitor, plan.Event, status, detail, 0, s.cfg.NodeID,
+		notify.WithDomainStatuses(row.RDAPStatusList()))
 	s.log.Info("domain notification processed",
 		"monitor_id", monitor.ID, "monitor", monitor.Name, "event", plan.Event,
 		"domain", row.Domain, "days_left", daysLeft, "thresholds", plan.Thresholds,
@@ -92,11 +94,23 @@ func (s *DomainService) markNotified(ctx context.Context, row *models.MonitorDom
 }
 
 // domainMessage renders the human readable detail of the notification.
+//
+// The suffix carries the registrar and, when the lookup went through RDAP, the
+// registry status ("client transfer prohibited", "inactive"...). The status is
+// what tells a locked registration apart from a plain expiring one without
+// opening the registry page, so it belongs next to the date.
 func domainMessage(row *models.MonitorDomain, daysLeft int, expired bool, plan ExpiryPlan) string {
 	domain := strings.TrimSpace(row.Domain)
-	suffix := ""
+	facts := make([]string, 0, 2)
 	if registrar := strings.TrimSpace(row.Registrar); registrar != "" {
-		suffix = fmt.Sprintf(" (registrar: %s)", registrar)
+		facts = append(facts, "registrar: "+registrar)
+	}
+	if status := strings.TrimSpace(row.RDAPStatus); status != "" {
+		facts = append(facts, "status: "+status)
+	}
+	suffix := ""
+	if len(facts) > 0 {
+		suffix = " (" + strings.Join(facts, ", ") + ")"
 	}
 	until := row.ExpiresAt.UTC().Format("2006-01-02")
 	if expired {

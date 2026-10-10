@@ -13,7 +13,8 @@ import (
 // Dispatch delivers an event to every channel linked to the monitor and writes
 // a delivery log entry per channel.
 func (s *NotificationService) Dispatch(ctx context.Context, monitor *models.Monitor, event models.NotificationEvent,
-	status models.AggregateStatus, detail string, latencyMS int64, nodeID string) []models.NotificationLog {
+	status models.AggregateStatus, detail string, latencyMS int64, nodeID string,
+	opts ...notify.MessageOption) []models.NotificationLog {
 
 	links, err := s.links(ctx, monitor.ID)
 	if err != nil {
@@ -22,7 +23,7 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *models.Moni
 	}
 
 	message := notify.NewMessage(event, monitor, status, detail, latencyMS, nodeID, s.cfg.AppURL,
-		s.groupRef(ctx, monitor.ID))
+		s.groupRef(ctx, monitor.ID), opts...)
 	logs := make([]models.NotificationLog, 0, len(links))
 
 	for _, link := range links {

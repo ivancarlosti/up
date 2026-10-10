@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,22 @@ func TestSummarizeExpiryTarget(t *testing.T) {
 	summarizeExpiryTarget(&empty)
 	if empty.Status != "" || empty.DaysLeft != nil {
 		t.Fatalf("summary = %q %v, want empty", empty.Status, empty.DaysLeft)
+	}
+
+	// The RDAP status of the summary is the one of the most urgent observation,
+	// exactly like the date: it describes the same row the operator will act on.
+	withStatus := ExpiryTarget{Monitors: []ExpiryTargetMonitor{
+		{ID: 1, Status: string(models.DomainStatusOK), DaysLeft: 20,
+			RDAPStatus: []string{"active"}},
+		{ID: 2, Status: string(models.DomainStatusOK), DaysLeft: 5,
+			RDAPStatus: []string{"client transfer prohibited"}},
+	}}
+	summarizeExpiryTarget(&withStatus)
+	if withStatus.DaysLeft == nil || *withStatus.DaysLeft != 5 {
+		t.Fatalf("summary days_left = %v, want 5", withStatus.DaysLeft)
+	}
+	if got := strings.Join(withStatus.RDAPStatus, "|"); got != "client transfer prohibited" {
+		t.Fatalf("summary rdap_status = %v, want the status of the most urgent monitor", withStatus.RDAPStatus)
 	}
 }
 

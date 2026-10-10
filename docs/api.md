@@ -186,10 +186,14 @@ The domain expiration watch rides along the same way: `domain_watch`,
 `domain_notify`, `domain_warn_days` and the optional manual date
 `domain_expires_at` (RFC3339 or `null`). When `domain_watch` is on, the decorated
 monitor carries a `domain` object (`domain`, `registrar`, `expires_at`, `source`,
-`status`, `days_left`, `checked_at`); `expires_at` is `null` (never the zero
-timestamp) when the lookup read no date, i.e. when `status` is `not_found`,
-`unsupported` or `error`. An incoherent configuration answers
-`400 ERR_MONITOR_DOMAIN_INVALID`.
+`status`, `rdap_status`, `days_left`, `checked_at`); `expires_at` is `null` (never
+the zero timestamp) when the lookup read no date, i.e. when `status` is
+`not_found`, `unsupported` or `error`. An incoherent configuration answers
+`400 ERR_MONITOR_DOMAIN_INVALID`. When the last lookup went through RDAP the
+object also carries `rdap_status`, the registry status list the response
+advertised (`["active","client transfer prohibited"]`, RFC 9083); it is absent
+for a manual date, for a WHOIS lookup and for every failed or empty lookup, none
+of which publish a registry status.
 
 `config.ip_family` (`auto` | `alternate` | `ipv4` | `ipv6`, default `auto`;
 see `docs/monitors.md`) is the address family of the probe: `auto` leaves the
@@ -535,15 +539,19 @@ Every target of `/api/admin/expiry/targets` looks like:
   "domain": "example.com",
   "manual": false,
   "monitors": [{ "id": 4, "name": "site", "status": "ok", "days_left": 42,
-                 "expires_at": "2027-05-01T00:00:00Z", "checked_at": "2026-09-24T03:00:00Z" }],
+                 "expires_at": "2027-05-01T00:00:00Z", "checked_at": "2026-09-24T03:00:00Z",
+                 "rdap_status": ["client transfer prohibited"] }],
   "status": "ok", "days_left": 42, "expires_at": "2027-05-01T00:00:00Z",
-  "checked_at": "2026-09-24T03:00:00Z"
+  "checked_at": "2026-09-24T03:00:00Z", "rdap_status": ["client transfer prohibited"]
 }
 ```
 
-The target summary (`status`, `days_left`, `expires_at`, `checked_at`) is the
-most urgent observation of its monitors: the smallest remaining validity among
-the ones that have a date, or the first reported status when none has one.
+The target summary (`status`, `days_left`, `expires_at`, `checked_at`,
+`rdap_status`) is the most urgent observation of its monitors: the smallest
+remaining validity among the ones that have a date, or the first reported status
+when none has one; `rdap_status` is the registry status list of that same
+observation, so it is present on a `domain` target only (never on a
+`certificate`, on a manual target or when the lookup fell back to WHOIS).
 `kind` is `certificate` (key `host:port|sni`) or `domain`; a `manual` target only
 exists because of the date typed in the monitor form. Refreshing an unknown
 target answers `404 ERR_NOT_FOUND`, an unknown `kind` or an empty `target`

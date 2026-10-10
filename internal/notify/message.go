@@ -44,6 +44,12 @@ type Message struct {
 	// {{json .MonitorTags}} or {{range .MonitorTags}}). TagsCSV is the same
 	// data as one comma separated string.
 	MonitorTags []string
+	// DomainStatuses is the RDAP registry status list of the domain a
+	// certificate/domain reminder is about ("active", "client transfer
+	// prohibited"...). It is empty for every other event and for a manual or a
+	// WHOIS lookup, which publish no registry status. DomainStatusCSV is the
+	// same data as one comma separated string.
+	DomainStatuses []string
 	// MonitorGroup is the name of the single group the monitor belongs to, and
 	// MonitorGroupID is its id; both are empty when the monitor belongs to no
 	// group. They are the only group fields: a monitor belongs to one group, so
@@ -84,14 +90,15 @@ const (
 // notification path; it is passed here so every delivery path ends up with the same
 // populated payload.
 func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status models.AggregateStatus,
-	detail string, latencyMS int64, nodeID, instanceURL string, group *models.MonitorGroupRef) Message {
+	detail string, latencyMS int64, nodeID, instanceURL string, group *models.MonitorGroupRef,
+	opts ...MessageOption) Message {
 	groupName := ""
 	groupID := uint(0)
 	if group != nil {
 		groupID = group.ID
 		groupName = group.Name
 	}
-	return Message{
+	message := Message{
 		Event:              string(event),
 		Status:             string(status),
 		Title:              fmt.Sprintf("[%s] %s", strings.ToUpper(string(event)), monitor.Name),
@@ -108,6 +115,28 @@ func NewMessage(event models.NotificationEvent, monitor *models.Monitor, status 
 		Timestamp:          time.Now().UTC(),
 		InstanceURL:        instanceURL,
 		DashboardURL:       DashboardLink(event, monitor.ID, instanceURL),
+	}
+	// The optional extras are applied last so a caller can decorate the message
+	// without NewMessage growing a parameter per event-specific field.
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&message)
+		}
+	}
+	return message
+}
+
+// MessageOption decorates a Message at construction. It is how an event specific
+// field (today only the RDAP registry statuses of a domain reminder) reaches the
+// payloads without a parameter that every other caller would pass as nil.
+type MessageOption func(*Message)
+
+// WithDomainStatuses attaches the registry status list of a domain reminder to
+// the message. A non-domain event leaves it empty, and the payloads omit the
+// field entirely, so their shape is unchanged.
+func WithDomainStatuses(statuses []string) MessageOption {
+	return func(m *Message) {
+		m.DomainStatuses = trimList(statuses)
 	}
 }
 
@@ -163,18 +192,31 @@ func (m Message) TagsCSV() string {
 	return joinCSV(m.MonitorTags)
 }
 
+// DomainStatusCSV is the registry status list as one comma separated string, the
+// flat form of DomainStatuses ({{.DomainStatusCSV}} in a body template). It is
+// empty for every event that is not a domain reminder.
+func (m Message) DomainStatusCSV() string {
+	return joinCSV(m.DomainStatuses)
+}
+
 // joinCSV trims and drops the empty values but keeps the caller's order, so the
 // flat form lists tags exactly like the array form does. It does not use
 // models.JoinList on purpose: that helper sorts its items, and the two forms of
 // the same list must not disagree.
 func joinCSV(items []string) string {
+	return strings.Join(trimList(items), ",")
+}
+
+// trimList drops the empty values and trims the rest, keeping the caller's order.
+// Both the array field and its flat form go through it, so they cannot disagree.
+func trimList(items []string) []string {
 	cleaned := make([]string, 0, len(items))
 	for _, item := range items {
 		if value := strings.TrimSpace(item); value != "" {
 			cleaned = append(cleaned, value)
 		}
 	}
-	return strings.Join(cleaned, ",")
+	return cleaned
 }
 
 // MonitorTarget returns the probe target in a readable form.
@@ -223,7 +265,7 @@ func (m Message) RenderBody(bodyTemplate string) (string, error) {
 // consumer parses) and as a comma separated string (what a human reads in a log
 // line); the group is a single value, so group/group_id are the whole of it.
 func (m Message) jsonPayload() map[string]any {
-	return map[string]any{
+	payload := map[string]any{
 		"event":   m.Event,
 		"monitor": m.MonitorName,
 		"type":    m.MonitorType,
@@ -245,6 +287,14 @@ func (m Message) jsonPayload() map[string]any {
 		// certificate/domain reminder. Empty when APP_URL is not configured.
 		"dashboard_url": m.DashboardURL,
 	}
+	// The registry statuses only exist for a domain reminder, so the field is
+	// added only when there is something to report: the payload of every other
+	// event keeps exactly the shape it had before.
+	if len(m.DomainStatuses) > 0 {
+		payload["domain_statuses"] = m.DomainStatuses
+		payload["domain_statuses_csv"] = m.DomainStatusCSV()
+	}
+	return payload
 }
 
 // templateFuncs are the helpers available inside a webhook body template.
