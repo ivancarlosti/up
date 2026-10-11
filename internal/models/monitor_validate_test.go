@@ -97,6 +97,38 @@ func TestMonitorConfigNormalizeAndValidate(t *testing.T) {
 		t.Fatal("an unsupported record type must be invalid")
 	}
 
+	// The WebSocket handshake is an HTTP request: the url, the credentials and
+	// the TLS switch are validated like the other HTTP probes.
+	ws := MonitorConfig{URL: "wss://example.com/socket", AuthType: "bearer", BearerToken: "secret"}
+	ws.Normalize(MonitorTypeWebSocket)
+	if ws.AuthType != "bearer" {
+		t.Fatalf("Normalize must keep the chosen auth type: %q", ws.AuthType)
+	}
+	if problem := ws.Validate(MonitorTypeWebSocket); problem != "" {
+		t.Fatalf("valid WebSocket monitor rejected: %s", problem)
+	}
+	ws.AuthType = "basic"
+	if problem := ws.Validate(MonitorTypeWebSocket); !strings.Contains(problem, "config.basic_user") {
+		t.Fatalf("basic auth without credentials must be invalid, got %q", problem)
+	}
+	plainScheme := MonitorConfig{URL: "https://example.com/socket"}
+	plainScheme.Normalize(MonitorTypeWebSocket)
+	if problem := plainScheme.Validate(MonitorTypeWebSocket); !strings.Contains(problem, "ws://") {
+		t.Fatalf("an http scheme must be rejected, got %q", problem)
+	}
+	defaultAuth := MonitorConfig{URL: "ws://example.com/socket"}
+	defaultAuth.Normalize(MonitorTypeWebSocket)
+	if defaultAuth.AuthType != "none" {
+		t.Fatalf("the default auth type = %q, want none", defaultAuth.AuthType)
+	}
+	if problem := defaultAuth.Validate(MonitorTypeWebSocket); problem != "" {
+		t.Fatalf("valid ws:// monitor rejected: %s", problem)
+	}
+	defaultAuth.URL = ""
+	if problem := defaultAuth.Validate(MonitorTypeWebSocket); !strings.Contains(problem, "config.url") {
+		t.Fatalf("a WebSocket monitor without url must be invalid, got %q", problem)
+	}
+
 	// The address family is shared by every type, so it is validated for every
 	// type: a typo cannot be accepted just because the probe would ignore it, and
 	// an omitted field stays valid (the default is applied by Normalize).

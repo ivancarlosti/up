@@ -8,7 +8,7 @@ import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, TemplateDefau
  * the same object for every probe type: only the fields of the selected type
  * are shown, but the hidden ones keep the values of the type the monitor had.
  * Sending them back is what the backend rejects ("cert_watch is only available
- * for http, keyword and ssl monitors"), so every save goes through
+ * for http, keyword, ssl and websocket monitors"), so every save goes through
  * `sanitizeMonitorPayload`, which drops what does not belong to the type the
  * operator selected.
  *
@@ -17,10 +17,11 @@ import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, TemplateDefau
  * `Supports*` helpers in `internal/models/enums.go`): keep the two in sync when
  * a monitor type or one of its options is added (see `docs/architecture.md`).
  *
- * Fields shared by several types (`host`/`port` for TCP and SSL, `ignore_tls`
- * for HTTP, Keyword and SSL, `ip_family` for every type) are listed by each of
- * them on purpose, so a switch between those types does not lose the value the
- * new one still uses.
+ * Fields shared by several types (`host`/`port` for TCP and SSL, `ignore_tls`,
+ * the headers and the credentials for HTTP, Keyword and WebSocket, `send`/`expect`
+ * for TCP and WebSocket, `ip_family` for every type) are listed by each of them on
+ * purpose, so a switch between those types does not lose the value the new one
+ * still uses.
  */
 export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]> = {
   http: [
@@ -61,11 +62,25 @@ export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]
   tcp: ['host', 'port', 'send', 'expect', 'ip_family'],
   dns: ['hostname', 'resolver_server', 'record_type', 'expected_value', 'invert_check', 'ip_family'],
   ssl: ['host', 'port', 'server_name', 'ignore_tls', 'ip_family'],
+  // The upgrade is an HTTP request: the url, the headers and the credentials
+  // travel with it, plus the optional frame exchange of a tcp monitor.
+  websocket: [
+    'url',
+    'headers',
+    'auth_type',
+    'basic_user',
+    'basic_pass',
+    'bearer_token',
+    'ignore_tls',
+    'send',
+    'expect',
+    'ip_family',
+  ],
 }
 
 /** supportsCertificate reports whether a type can read a TLS certificate. */
 export function supportsCertificate(type: MonitorType): boolean {
-  return type === 'http' || type === 'keyword' || type === 'ssl'
+  return type === 'http' || type === 'keyword' || type === 'ssl' || type === 'websocket'
 }
 
 /**
@@ -80,6 +95,7 @@ export function supportsDomainWatch(type: MonitorType): boolean {
     case 'tcp':
     case 'dns':
     case 'ssl':
+    case 'websocket':
       return true
   }
   return false
@@ -172,10 +188,10 @@ export function sanitizeMonitorPayload(payload: MonitorPayload, options: Sanitiz
  * side (`models.MonitorTemplate.Validate`).
  *
  * A template is a monitor without a target: the certificate switches only exist
- * for the types that can read a certificate (http, keyword, ssl) and nothing can
- * outlive the watch it belongs to. Without this, a certificate watch kept while
- * the operator tried another type would be stored on, say, a tcp template and
- * every monitor created from it would be rejected by the API.
+ * for the types that can read a certificate (http, keyword, ssl and websocket)
+ * and nothing can outlive the watch it belongs to. Without this, a certificate
+ * watch kept while the operator tried another type would be stored on, say, a
+ * tcp template and every monitor created from it would be rejected by the API.
  */
 export function sanitizeTemplateDefaults(type: MonitorType, defaults: TemplateDefaults): TemplateDefaults {
   const clean: TemplateDefaults = { ...defaults }
@@ -200,15 +216,17 @@ const DEFAULT_SSL_PORT = 443
 
 /**
  * monitorTarget renders the probe target in a readable form, exactly like
- * `notify.MonitorTarget` on the Go side: the URL of an http/keyword probe, the
- * `host:port` of tcp, the `record host @resolver` of dns and the `host:port` of
- * ssl (falling back to 443). It is what the table prints under the monitor name.
+ * `notify.MonitorTarget` on the Go side: the URL of an http/keyword/websocket
+ * probe, the `host:port` of tcp, the `record host @resolver` of dns and the
+ * `host:port` of ssl (falling back to 443). It is what the table prints under the
+ * monitor name.
  */
 export function monitorTarget(monitor: Monitor): string {
   const config = monitor.config ?? {}
   switch (monitor.type) {
     case 'http':
     case 'keyword':
+    case 'websocket':
       return config.url ?? ''
     case 'tcp':
       return `${config.host ?? ''}:${config.port ?? 0}`

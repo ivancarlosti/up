@@ -44,6 +44,6 @@ Thumbs.db
 *.log
 /tmp/
 
-# Working plans / scratch notes (local only, never synced)
+# Working plans / scratch notes (tracked: the plan of a change is part of it;
+# local scratch can still live in /plan or /tmp)
 /plan
-/plans/

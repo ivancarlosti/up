@@ -228,11 +228,12 @@ func TestMonitorTemplateNormalizeFillsLinkScope(t *testing.T) {
 // fills is the target of the type, and ssl is a host:port probe like tcp.
 func TestMonitorTypeTargetField(t *testing.T) {
 	cases := map[MonitorType]string{
-		MonitorTypeHTTP:    "url",
-		MonitorTypeKeyword: "url",
-		MonitorTypeTCP:     "host",
-		MonitorTypeSSL:     "host",
-		MonitorTypeDNS:     "hostname",
+		MonitorTypeHTTP:      "url",
+		MonitorTypeKeyword:   "url",
+		MonitorTypeWebSocket: "url",
+		MonitorTypeTCP:       "host",
+		MonitorTypeSSL:       "host",
+		MonitorTypeDNS:       "hostname",
 	}
 	for monitorType, want := range cases {
 		if got := monitorType.TargetField(); got != want {

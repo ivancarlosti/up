@@ -158,6 +158,19 @@ func TestApplyTemplateKeepsTarget(t *testing.T) {
 	if sslUpdated.Config.ServerName != "smtp.example.com" || !sslUpdated.Config.IgnoreTLS {
 		t.Fatalf("the ssl probe options were not applied: %+v", sslUpdated.Config)
 	}
+	// A WebSocket monitor keeps its own url as well, and the frame exchange of
+	// the template still applies.
+	wsMonitor := &models.Monitor{Type: models.MonitorTypeWebSocket, Config: models.MonitorConfig{URL: "wss://chat.example.com/socket"}}
+	wsUpdated, _ := applyTemplate(wsMonitor, &models.MonitorTemplate{
+		Type:   models.MonitorTypeWebSocket,
+		Config: models.MonitorConfig{Send: "ping", Expect: "pong"},
+	}, []string{"config"})
+	if wsUpdated.Config.URL != "wss://chat.example.com/socket" {
+		t.Fatalf("the websocket target changed: %q", wsUpdated.Config.URL)
+	}
+	if wsUpdated.Config.Send != "ping" || wsUpdated.Config.Expect != "pong" {
+		t.Fatalf("the websocket probe options were not applied: %+v", wsUpdated.Config)
+	}
 }
 
 // TestApplyTemplateKeepsAuth is the safety net of the "a template never carries
@@ -267,6 +280,20 @@ func TestConfigChangesCoversEveryType(t *testing.T) {
 	}
 	if !seen["config.server_name"] || !seen["config.ignore_tls"] {
 		t.Errorf("the ssl options are missing from the diff: %+v", ssl)
+	}
+
+	ws := configChanges(
+		&models.Monitor{Type: models.MonitorTypeWebSocket, Config: models.MonitorConfig{URL: "wss://chat.example.com/socket", Send: "ping", Expect: "pong"}},
+		&models.MonitorTemplate{Type: models.MonitorTypeWebSocket, Config: models.MonitorConfig{Send: "hello", Expect: "world", IgnoreTLS: true}},
+	)
+	seen = map[string]bool{}
+	for _, change := range ws {
+		seen[change.Field] = true
+	}
+	for _, field := range []string{"config.send", "config.expect", "config.ignore_tls"} {
+		if !seen[field] {
+			t.Errorf("%s is missing from the websocket diff: %+v", field, ws)
+		}
 	}
 
 	// The credentials never travel into a preview.

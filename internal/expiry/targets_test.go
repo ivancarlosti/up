@@ -80,6 +80,27 @@ func TestCertificateTargetForKey(t *testing.T) {
 	if _, ok := CertificateTargetFor(plain); ok {
 		t.Fatal("an http URL has no certificate to watch")
 	}
+
+	// The upgrade of a wss monitor completes a TLS handshake, so the certificate
+	// watcher reads it exactly like the https probes read theirs.
+	wss := &models.Monitor{
+		Type:      models.MonitorTypeWebSocket,
+		CertWatch: true,
+		Config:    models.MonitorConfig{URL: "wss://chat.example.com:9443/socket"},
+	}
+	wssTarget, ok := CertificateTargetFor(wss)
+	if !ok || wssTarget.Port != 9443 || wssTarget.Key() != "chat.example.com:9443|chat.example.com" {
+		t.Fatalf("wss target = %+v ok = %t", wssTarget, ok)
+	}
+
+	plainWS := &models.Monitor{
+		Type:      models.MonitorTypeWebSocket,
+		CertWatch: true,
+		Config:    models.MonitorConfig{URL: "ws://chat.example.com/socket"},
+	}
+	if _, ok := CertificateTargetFor(plainWS); ok {
+		t.Fatal("a ws:// URL has no certificate to watch")
+	}
 }
 
 // TestDomainFor covers the target derivation per monitor type.
@@ -89,6 +110,8 @@ func TestDomainFor(t *testing.T) {
 		want    string
 	}{
 		{&models.Monitor{Type: models.MonitorTypeHTTP, DomainWatch: true, Config: models.MonitorConfig{URL: "https://www.example.com/x"}}, "example.com"},
+		{&models.Monitor{Type: models.MonitorTypeKeyword, DomainWatch: true, Config: models.MonitorConfig{URL: "https://www.example.com/x"}}, "example.com"},
+		{&models.Monitor{Type: models.MonitorTypeWebSocket, DomainWatch: true, Config: models.MonitorConfig{URL: "wss://chat.example.com/socket"}}, "example.com"},
 		{&models.Monitor{Type: models.MonitorTypeSSL, DomainWatch: true, Config: models.MonitorConfig{Host: "mail.example.org"}}, "example.org"},
 		{&models.Monitor{Type: models.MonitorTypeTCP, DomainWatch: true, Config: models.MonitorConfig{Host: "example.net", Port: 25}}, "example.net"},
 		{&models.Monitor{Type: models.MonitorTypeDNS, DomainWatch: true, Config: models.MonitorConfig{Hostname: "example.io"}}, "example.io"},

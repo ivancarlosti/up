@@ -263,7 +263,7 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 // documents as well).
 func withProbeTarget(config models.MonitorConfig, target models.MonitorConfig, monitorType models.MonitorType) models.MonitorConfig {
 	switch monitorType {
-	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
+	case models.MonitorTypeHTTP, models.MonitorTypeKeyword, models.MonitorTypeWebSocket:
 		config.URL = target.URL
 	case models.MonitorTypeTCP, models.MonitorTypeSSL:
 		config.Host = target.Host

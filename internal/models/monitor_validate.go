@@ -26,18 +26,10 @@ func (c *MonitorConfig) Validate(monitorType MonitorType) string {
 		if !containsString(HTTPEncodings, c.Encoding) {
 			return fmt.Sprintf("config.encoding must be one of %s", strings.Join(HTTPEncodings, ", "))
 		}
-		switch c.AuthType {
-		case "", "none":
-		case "basic":
-			if c.BasicUser == "" || c.BasicPass == "" {
-				return "config.basic_user and config.basic_pass are required for basic authentication"
-			}
-		case "bearer":
-			if c.BearerToken == "" {
-				return "config.bearer_token is required for bearer authentication"
-			}
-		default:
-			return "config.auth_type must be none, basic or bearer"
+		// The credentials are shared with the WebSocket probe, so they are
+		// checked by the same helper.
+		if problem := validateAuthConfig(c); problem != "" {
+			return problem
 		}
 		if _, err := ParseStatusRanges(c.AcceptedStatusCodes); err != nil {
 			return err.Error()
@@ -69,8 +61,39 @@ func (c *MonitorConfig) Validate(monitorType MonitorType) string {
 		if c.Port < 1 || c.Port > 65535 {
 			return "config.port must be between 1 and 65535"
 		}
+	case MonitorTypeWebSocket:
+		if c.URL == "" {
+			return "config.url is required for WebSocket monitors"
+		}
+		if !strings.HasPrefix(c.URL, "ws://") && !strings.HasPrefix(c.URL, "wss://") {
+			return "config.url must start with ws:// or wss://"
+		}
+		if problem := validateAuthConfig(c); problem != "" {
+			return problem
+		}
 	default:
 		return fmt.Sprintf("unknown monitor type %q", monitorType)
+	}
+	return ""
+}
+
+// validateAuthConfig checks the authentication options shared by the HTTP,
+// Keyword and WebSocket probes: the same three modes (none, basic, bearer) and
+// the same required credentials. It returns the problem description, or "" when
+// the configuration describes a usable request.
+func validateAuthConfig(c *MonitorConfig) string {
+	switch c.AuthType {
+	case "", "none":
+	case "basic":
+		if c.BasicUser == "" || c.BasicPass == "" {
+			return "config.basic_user and config.basic_pass are required for basic authentication"
+		}
+	case "bearer":
+		if c.BearerToken == "" {
+			return "config.bearer_token is required for bearer authentication"
+		}
+	default:
+		return "config.auth_type must be none, basic or bearer"
 	}
 	return ""
 }

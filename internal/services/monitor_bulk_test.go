@@ -258,8 +258,18 @@ func TestMonitorFromBulkRowCoversEveryType(t *testing.T) {
 		t.Fatalf("dns row = %+v err=%v", dnsRow, err)
 	}
 
+	// WebSocket: the target is an absolute ws:// or wss:// url.
+	wsTemplate := &models.MonitorTemplate{UUID: "ws-template", Type: models.MonitorTypeWebSocket, Defaults: defaults}
+	wsRow, err := monitorFromBulkRow(wsTemplate, BulkRow{Name: "Chat", Target: "wss://chat.example.com/socket"}, BulkOptions{})
+	if err != nil || wsRow.Type != models.MonitorTypeWebSocket || wsRow.Config.URL != "wss://chat.example.com/socket" {
+		t.Fatalf("websocket row = %+v err=%v", wsRow, err)
+	}
+	if _, err := monitorFromBulkRow(wsTemplate, BulkRow{Name: "Chat", Target: "https://chat.example.com/socket"}, BulkOptions{}); err == nil {
+		t.Fatal("an http target must be reported as invalid for a websocket monitor")
+	}
+
 	// A row that keeps the type of its template follows it.
-	for _, monitor := range []*models.Monitor{httpRow, tcpRow, dnsRow, sslRow} {
+	for _, monitor := range []*models.Monitor{httpRow, tcpRow, dnsRow, sslRow, wsRow} {
 		if monitor.TemplateUUID == "" {
 			t.Fatalf("%s must follow the template: %+v", monitor.Name, monitor)
 		}
@@ -330,6 +340,7 @@ func TestMonitorTargetKeyPerType(t *testing.T) {
 	}{
 		{&models.Monitor{Type: models.MonitorTypeHTTP, Config: models.MonitorConfig{URL: "https://API.example.com/x"}}, "https://api.example.com/x"},
 		{&models.Monitor{Type: models.MonitorTypeKeyword, Config: models.MonitorConfig{URL: "https://example.com"}}, "https://example.com"},
+		{&models.Monitor{Type: models.MonitorTypeWebSocket, Config: models.MonitorConfig{URL: "WSS://chat.example.com/socket"}}, "wss://chat.example.com/socket"},
 		{&models.Monitor{Type: models.MonitorTypeTCP, Config: models.MonitorConfig{Host: "DB.internal", Port: 3306}}, "db.internal:3306"},
 		{&models.Monitor{Type: models.MonitorTypeSSL, Config: models.MonitorConfig{Host: "mail.example.com", Port: 993}}, "mail.example.com:993"},
 		{&models.Monitor{Type: models.MonitorTypeDNS, Config: models.MonitorConfig{Hostname: "Example.com"}}, "example.com"},

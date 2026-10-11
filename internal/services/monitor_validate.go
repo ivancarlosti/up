@@ -83,7 +83,7 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 	}
 	if monitor.CertWatch && !monitor.Type.SupportsCertificate() {
 		return ErrBadRequest(i18n.CodeMonitorCert,
-			"cert_watch is only available for http, keyword and ssl monitors")
+			"cert_watch is only available for http, keyword, ssl and websocket monitors")
 	}
 	if monitor.CertNotify && !monitor.CertWatch {
 		return ErrBadRequest(i18n.CodeMonitorCert, "cert_notify requires cert_watch")

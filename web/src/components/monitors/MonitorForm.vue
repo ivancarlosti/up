@@ -85,6 +85,7 @@ const typeOptions = computed(() => [
   { value: 'tcp', label: t('monitor.typeTcp') },
   { value: 'dns', label: t('monitor.typeDns') },
   { value: 'ssl', label: t('monitor.typeSsl') },
+  { value: 'websocket', label: t('monitor.typeWebSocket') },
 ])
 
 /**
@@ -135,6 +136,7 @@ function withProbeTarget(config: MonitorConfig, target: MonitorConfig, monitorTy
   switch (monitorType) {
     case 'http':
     case 'keyword':
+    case 'websocket':
       if (target.url) next.url = target.url
       break
     case 'tcp':
@@ -246,8 +248,8 @@ function submit(): void {
   payload.domain_expires_at = manualDate ? `${manualDate.slice(0, 10)}T00:00:00Z` : null
   // Switching the type hides the sections of the old one but keeps their values:
   // sending them back is what the API rejects ("cert_watch is only available for
-  // http, keyword and ssl monitors"), so the payload only carries what the
-  // selected type actually reads.
+  // http, keyword, ssl and websocket monitors"), so the payload only carries what
+  // the selected type actually reads.
   emit('submit', sanitizeMonitorPayload(payload, { templateType: linkedTemplateType.value }))
 }
 </script>

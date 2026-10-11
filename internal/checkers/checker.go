@@ -1,5 +1,5 @@
 // Package checkers implements the probe engines used by the scheduler: HTTP,
-// HTTP Keyword, TCP and DNS.
+// HTTP Keyword, TCP, DNS, SSL and WebSocket.
 //
 // Every checker returns a Result with the heartbeat status, the measured
 // latency, the optional status code and a short human readable message. The
@@ -57,6 +57,8 @@ func Check(ctx context.Context, monitor *models.Monitor, turn string) Result {
 		result = checkDNS(ctx, monitor, plan)
 	case models.MonitorTypeSSL:
 		result = checkSSL(ctx, monitor, plan)
+	case models.MonitorTypeWebSocket:
+		result = checkWebSocket(ctx, monitor, plan)
 	default:
 		result = Result{Status: models.StatusDown, Message: "unsupported monitor type " + string(monitor.Type)}
 	}

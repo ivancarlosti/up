@@ -7,9 +7,9 @@
 **Minimalist, cluster-ready uptime monitoring.**
 
 One Go binary - hosts its own Vue 3 dashboard, writes to your external
-MariaDB/MySQL, watches HTTP(s), Keyword, TCP, DNS and SSL targets, keeps an eye on
-the expiration of the certificates and domains behind them, and runs as a cluster
-of nodes that vote on the real status.
+MariaDB/MySQL, watches HTTP(s), Keyword, TCP, DNS, SSL and WebSocket targets, keeps
+an eye on the expiration of the certificates and domains behind them, and runs as a
+cluster of nodes that vote on the real status.
 
 <!-- buttons -->
 [![Stars](https://img.shields.io/github/stars/ivancarlosti/up?label=⭐%20Stars&color=gold&style=flat)](https://github.com/ivancarlosti/up/stargazers)
@@ -30,13 +30,13 @@ of nodes that vote on the real status.
 
 | Feature | Description |
 |---|---|
-| **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, cache buster, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check) and SSL (a raw TLS handshake, with an optional SNI); every probe follows the address family chosen for it - the dialer's own choice by default (`auto`), an IPv4/IPv6 rotation that catches a path the other family hides (`alternate`) or a hard pin to one family |
+| **Monitors** | HTTP(s) (method, encoding, body, headers, basic/bearer auth, redirects, cache buster, accepted status codes, ignore TLS), HTTP(s) Keyword (invert, case sensitive), TCP (send/expect), DNS (A/AAAA/CNAME/MX/TXT/NS/SOA through a chosen resolver, invert check), SSL (a raw TLS handshake, with an optional SNI) and WebSocket (a `ws://`/`wss://` upgrade with the same headers and credentials, plus an optional send/expect frame exchange); every probe follows the address family chosen for it - the dialer's own choice by default (`auto`), an IPv4/IPv6 rotation that catches a path the other family hides (`alternate`) or a hard pin to one family |
 | **Scheduling** | one worker per monitor, per-monitor interval, timeout, retries with a `pending` phase and a re-notification interval |
 | **Dashboard** | actionable summary boxes (status counters plus *certificates expiring in 7 days* and *domains expiring in 30 days or expired*) that filter the **shared sortable monitors table** (name, type, group, tags, status, interval, uptime over a selectable period, certificate/domain expiry and a bucketed heartbeat sparkline), live status via WebSocket, per-node breakdown and a monitor detail with statistics and an event log |
 | **Uptime window & history** | one global period (24 h / 7 d / 14 d / 30 d) drives the dashboard, the monitors table, the detail page and the heartbeat sparkline, with a per status page override; heartbeat history is pruned by a configurable retention (**180 days by default**, `0` = never) with a preview and a *purge now* button in Admin > Settings |
 | **Groups & clones** | named groups of monitors (a search-and-pick member editor, filter, shallow/deep clone), monitor clone, groups drive the status pages |
-| **Templates & bulk** | reusable monitor templates of **every type** (`http`, `keyword`, `tcp`, `dns`, `ssl`), add monitors by pasting `name,target[,type,...]` (per row report, duplicates skipped, a row can override the type of its template), a bulk edit with a diff preview and monitors that **follow** a template (editing it pushes the defaults to every linked monitor; groups and tags stay untouched) |
-| **Certificates** | a `ssl` type plus certificate watching on any https monitor: validity badge on the dashboard/detail/admin list, free-form warn thresholds (default `30,14,7,1`) and daily `cert_expiring`/`cert_expired` reminders |
+| **Templates & bulk** | reusable monitor templates of **every type** (`http`, `keyword`, `tcp`, `dns`, `ssl`, `websocket`), add monitors by pasting `name,target[,type,...]` (per row report, duplicates skipped, a row can override the type of its template), a bulk edit with a diff preview and monitors that **follow** a template (editing it pushes the defaults to every linked monitor; groups and tags stay untouched) |
+| **Certificates** | a `ssl` type plus certificate watching on any https or `wss://` monitor: validity badge on the dashboard/detail/admin list, free-form warn thresholds (default `30,14,7,1`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Domain expiration** | registry watching for the monitor's domain: RDAP first, per-TLD WHOIS parsers (Admin > TLD/SSL expiration, pre-filled with a verified built-in table for the TLDs without RDAP) and a manual date for the TLDs that publish none (one date per registrable domain, applied the moment it is saved and independent of the watch switch); free-form warn thresholds (default `30,14,7,1`) and daily `domain_expiring`/`domain_expired` reminders |
 | **Expiry scheduling** | one daily, configurable-time check for certificates and domains, **deduplicated by target** (many monitors on the same host/domain = one lookup) with an admin rate limit per registry, a target list and a per-target *check now* |
 | **Notifications** | SMTP, Webhook, Slack, Discord and Telegram through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, the tags and groups of the monitor in the payload and in the message bodies, delivery history, test button |

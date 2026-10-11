@@ -17,8 +17,14 @@ import (
 )
 
 // maxBodyBytes caps how much of the response body is read (and searched by the
-// keyword checker) to keep memory usage predictable.
+// keyword checker) to keep memory usage predictable. The WebSocket checker caps
+// the frames of an answer with it as well.
 const maxBodyBytes = 512 * 1024
+
+// probeUserAgent identifies the probe on the wire. The WebSocket handshake is an
+// HTTP request, so both probes introduce themselves the same way and a server
+// that filters on the agent sees one client.
+const probeUserAgent = "Up-Uptime-Monitor/1.0"
 
 // cacheBusterParam is the query parameter appended to every request of a
 // monitor with cache_buster enabled. A cache or proxy rule aimed at this
@@ -71,7 +77,7 @@ func httpRequest(ctx context.Context, monitor *models.Monitor, plan probePlan) (
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	req.Header.Set("User-Agent", "Up-Uptime-Monitor/1.0")
+	req.Header.Set("User-Agent", probeUserAgent)
 	for key, value := range cfg.HeaderMap() {
 		req.Header.Set(key, value)
 	}

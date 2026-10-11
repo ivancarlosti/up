@@ -223,7 +223,7 @@ func trimList(items []string) []string {
 func MonitorTarget(monitor *models.Monitor) string {
 	cfg := monitor.Config
 	switch monitor.Type {
-	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
+	case models.MonitorTypeHTTP, models.MonitorTypeKeyword, models.MonitorTypeWebSocket:
 		return cfg.URL
 	case models.MonitorTypeTCP:
 		return fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

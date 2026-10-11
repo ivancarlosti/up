@@ -143,6 +143,59 @@ function removeHeader(index: number): void {
     <p class="text-[11px] text-muted-foreground sm:col-span-2">{{ t('monitor.cacheBusterHelp') }}</p>
   </section>
 
+  <!-- WebSocket (ws:// and wss://) -->
+  <section v-else-if="type === 'websocket'" class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+    <div v-if="withTarget" class="grid gap-1 sm:col-span-2">
+      <Label for="monitor-ws-url" required>{{ t('monitor.url') }}</Label>
+      <Input id="monitor-ws-url" v-model="config.url" placeholder="wss://example.com/socket" />
+      <span class="text-[11px] text-muted-foreground">{{ t('monitor.wsHelp') }}</span>
+    </div>
+
+    <div class="grid gap-2 sm:col-span-2">
+      <Label>{{ t('monitor.headers') }}</Label>
+      <div v-for="(header, index) in config.headers ?? []" :key="index" class="flex items-center gap-2">
+        <Input v-model="header.key" :placeholder="t('monitor.headerKey')" />
+        <Input v-model="header.value" :placeholder="t('monitor.headerValue')" />
+        <Button variant="ghost" size="icon" @click="removeHeader(index)">
+          <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      </div>
+      <Button variant="outline" size="sm" @click="addHeader">
+        <Plus class="h-3.5 w-3.5" aria-hidden="true" />
+        {{ t('monitor.addHeader') }}
+      </Button>
+    </div>
+
+    <div v-if="withAuth" class="grid gap-1">
+      <Label for="monitor-ws-auth">{{ t('monitor.authentication') }}</Label>
+      <Select id="monitor-ws-auth" v-model="config.auth_type" :options="authOptions" />
+    </div>
+    <div v-if="withAuth && config.auth_type === 'basic'" class="grid gap-1">
+      <Label for="monitor-ws-user">{{ t('monitor.username') }}</Label>
+      <Input id="monitor-ws-user" v-model="config.basic_user" />
+    </div>
+    <div v-if="withAuth && config.auth_type === 'basic'" class="grid gap-1">
+      <Label for="monitor-ws-pass">{{ t('monitor.password') }}</Label>
+      <Input id="monitor-ws-pass" v-model="config.basic_pass" type="password" />
+    </div>
+    <div v-if="withAuth && config.auth_type === 'bearer'" class="grid gap-1 sm:col-span-2">
+      <Label for="monitor-ws-token">{{ t('monitor.token') }}</Label>
+      <Input id="monitor-ws-token" v-model="config.bearer_token" type="password" />
+    </div>
+
+    <div class="grid gap-1">
+      <Label for="monitor-ws-send">{{ t('monitor.tcpSend') }}</Label>
+      <Input id="monitor-ws-send" v-model="config.send" />
+    </div>
+    <div class="grid gap-1">
+      <Label for="monitor-ws-expect">{{ t('monitor.tcpExpect') }}</Label>
+      <Input id="monitor-ws-expect" v-model="config.expect" />
+    </div>
+    <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
+      <Switch v-model="config.ignore_tls as boolean">{{ t('monitor.ignoreTls') }}</Switch>
+    </div>
+  </section>
+
   <!-- TCP -->
   <section v-else-if="type === 'tcp'" class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
     <div v-if="withTarget" class="grid gap-1">

@@ -176,8 +176,9 @@ A single decorated monitor.
 ### `POST /api/monitors`
 
 Body: `models.Monitor` fields plus `notification_ids` and `group_id`. The type is
-one of `http`, `keyword`, `tcp`, `dns`, `ssl`; the certificate switches
-`cert_watch`, `cert_notify` and the free form list `cert_warn_days` ride along.
+one of `http`, `keyword`, `tcp`, `dns`, `ssl`, `websocket`; the certificate
+switches `cert_watch`, `cert_notify` and the free form list `cert_warn_days` ride
+along.
 When `cert_watch` is on, the decorated monitor carries a `certificate` object
 (`issuer`, `subject`, `not_after`, `days_left`, `captured_at`), and an incoherent
 certificate configuration answers `400 ERR_MONITOR_CERT_INVALID`.
@@ -299,8 +300,8 @@ Authentication is never part of a template: `auth_type`, `basic_user`,
 stripped on write, stripped again on read, and the apply path keeps the
 credentials the monitor already has (two monitors can follow one template with
 different users).
-`type` is one of `http`, `keyword`, `tcp`, `dns`, `ssl`, and the defaults must be
-coherent with it: a `cert_watch` on a type that cannot read a certificate, a
+`type` is one of `http`, `keyword`, `tcp`, `dns`, `ssl`, `websocket`, and the
+defaults must be coherent with it: a `cert_watch` on a type that cannot read a certificate, a
 `domain_watch` on a type without a registrable domain, `run_on=node` without a
 `node_id` or an out of range `retries_interval_seconds` answer
 `400 ERR_MONITOR_TEMPLATE_INVALID` (the same rules a monitor follows).
@@ -367,8 +368,8 @@ without writing.
 The **bulk importer** parses `name,target[,type,keyword,tags,interval]` (comma,
 semicolon or tab; header, `#` comments and blank lines ignored), validates every
 row against the template and answers a per row report. The `type` column accepts
-every monitor type (`http`, `keyword`, `tcp`, `dns`, `ssl`); a row that overrides
-the type of its template keeps the scheduling defaults and the channels but is
+every monitor type (`http`, `keyword`, `tcp`, `dns`, `ssl`, `websocket`); a row
+that overrides the type of its template keeps the scheduling defaults and the channels but is
 not linked to it (`template_uuid` stays empty), because a template never describes
 another probe.
 

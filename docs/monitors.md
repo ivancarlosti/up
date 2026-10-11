@@ -9,7 +9,7 @@
 | Field | Default | Range | Notes |
 |---|---|---|---|
 | `name` | - | 1..200 chars | required, shown everywhere |
-| `type` | `http` | http, keyword, tcp, dns, ssl | selects the checker |
+| `type` | `http` | http, keyword, tcp, dns, ssl, websocket | selects the checker |
 | `active` | `true` | - | paused monitors keep their history but are not executed |
 | `description` | - | 500 chars | free text |
 | `interval_seconds` | `60` | 5..86400 | ticker of the worker |
@@ -110,8 +110,8 @@ Behaviour:
   every request, so a cache, a CDN or an in-between proxy always asks the
   origin. The parameter name is `up_cachebuster` and its value is regenerated on
   every check. A query string already present in the URL is preserved next to
-  it. HTTP and Keyword monitors share the option, the `ssl`, TCP and DNS types
-  do not have it.
+  it. HTTP and Keyword monitors share the option, the `ssl`, TCP, DNS and
+  WebSocket types do not have it.
 
 ## 3. TCP
 
@@ -341,8 +341,8 @@ different groups with different tags. A template exists for three jobs:
 Every probe type is available as a template, `ssl` included: that is what turns
 "the same certificate check for 40 mail servers" into a single blueprint. The
 certificate switches only exist for the types that can read a certificate
-(`http`, `keyword`, `ssl`), so the template dialog hides them for `tcp`/`dns` and
-the API rejects a `cert_watch` the type cannot honour
+(`http`, `keyword`, `ssl`, `websocket`), so the template dialog hides them for
+`tcp`/`dns` and the API rejects a `cert_watch` the type cannot honour
 (`400 ERR_MONITOR_TEMPLATE_INVALID`) — the same rule a monitor follows.
 `run_on=node` requires `node_id` and `run_on=some` requires `run_on_nodes`, again
 like a monitor: a template must not describe a monitor the API would refuse to
@@ -427,8 +427,8 @@ name,target[,type,keyword,tags,interval]
 | Column | Notes |
 |---|---|
 | `name` | monitor name (required) |
-| `target` | URL (`http://`/`https://` required), `host` or `host:port` |
-| `type` | overrides the template type: any of `http`, `keyword`, `tcp`, `dns`, `ssl` |
+| `target` | URL (`http://`/`https://` or `ws://`/`wss://` required), `host` or `host:port` |
+| `type` | overrides the template type: any of `http`, `keyword`, `tcp`, `dns`, `ssl`, `websocket` |
 | `keyword` | required when the row is a keyword monitor |
 | `tags` | overrides the template tags |
 | `interval` | overrides the template interval (seconds, minimum 5) |
@@ -464,9 +464,10 @@ certificate/domain switches are kept only if the new type can honour them.
 
 ## 9. Certificates
 
-Three monitor types can read a TLS certificate: `ssl` (the certificate *is* the
-probe) and `http`/`keyword` when the target is https (the certificate is a side
-effect of the handshake). Two switches decide what happens with it:
+Four monitor types can read a TLS certificate: `ssl` (the certificate *is* the
+probe), `http`/`keyword` when the target is https and `websocket` when it is
+`wss://` (in both cases the certificate is a side effect of the handshake). Two
+switches decide what happens with it:
 
 | Switch | Effect |
 |---|---|
@@ -667,18 +668,56 @@ Use the **dedicated type** when:
 For a normal `https://` site the HTTP flag is enough, and it avoids a second
 monitor and a second request: that is exactly what the flag is for.
 
-## 12. Upside down monitors
+## 12. The `websocket` monitor type
+
+| Field | Notes |
+|---|---|
+| `url` | absolute `ws://` or `wss://` URL (required) |
+| `headers[]` | list of `{key,value}` sent on the upgrade request |
+| `auth_type` | none, basic, bearer (the `Authorization` header of the upgrade) |
+| `basic_user` / `basic_pass` / `bearer_token` | the credentials of the chosen mode |
+| `ignore_tls` | skips the certificate verification of a `wss://` target |
+| `send` | optional text frame written once the connection is open |
+| `expect` | optional substring that must appear in a frame of the answer |
+
+The probe performs the RFC 6455 handshake (a `GET` carrying `Upgrade: websocket`
+and `Sec-WebSocket-Key`): the monitor is **up** when the server answers `101`
+with a valid `Sec-WebSocket-Accept`, and **down** when the upgrade is refused — a
+`404` on the path, a reverse proxy that strips `Upgrade`/`Connection`, a TLS
+failure on `wss://`. The message then carries what the server answered, e.g.
+`websocket upgrade failed: 404 Not Found`, which is exactly what a browser client
+would see.
+
+The upgrade is an ordinary HTTP request, so the monitor reuses the options of §2:
+`headers[]`, the same three authentication modes, `ignore_tls` and
+`config.ip_family`. It deliberately has no `method`, `body`, `cache_buster` or
+`accepted_status_codes` option: the handshake is always a `GET` and its only
+accepted answer is `101`.
+
+`send` and `expect` are the fields of the TCP monitor (§3): when `send` is set,
+one **text frame** is written after the upgrade; when `expect` is set, the frames
+of the answer are searched one by one until the substring shows up (a greeting the
+endpoint sends first is skipped) or the monitor timeout expires, and a frame that
+never arrives is a `down`. Without those two fields the probe stops at the
+handshake.
+
+**Certificates**: a `wss://` target completes a TLS handshake, so `cert_watch`,
+the reminders and the validity badges of §9 work exactly like they do on an
+`https://` monitor (the daily expiry job derives the endpoint from the URL and
+reads the same leaf). A `ws://` target carries no certificate.
+
+## 13. Upside down monitors
 
 `upside_down=true` swaps `up` and `down` **after** the probe, with a
 `upside down:` prefix in the message. Typical use: an IP that must stay blocked
 (a TCP monitor to a port that must remain closed) or a DNS name that must not
 exist.
 
-## 13. How the UI is wired
+## 14. How the UI is wired
 
 | Element | File |
 |---|---|
-| Form (all five types) | `web/src/components/monitors/MonitorForm.vue` |
+| Form (all six types) | `web/src/components/monitors/MonitorForm.vue` |
 | Templates (type aware defaults) | `web/src/views/admin/AdminMonitorTemplatesView.vue` |
 | Bulk add / bulk edit dialogs | `web/src/components/monitors/BulkAddDialog.vue` (`ApplyTemplateDialog.vue`) |
 | Bulk tag dialog | `web/src/components/monitors/BulkTagsDialog.vue` |

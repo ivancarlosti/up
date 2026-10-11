@@ -6,7 +6,7 @@ import type { ClusterStatus } from './types-platform'
  * the backend and the UI.
  */
 
-export type MonitorType = 'http' | 'keyword' | 'tcp' | 'dns' | 'ssl'
+export type MonitorType = 'http' | 'keyword' | 'tcp' | 'dns' | 'ssl' | 'websocket'
 /**
  * Address family a probe prefers (mirror of `models.IPFamily`).
  *

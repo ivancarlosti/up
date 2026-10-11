@@ -223,6 +223,7 @@ const typeOptions = computed(() => [
   { value: 'tcp', label: t('monitor.typeTcp') },
   { value: 'dns', label: t('monitor.typeDns') },
   { value: 'ssl', label: t('monitor.typeSsl') },
+  { value: 'websocket', label: t('monitor.typeWebSocket') },
 ])
 
 /**

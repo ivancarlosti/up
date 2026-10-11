@@ -166,6 +166,7 @@ const typeOptions = computed(() => [
   { value: 'tcp', label: t('monitor.typeTcp') },
   { value: 'dns', label: t('monitor.typeDns') },
   { value: 'ssl', label: t('monitor.typeSsl') },
+  { value: 'websocket', label: t('monitor.typeWebSocket') },
 ])
 
 /** typeFilterOptions is the type selector of the table (the dialog has one per type). */
@@ -707,7 +708,7 @@ onMounted(load)
         </section>
 
         <MonitorConfigFields :type="type" :config="config" :with-target="false" :with-auth="false" />
-        <p v-if="type === 'http' || type === 'keyword'" class="-mt-3 text-[11px] text-muted-foreground">
+        <p v-if="type === 'http' || type === 'keyword' || type === 'websocket'" class="-mt-3 text-[11px] text-muted-foreground">
           {{ t('templates.authHelp') }}
         </p>
 

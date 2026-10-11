@@ -58,9 +58,15 @@ func CertificateTargetFor(monitor *models.Monitor) (CertificateTarget, bool) {
 	}
 	cfg := monitor.Config
 	switch monitor.Type {
-	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
+	case models.MonitorTypeHTTP, models.MonitorTypeKeyword, models.MonitorTypeWebSocket:
+		// The upgrade of a WebSocket monitor is an HTTPS request when the URL is
+		// wss://, so both families read their certificate the same way.
+		scheme := "https"
+		if monitor.Type == models.MonitorTypeWebSocket {
+			scheme = "wss"
+		}
 		parsed, err := url.Parse(strings.TrimSpace(cfg.URL))
-		if err != nil || !strings.EqualFold(parsed.Scheme, "https") {
+		if err != nil || !strings.EqualFold(parsed.Scheme, scheme) {
 			return CertificateTarget{}, false
 		}
 		host := parsed.Hostname()
@@ -143,7 +149,7 @@ func DomainFor(monitor *models.Monitor) string {
 func hostFromMonitor(monitor *models.Monitor) string {
 	cfg := monitor.Config
 	switch monitor.Type {
-	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
+	case models.MonitorTypeHTTP, models.MonitorTypeKeyword, models.MonitorTypeWebSocket:
 		return hostOnly(cfg.URL)
 	case models.MonitorTypeDNS:
 		return hostOnly(cfg.Hostname)

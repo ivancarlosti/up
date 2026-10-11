@@ -44,7 +44,7 @@ internal/
   api/               JSON response helpers shared by handlers and middlewares
   boot/              boot progress (phase, attempts, classified failures) read by
                      GET /api/boot and the interface
-  checkers/          probe engines: HTTP, Keyword, TCP, DNS
+  checkers/          probe engines: HTTP, Keyword, TCP, DNS, SSL, WebSocket
   config/            env loading + validation (fail fast, aggregated report)
   database/          connection with retry, GORM AutoMigrate, first boot seed
   expiry/            expiration engines: RDAP, WHOIS, per-TLD parsing, targets
@@ -138,7 +138,7 @@ message before anything is started.
 flowchart LR
   subgraph Container["Up container (single binary)"]
     SCH[Scheduler - one goroutine per monitor]
-    CHK[Checkers - http/keyword/tcp/dns]
+    CHK[Checkers - http/keyword/tcp/dns/ssl/websocket]
     SVC[Services layer]
     API[Gin HTTP + embedded SPA]
     WSH[WebSocket hub]
@@ -277,8 +277,8 @@ Every failure answers with a stable code that the frontend translates:
 | Goal | File(s) |
 |---|---|
 | Add an environment variable | `internal/config/config.go`, `internal/config/validate.go`, `docker/.env.example`, this document |
-| Add a monitor type | `internal/models/enums.go`, `internal/models/monitor_config.go` (+ its `PruneToType`), `internal/checkers/*`, `internal/models/monitor_validate.go`, `internal/models/monitor_template.go` (the template validation mirrors the monitor one), `internal/services/monitor_bulk_create.go` / `monitor_template_apply.go` (target and config switches per type), `web/src/components/monitors/MonitorForm.vue`, `web/src/views/admin/AdminMonitorTemplatesView.vue`, `web/src/lib/monitor-config.ts` (type aware payload pruning) |
-| Add a probe option shared by every type | `internal/models/monitor_config.go` (`Normalize` + **every** branch of `PruneToType`), `internal/models/monitor_validate.go`, `internal/checkers/` (the probe itself), `web/src/lib/types.ts`, `web/src/lib/monitor-config.ts` (`CONFIG_FIELDS`, all five types), `web/src/components/monitors/MonitorConfigFields.vue` (the shared section, used by the monitor and the template form), the seven locales, `docs/monitors.md` + `docs/api.md` |
+| Add a monitor type | `internal/models/enums.go`, `internal/models/monitor_config.go` (+ its `PruneToType`), `internal/checkers/*` (+ the dispatch in `checker.go`), `internal/models/monitor_validate.go`, `internal/models/monitor_template.go` (the template validation mirrors the monitor one), `internal/services/monitor_bulk_create.go` / `monitor_template_apply.go` (target and config switches per type), `internal/expiry/targets.go` and `internal/notify/message.go` (certificate/domain target and notification label), `web/src/lib/types.ts`, `web/src/components/monitors/MonitorForm.vue`, `web/src/components/monitors/MonitorConfigFields.vue`, `web/src/views/DashboardView.vue`, `web/src/views/admin/AdminMonitorTemplatesView.vue`, `web/src/lib/monitor-config.ts` (type aware payload pruning and target rendering), the seven locales, `docs/monitors.md` + `docs/api.md` + this document |
+| Add a probe option shared by every type | `internal/models/monitor_config.go` (`Normalize` + **every** branch of `PruneToType`), `internal/models/monitor_validate.go`, `internal/checkers/` (the probe itself), `web/src/lib/types.ts`, `web/src/lib/monitor-config.ts` (`CONFIG_FIELDS`, all six types), `web/src/components/monitors/MonitorConfigFields.vue` (the shared section, used by the monitor and the template form), the seven locales, `docs/monitors.md` + `docs/api.md` |
 | Change the aggregation rules | `internal/services/cluster_evaluate.go` (`AggregateVotes`) |
 | Change who sends notifications | `internal/services/cluster_notify.go` (`claimNotification`) |
 | Add an API endpoint | `internal/handlers/router*.go` (+ handler), `docs/api.md` |

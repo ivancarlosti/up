@@ -7,8 +7,9 @@ import (
 
 // TestMonitorConfigPruneToType documents the Go twin of `CONFIG_FIELDS` of the
 // UI: only the options of the type survive, and the options shared by several
-// types (host/port for tcp and ssl, ignore_tls for http/keyword/ssl, ip_family
-// for every type) are kept.
+// types (host/port for tcp and ssl, ignore_tls and the credentials for http,
+// keyword and websocket, send/expect for tcp and websocket, ip_family for every
+// type) are kept.
 func TestMonitorConfigPruneToType(t *testing.T) {
 	full := MonitorConfig{
 		URL: "https://example.com", Method: "POST", Encoding: "xml", Body: "{}",
@@ -55,6 +56,15 @@ func TestMonitorConfigPruneToType(t *testing.T) {
 		t.Fatalf("the options of the other types must be dropped: %+v", keyword)
 	}
 
+	ws := full.PruneToType(MonitorTypeWebSocket)
+	if ws.URL != "https://example.com" || len(ws.Headers) != 1 || ws.BearerToken != "secret" ||
+		!ws.IgnoreTLS || ws.Send != "PING" || ws.Expect != "PONG" {
+		t.Fatalf("websocket config = %+v", ws)
+	}
+	if ws.Method != "" || ws.Host != "" || ws.Keyword != "" || ws.Hostname != "" || ws.ServerName != "" {
+		t.Fatalf("the options of the other types must be dropped: %+v", ws)
+	}
+
 	dns := full.PruneToType(MonitorTypeDNS)
 	if dns.Hostname != "example.com" || dns.RecordType != "AAAA" || !dns.InvertCheck {
 		t.Fatalf("dns config = %+v", dns)
@@ -72,7 +82,7 @@ func TestMonitorConfigPruneToType(t *testing.T) {
 	// of its template must not drop it (the UI saves the five lists of
 	// CONFIG_FIELDS, so a missing branch would silently reset the monitor to the
 	// default rotation).
-	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL} {
+	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL, MonitorTypeWebSocket} {
 		if got := full.PruneToType(monitorType); got.IPFamily != IPFamily6 {
 			t.Fatalf("%s kept ip_family = %q, want %q", monitorType, got.IPFamily, IPFamily6)
 		}
@@ -100,7 +110,7 @@ func TestMonitorConfigNormalizeIPFamily(t *testing.T) {
 	}
 	// The default of a fresh monitor is the dialer's own choice (auto), whatever
 	// the type.
-	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL} {
+	for _, monitorType := range []MonitorType{MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL, MonitorTypeWebSocket} {
 		config := MonitorConfig{}
 		config.Normalize(monitorType)
 		if config.IPFamily != DefaultIPFamily {

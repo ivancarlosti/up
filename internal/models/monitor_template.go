@@ -302,7 +302,7 @@ func (t *MonitorTemplate) Validate() string {
 	// domain watch on a type without a registrable domain, so a template that
 	// carried them would only ever produce rows that cannot be created.
 	if t.Defaults.CertWatch && !t.Type.SupportsCertificate() {
-		return "cert_watch is only available for http, keyword and ssl monitors"
+		return "cert_watch is only available for http, keyword, ssl and websocket monitors"
 	}
 	if t.Defaults.CertNotify && !t.Defaults.CertWatch {
 		return "cert_notify requires cert_watch"
@@ -326,7 +326,7 @@ func (t *MonitorTemplate) Validate() string {
 // monitor of this type (the field the bulk loader fills per row).
 func (t MonitorType) TargetField() string {
 	switch t {
-	case MonitorTypeHTTP, MonitorTypeKeyword:
+	case MonitorTypeHTTP, MonitorTypeKeyword, MonitorTypeWebSocket:
 		return "url"
 	case MonitorTypeTCP, MonitorTypeSSL:
 		return "host"

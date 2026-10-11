@@ -14,6 +14,9 @@ type Header struct {
 // current monitor type.
 type MonitorConfig struct {
 	// --- HTTP(s) and HTTP(s) Keyword -------------------------------------
+	// URL, Headers, the auth triplet and IgnoreTLS are also the WebSocket
+	// options: the upgrade is an HTTP request, so a ws/wss monitor carries the
+	// same URL, headers, credentials and TLS switch.
 	URL                 string   `json:"url,omitempty"`
 	Method              string   `json:"method,omitempty"`    // GET POST PUT PATCH DELETE HEAD OPTIONS
 	Encoding            string   `json:"encoding,omitempty"`  // json | form | raw | xml
@@ -33,7 +36,10 @@ type MonitorConfig struct {
 	InvertKeyword bool   `json:"invert_keyword,omitempty"`
 	CaseSensitive bool   `json:"case_sensitive,omitempty"`
 
-	// --- TCP --------------------------------------------------------------
+	// --- TCP and WebSocket ------------------------------------------------
+	// Host and Port are the TCP dial target; Send and Expect are shared with the
+	// WebSocket probe (the text frame written after the upgrade and the
+	// substring expected in the answer).
 	Host   string `json:"host,omitempty"`
 	Port   int    `json:"port,omitempty"`
 	Send   string `json:"send,omitempty"`   // optional payload written after connect
@@ -114,6 +120,11 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 		if c.Port == 0 {
 			c.Port = DefaultSSLPort
 		}
+	case MonitorTypeWebSocket:
+		c.URL = strings.TrimSpace(c.URL)
+		if c.AuthType == "" {
+			c.AuthType = "none"
+		}
 	}
 }
 
@@ -157,6 +168,15 @@ func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
 		}
 	case MonitorTypeSSL:
 		return MonitorConfig{Host: c.Host, Port: c.Port, ServerName: c.ServerName, IgnoreTLS: c.IgnoreTLS, IPFamily: c.IPFamily}
+	case MonitorTypeWebSocket:
+		// The upgrade is an HTTP request: the URL, the headers, the credentials
+		// and the TLS switch come along, plus the optional frame exchange.
+		return MonitorConfig{
+			URL: c.URL, Headers: c.Headers, AuthType: c.AuthType,
+			BasicUser: c.BasicUser, BasicPass: c.BasicPass, BearerToken: c.BearerToken,
+			IgnoreTLS: c.IgnoreTLS, Send: c.Send, Expect: c.Expect,
+			IPFamily: c.IPFamily,
+		}
 	}
 	return MonitorConfig{}
 }

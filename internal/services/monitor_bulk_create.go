@@ -153,6 +153,11 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 				return nil, fmt.Errorf("a keyword monitor needs the keyword column")
 			}
 		}
+	case models.MonitorTypeWebSocket:
+		if !strings.HasPrefix(target, "ws://") && !strings.HasPrefix(target, "wss://") {
+			return nil, fmt.Errorf("the url must start with ws:// or wss:// (got %q)", target)
+		}
+		config.URL = target
 	case models.MonitorTypeTCP, models.MonitorTypeSSL:
 		fallbackPort := template.Config.Port
 		if monitorType == models.MonitorTypeSSL && fallbackPort == 0 {
@@ -285,7 +290,7 @@ func (s *MonitorService) existingMonitorKeys(ctx context.Context) (map[string]bo
 // importer: the URL, the host:port or the hostname.
 func monitorTargetKey(monitor *models.Monitor) string {
 	switch monitor.Type {
-	case models.MonitorTypeHTTP, models.MonitorTypeKeyword:
+	case models.MonitorTypeHTTP, models.MonitorTypeKeyword, models.MonitorTypeWebSocket:
 		return strings.ToLower(strings.TrimSpace(monitor.Config.URL))
 	case models.MonitorTypeTCP, models.MonitorTypeSSL:
 		return fmt.Sprintf("%s:%d", strings.ToLower(strings.TrimSpace(monitor.Config.Host)), monitor.Config.Port)
