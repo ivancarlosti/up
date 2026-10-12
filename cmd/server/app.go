@@ -137,6 +137,10 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// The monitor service decorates its listings with the stored score and asks
 	// for the first run of a monitor whose switch was just turned on.
 	monitors.SetLighthouseService(lighthouses)
+	// The on-demand analysis endpoint (POST /api/v1/analyze) reuses both outbound
+	// services: the expiry resolver and the paced measurement above. It stores
+	// nothing, so it needs no database handle of its own.
+	analysis := services.NewAnalysisService(cfg, log, lighthouses, domains)
 	container := &handlers.Container{
 		Cfg:              cfg,
 		Log:              log,
@@ -151,6 +155,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		WhoisParsers:     whoisParsers,
 		Expiry:           expiries,
 		Lighthouse:       lighthouses,
+		Analysis:         analysis,
 		Heartbeats:       heartbeats,
 		Stats:            stats,
 		Notifications:    notifications,

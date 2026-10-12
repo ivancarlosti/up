@@ -621,6 +621,7 @@ Requires a bearer token and is documented in full in `docs/public-api.md`:
 | GET | `/api/v1/monitors/:id/uptime` | read |
 | POST | `/api/v1/monitors/:id/pause` / `resume` | write |
 | GET | `/api/v1/status-pages/:slug` | read |
+| POST | `/api/v1/analyze` | read (runs the probes against a target, stores nothing) |
 
 ## 11. Error codes
 

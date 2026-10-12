@@ -79,7 +79,8 @@ Format `up_<prefix>_<secret>`:
 - only the **SHA-256 hash** of the complete token is stored (`token_hash`);
 - validation uses a constant time comparison and updates `last_used_at` /
   `last_used_ip`;
-- scopes: `read` (status, heartbeats, statistics) and `write` (pause/resume);
+- scopes: `read` (status, heartbeats, statistics, on-demand analysis) and `write`
+  (pause/resume);
 - optional expiry (`expires_at`) and revocation (`revoked_at`);
 - the plain value is returned **once**, in the creation response.
 

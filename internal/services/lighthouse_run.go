@@ -361,15 +361,14 @@ func (s *LighthouseService) refreshTarget(ctx context.Context, target lighthouse
 	if err := s.limiter.Wait(ctx, lighthouseLimiterKey, time.Duration(settings.RateLimitMS)*time.Millisecond); err != nil {
 		return 0 // the context is gone: the run stops here
 	}
-	runner := lighthouse.NewRunner(settings.APIKey, time.Duration(settings.TimeoutSeconds)*time.Second)
-	result, runErr := runner.Run(ctx, target)
+	result, runErr := s.runner(settings).Run(ctx, target)
 	if runErr != nil {
 		result = failedResult(runErr, target)
 		s.log.Warn("lighthouse job: the page could not be measured",
 			"target", target.URL, "strategy", target.Strategy, "error", runErr)
 	}
 	result.RanAt = time.Now().UTC()
-	result.RanByNode = s.cfg.NodeID
+	result.RanByNode = s.nodeID()
 	for _, monitor := range monitors {
 		if err := s.Record(ctx, monitor.ID, result); err != nil {
 			s.log.Error("lighthouse job: could not store the result",
@@ -385,6 +384,71 @@ func (s *LighthouseService) refreshTarget(ctx context.Context, target lighthouse
 		})
 	}
 	return len(monitors)
+}
+
+// MeasureTarget scores one page without storing anything: it is the outbound
+// half of the daily job, and what the on-demand analysis endpoint
+// (POST /api/v1/analyze) calls.
+//
+// It shares the pacing slot of the job (one outbound call at a time, whatever
+// the caller) and the job settings (key, timeout, pace), so an ad-hoc
+// measurement cannot spend the quota twice nor bypass what the operator
+// configured.
+//
+// Unlike refreshTarget, a failed call is returned as an error: the caller of an
+// analysis has to be told that the page could not be measured instead of
+// receiving a "status: error" row it never asked to store.
+func (s *LighthouseService) MeasureTarget(ctx context.Context, target lighthouse.Target) (*models.LighthouseResult, error) {
+	settings := s.measurementSettings()
+	if err := s.limiter.Wait(ctx, lighthouseLimiterKey, time.Duration(settings.RateLimitMS)*time.Millisecond); err != nil {
+		return nil, err
+	}
+	result, err := s.runner(settings).Run(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	result.RanAt = time.Now().UTC()
+	result.RanByNode = s.nodeID()
+	return result, nil
+}
+
+// runner builds the PageSpeed Insights client a measurement runs with: the real
+// endpoint, or the override a test points at a local stub.
+func (s *LighthouseService) runner(settings models.LighthouseSettings) *lighthouse.Runner {
+	timeout := time.Duration(settings.TimeoutSeconds) * time.Second
+	if s.psiBaseURL != "" {
+		return lighthouse.NewRunnerWithBaseURL(s.psiBaseURL, settings.APIKey, timeout)
+	}
+	return lighthouse.NewRunner(settings.APIKey, timeout)
+}
+
+// measurementSettings resolves the configuration of an outbound call: the job
+// settings where they exist, the documented defaults seeded by the environment
+// otherwise. It mirrors RetentionDays, so a service built without a settings
+// store (a test, a tool) still measures something sensible instead of panicking.
+func (s *LighthouseService) measurementSettings() models.LighthouseSettings {
+	if s.settings != nil {
+		return s.Settings()
+	}
+	settings := models.DefaultLighthouseSettings()
+	settings.APIKey = s.apiKey()
+	return settings
+}
+
+// nodeID reports the node that performs the call.
+func (s *LighthouseService) nodeID() string {
+	if s.cfg == nil {
+		return ""
+	}
+	return s.cfg.NodeID
+}
+
+// apiKey falls back to the environment seed of the deployment.
+func (s *LighthouseService) apiKey() string {
+	if s.cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.cfg.LighthouseAPIKey)
 }
 
 // failedResult renders an API failure into the observation stored for a monitor.

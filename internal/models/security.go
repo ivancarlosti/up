@@ -92,7 +92,9 @@ type TokenScope string
 
 // Available token scopes.
 const (
-	// ScopeRead allows reading monitors, heartbeats, statistics and status.
+	// ScopeRead allows reading monitors, heartbeats, statistics and status, and
+	// running an on-demand analysis of a target (POST /api/v1/analyze), which
+	// stores nothing.
 	ScopeRead TokenScope = "read"
 	// ScopeWrite additionally allows pausing, resuming, creating and deleting
 	// monitors.

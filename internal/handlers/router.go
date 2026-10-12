@@ -33,16 +33,19 @@ type Container struct {
 	WhoisParsers     *services.WhoisParserService
 	Expiry           *services.ExpiryService
 	Lighthouse       *services.LighthouseService
-	Heartbeats       *services.HeartbeatService
-	Stats            *services.StatsService
-	Notifications    *services.NotificationService
-	Cluster          *services.ClusterService
-	StatusPages      *services.StatusPageService
-	Tokens           *services.TokenService
-	IPRules          *services.IPRuleService
-	Sessions         *services.SessionService
-	Scheduler        *scheduler.Scheduler
-	Hub              *ws.Hub
+	// Analysis runs the on-demand probes of POST /api/v1/analyze (nil when the
+	// endpoint is not wired; the handler answers 503).
+	Analysis      *services.AnalysisService
+	Heartbeats    *services.HeartbeatService
+	Stats         *services.StatsService
+	Notifications *services.NotificationService
+	Cluster       *services.ClusterService
+	StatusPages   *services.StatusPageService
+	Tokens        *services.TokenService
+	IPRules       *services.IPRuleService
+	Sessions      *services.SessionService
+	Scheduler     *scheduler.Scheduler
+	Hub           *ws.Hub
 	// Sync is the federated synchronisation service (nil when it is not wired).
 	Sync *services.SyncService
 	// SPA serves the embedded frontend (assets and index.html fallback).
@@ -105,6 +108,11 @@ func (h *Container) Register(engine *gin.Engine) {
 	v1.POST("/monitors/:id/pause", middleware.RequireToken(h.Tokens, models.ScopeWrite), h.apiPauseMonitor)
 	v1.POST("/monitors/:id/resume", middleware.RequireToken(h.Tokens, models.ScopeWrite), h.apiResumeMonitor)
 	v1.GET("/status-pages/:slug", middleware.RequireToken(h.Tokens, models.ScopeRead), h.publicStatusPage)
+	// On-demand analysis: the probes of a monitor against a target the caller
+	// types in, without storing anything (docs/public-api.md). It is a read
+	// scope on purpose - it changes no state - even though the node does open an
+	// outbound connection, which the documentation spells out.
+	v1.POST("/analyze", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiAnalyze)
 
 	// --- Cluster join ----------------------------------------------------
 	// The same path serves two flavors (see docs/clustering.md): node to node

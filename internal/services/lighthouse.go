@@ -32,6 +32,12 @@ type LighthouseService struct {
 	monitors *MonitorService
 	cluster  *ClusterService
 	limiter  *lighthouse.Limiter
+	// psiBaseURL overrides the PageSpeed Insights endpoint. It is empty in
+	// production (the real API) and set by a test that wants to measure against a
+	// local stub; it is the same seam `lighthouse.Runner` carries (see
+	// NewRunnerWithBaseURL), so the pacer and the endpoint can be exercised
+	// without reaching Google.
+	psiBaseURL string
 	// runMu serialises the runs: the ticker, the global run-now and a per-monitor
 	// run-now could otherwise overlap and spend the quota twice.
 	//
