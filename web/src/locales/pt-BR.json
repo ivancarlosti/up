@@ -938,8 +938,6 @@
     "enabledHelp": "Quando desligado, nada é medido; os monitores mantêm o interruptor e as pontuações.",
     "checkTime": "Hora do dia",
     "checkTimeHelp": "A hora local à qual as execuções são ancoradas: as diárias e semanais, e a primeira do dia de uma cadência mais curta. O fuso vem do cartão Configurações gerais acima e é compartilhado com o job de certificado/domínio.",
-    "strategy": "Estratégia padrão",
-    "strategyHelp": "A execução oferecida por padrão. Cada monitor escolhe a sua (mobile, desktop ou ambos).",
     "interval": "Cadência padrão",
     "intervalHelp": "A cadência de um monitor que não tem uma própria (um monitor salvo antes de o campo existir).",
     "intervalMonitorHelp": "Cada monitor escolhe a sua cadência (de hora em hora a semanal) no formulário; as execuções semanais caem no dia escolhido abaixo.",

@@ -938,8 +938,6 @@
     "enabledHelp": "When off, nothing is measured; the monitors keep their switch and their scores.",
     "checkTime": "Time of day",
     "checkTimeHelp": "The local time the runs are anchored to: the daily and weekly ones, and the first run of the day of a shorter cadence. The timezone comes from the General settings card above and is shared with the certificate/domain job.",
-    "strategy": "Default strategy",
-    "strategyHelp": "The run offered by default. Every monitor picks its own strategy (mobile, desktop or both).",
     "interval": "Default cadence",
     "intervalHelp": "The cadence of a monitor that does not carry one of its own (a monitor stored before the field existed).",
     "intervalMonitorHelp": "Each monitor picks its own cadence (hourly to weekly) in its form; weekly runs land on the weekday chosen below.",

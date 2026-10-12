@@ -112,8 +112,6 @@ type LighthouseSettings struct {
 	CheckTime string `json:"check_time"`
 	// CheckTimezone is an IANA name ("UTC", "America/Sao_Paulo").
 	CheckTimezone string `json:"check_timezone"`
-	// Strategy is the strategy used when a monitor does not carry its own.
-	Strategy string `json:"strategy"`
 	// Interval is the cadence of a monitor that does not carry its own: one of
 	// LighthouseIntervals (hourly, 6h, 12h, daily, weekly).
 	Interval string `json:"interval"`
@@ -137,7 +135,6 @@ func DefaultLighthouseSettings() LighthouseSettings {
 		Enabled:        true,
 		CheckTime:      DefaultLighthouseCheckTime,
 		CheckTimezone:  DefaultLighthouseTimezone,
-		Strategy:       DefaultLighthouseStrategy,
 		Interval:       DefaultLighthouseInterval,
 		Weekday:        DefaultLighthouseWeekday,
 		RateLimitMS:    DefaultLighthouseRateLimitMS,
@@ -154,7 +151,6 @@ func (l *LighthouseSettings) Normalize() {
 	if _, err := time.LoadLocation(l.CheckTimezone); err != nil {
 		l.CheckTimezone = DefaultLighthouseTimezone
 	}
-	l.Strategy = NormalizeLighthouseStrategy(l.Strategy)
 	l.Interval = NormalizeLighthouseInterval(l.Interval)
 	l.Weekday = NormalizeLighthouseWeekday(l.Weekday)
 	if l.RateLimitMS < 0 {
@@ -183,9 +179,6 @@ func (l *LighthouseSettings) Validate() string {
 	}
 	if _, err := time.LoadLocation(strings.TrimSpace(l.CheckTimezone)); err != nil {
 		return fmt.Sprintf("check_timezone %q is not a known IANA timezone", l.CheckTimezone)
-	}
-	if !ValidLighthouseStrategy(strings.ToLower(strings.TrimSpace(l.Strategy))) {
-		return fmt.Sprintf("strategy must be one of %s", strings.Join(LighthouseStrategies, ", "))
 	}
 	if raw := strings.TrimSpace(l.Interval); raw != "" && !ValidLighthouseInterval(raw) {
 		return fmt.Sprintf("interval must be one of %s", strings.Join(LighthouseIntervals, ", "))

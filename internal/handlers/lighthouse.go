@@ -35,7 +35,6 @@ func (h *Container) lighthouseSettings(c *gin.Context) {
 	api.OK(c, gin.H{
 		"settings":          settings,
 		"defaults":          models.DefaultLighthouseSettings(),
-		"strategies":        models.LighthouseStrategies,
 		"intervals":         models.LighthouseIntervals,
 		"weekdays":          models.LighthouseWeekdays,
 		"last_run_day":      h.Settings.LighthouseLastRunDay(),

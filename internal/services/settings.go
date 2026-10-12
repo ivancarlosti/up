@@ -357,9 +357,6 @@ func (s *SettingService) LighthouseSettings() models.LighthouseSettings {
 	}
 	// The timezone is shared with the certificate/domain job (see Timezone).
 	out.CheckTimezone = s.Timezone()
-	if value, ok := s.Get(models.SettingLighthouseStrategy); ok && strings.TrimSpace(value) != "" {
-		out.Strategy = strings.TrimSpace(value)
-	}
 	if value, ok := s.Get(models.SettingLighthouseInterval); ok && strings.TrimSpace(value) != "" {
 		out.Interval = strings.TrimSpace(value)
 	}
@@ -401,7 +398,6 @@ func (s *SettingService) SetLighthouseSettings(ctx context.Context, settings mod
 		models.SettingLighthouseEnabled:        strconv.FormatBool(settings.Enabled),
 		models.SettingLighthouseCheckTime:      settings.CheckTime,
 		models.SettingLighthouseCheckTimezone:  settings.CheckTimezone,
-		models.SettingLighthouseStrategy:       settings.Strategy,
 		models.SettingLighthouseInterval:       settings.Interval,
 		models.SettingLighthouseWeekday:        settings.Weekday,
 		models.SettingLighthouseRateLimitMS:    strconv.Itoa(settings.RateLimitMS),

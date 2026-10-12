@@ -938,8 +938,6 @@
     "enabledHelp": "Apagado, no se mide nada; los monitores conservan su interruptor y sus puntuaciones.",
     "checkTime": "Hora del día",
     "checkTimeHelp": "La hora local a la que se anclan las ejecuciones: las diarias y semanales, y la primera del día de una cadencia más corta. La zona horaria viene de la tarjeta Configuración general de arriba y se comparte con la tarea de certificado/dominio.",
-    "strategy": "Estrategia predeterminada",
-    "strategyHelp": "La ejecución que se ofrece por defecto. Cada monitor elige la suya (mobile, desktop o ambos).",
     "interval": "Cadencia predeterminada",
     "intervalHelp": "La cadencia de un monitor que no lleva una propia (un monitor guardado antes de que existiera el campo).",
     "intervalMonitorHelp": "Cada monitor elige su cadencia (de cada hora a semanal) en su formulario; las ejecuciones semanales caen en el día elegido abajo.",

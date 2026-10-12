@@ -43,7 +43,6 @@ const (
 	SettingLighthouseEnabled        = "lighthouse_enabled"
 	SettingLighthouseCheckTime      = "lighthouse_check_time"
 	SettingLighthouseCheckTimezone  = "lighthouse_check_timezone"
-	SettingLighthouseStrategy       = "lighthouse_strategy"
 	SettingLighthouseRateLimitMS    = "lighthouse_rate_limit_ms"
 	SettingLighthouseTimeoutSeconds = "lighthouse_timeout_seconds"
 	// SettingLighthouseInterval is the cadence (hourly, 6h, 12h, daily, weekly)

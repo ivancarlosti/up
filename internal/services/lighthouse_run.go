@@ -211,7 +211,7 @@ func (s *LighthouseService) Refresh(ctx context.Context, monitorID uint) error {
 		return ErrNotFound(i18n.CodeNotFound, "monitor not found")
 	}
 	settings := s.Settings()
-	targets := lighthouse.TargetsFor(monitor, settings.Strategy)
+	targets := lighthouse.TargetsFor(monitor, models.DefaultLighthouseStrategy)
 	if len(targets) == 0 {
 		return ErrBadRequest(i18n.CodeValidation,
 			"this monitor does not measure a page with Lighthouse")
@@ -333,7 +333,7 @@ func (s *LighthouseService) RunNow(ctx context.Context) error {
 // deduplicated target, fanned out to every monitor that shares it. The caller
 // holds runMu.
 func (s *LighthouseService) runTargets(ctx context.Context, monitors []*models.Monitor, settings models.LighthouseSettings) error {
-	plan := lighthouse.BuildPlan(monitors, settings.Strategy)
+	plan := lighthouse.BuildPlan(monitors, models.DefaultLighthouseStrategy)
 	if len(plan.Targets) == 0 {
 		s.log.Debug("lighthouse job: nothing to measure")
 		return nil
@@ -344,7 +344,7 @@ func (s *LighthouseService) runTargets(ctx context.Context, monitors []*models.M
 	}
 	s.log.Info("lighthouse job finished",
 		"targets", len(plan.Targets), "monitors", measured,
-		"strategy", settings.Strategy, "rate_limit_ms", settings.RateLimitMS)
+		"rate_limit_ms", settings.RateLimitMS)
 	return nil
 }
 

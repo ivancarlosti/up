@@ -15,8 +15,6 @@ import { formatDateTime } from '@/lib/format'
 import {
   LIGHTHOUSE_INTERVALS,
   LIGHTHOUSE_INTERVAL_KEYS,
-  LIGHTHOUSE_STRATEGIES,
-  LIGHTHOUSE_STRATEGY_KEYS,
   LIGHTHOUSE_WEEKDAYS,
   LIGHTHOUSE_WEEKDAY_KEYS,
   lighthouseInterval,
@@ -51,7 +49,6 @@ const form = ref<LighthouseSettingsPayload & { retention_days: number }>({
   enabled: true,
   check_time: '04:00',
   check_timezone: 'UTC',
-  strategy: 'mobile',
   interval: 'daily',
   weekday: 'monday',
   rate_limit_ms: 60000,
@@ -59,13 +56,6 @@ const form = ref<LighthouseSettingsPayload & { retention_days: number }>({
   api_key: '',
   retention_days: 30,
 })
-
-const strategyOptions = computed(() =>
-  LIGHTHOUSE_STRATEGIES.map((strategy) => ({
-    value: strategy,
-    label: t(LIGHTHOUSE_STRATEGY_KEYS[strategy]),
-  })),
-)
 
 /** The cadences a monitor follows when it does not pick one of its own. */
 const intervalOptions = computed(() =>
@@ -100,14 +90,6 @@ function setCheckMinute(value: string): void {
 }
 
 /** String wrappers: the Select and the number inputs speak strings. */
-const strategy = computed({
-  get: () => String(form.value.strategy),
-  set: (value: string) => {
-    // The Select hands back a plain string; only the two runs exist server side
-    // (mirror of `models.NormalizeLighthouseStrategy`).
-    form.value.strategy = value === 'desktop' ? 'desktop' : 'mobile'
-  },
-})
 const retentionDays = computed({
   get: () => String(form.value.retention_days),
   set: (value: string) => {
@@ -190,11 +172,6 @@ onMounted(load)
           <span class="text-muted-foreground">:</span>
           <Select v-model="checkMinute" :options="minuteOptions" class="w-20" @update:model-value="setCheckMinute" />
         </div>
-      </div>
-
-      <div class="grid gap-1">
-        <Label for="lighthouse-strategy" :help="t('lighthouse.strategyHelp')">{{ t('lighthouse.strategy') }}</Label>
-        <Select id="lighthouse-strategy" v-model="strategy" :options="strategyOptions" />
       </div>
 
       <div class="grid gap-1">

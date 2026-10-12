@@ -118,7 +118,6 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				s.log.Info("lighthouse job scheduled",
 					"check_time", settings.CheckTime,
 					"timezone", settings.CheckTimezone,
-					"strategy", settings.Strategy,
 					"interval", settings.Interval,
 					"weekday", settings.Weekday,
 					"next_run", s.lighthouse.NextRun(time.Now().UTC()).Format(time.RFC3339),

@@ -938,8 +938,6 @@
     "enabledHelp": "Désactivé, rien n'est mesuré ; les moniteurs conservent leur interrupteur et leurs scores.",
     "checkTime": "Heure de la journée",
     "checkTimeHelp": "L'heure locale à laquelle les exécutions sont ancrées : les quotidiennes et hebdomadaires, et la première de la journée d'une cadence plus courte. Le fuseau vient de la carte Paramètres généraux ci-dessus et est partagé avec la tâche certificat/domaine.",
-    "strategy": "Stratégie par défaut",
-    "strategyHelp": "L'exécution proposée par défaut. Chaque moniteur choisit la sienne (mobile, desktop ou les deux).",
     "interval": "Cadence par défaut",
     "intervalHelp": "La cadence d'un moniteur qui n'en porte pas (un moniteur enregistré avant l'existence du champ).",
     "intervalMonitorHelp": "Chaque moniteur choisit sa cadence (de l'heure à l'hebdomadaire) dans son formulaire ; les exécutions hebdomadaires tombent le jour choisi ci-dessous.",

@@ -3,7 +3,7 @@
  * tokens, IP rules, authentication and settings.
  */
 
-import type { AggregateStatus, FailureStrategy, Header, LighthouseInterval, LighthouseResult, LighthouseRun, LighthouseStrategy, LighthouseWeekday, Monitor, NotificationSenderStrategy, NodeStatus, NodeUnavailableStrategy, ThemeMode } from './types'
+import type { AggregateStatus, FailureStrategy, Header, LighthouseInterval, LighthouseResult, LighthouseRun, LighthouseWeekday, Monitor, NotificationSenderStrategy, NodeStatus, NodeUnavailableStrategy, ThemeMode } from './types'
 
 export interface ClusterSettings {
   id: number
@@ -521,7 +521,6 @@ export interface LighthouseSettings {
   enabled: boolean
   check_time: string
   check_timezone: string
-  strategy: LighthouseStrategy
   /** Cadence of a monitor that does not carry one of its own. */
   interval: LighthouseInterval
   /** Weekday the weekly cadence is anchored to. */
@@ -550,7 +549,6 @@ export interface LighthouseStats {
 export interface LighthouseSettingsResponse {
   settings: LighthouseSettings
   defaults: LighthouseSettings
-  strategies: LighthouseStrategy[]
   /** Every accepted cadence, in the order the settings page offers them. */
   intervals: LighthouseInterval[]
   /** Every weekday a weekly cadence can be anchored to. */
