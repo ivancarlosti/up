@@ -64,8 +64,9 @@ export interface MonitorConfig {
   server_name?: string
   /**
    * Strategy of the Lighthouse web performance run of this monitor (see
-   * `lighthouse_enabled`): `mobile` (default) or `desktop`. Only the two HTTP(s)
-   * types carry it.
+   * `lighthouse_enabled`): `mobile` (default), `desktop` or `both` (the two of
+   * them, which costs two PageSpeed Insights calls per measurement). Only the
+   * two HTTP(s) types carry it.
    */
   lighthouse_strategy?: LighthouseStrategy
   /**
@@ -82,8 +83,19 @@ export interface MonitorConfig {
   ip_family?: IPFamily
 }
 
-/** The two strategies PageSpeed Insights accepts: a mobile or a desktop run. */
-export type LighthouseStrategy = 'mobile' | 'desktop'
+/**
+ * The runs PageSpeed Insights really accepts: a mobile or a desktop run (mirror
+ * of `models.LighthouseRuns`). One observation and one point of the history
+ * always describe one of these.
+ */
+export type LighthouseRunStrategy = 'mobile' | 'desktop'
+
+/**
+ * What a monitor (or the job) can be configured with: one run, or `both` of them
+ * (mirror of `models.LighthouseStrategies`). `both` is never a persisted
+ * observation: it is two runs, and therefore two rows.
+ */
+export type LighthouseStrategy = LighthouseRunStrategy | 'both'
 
 /**
  * The cadences a monitor can measure its page with (mirror of
@@ -115,12 +127,13 @@ export interface LighthouseMeasurements {
   speed_index_ms: number
 }
 
-/** LighthouseResult is the last observation stored for a monitor. */
+/** LighthouseResult is the last observation stored for a monitor (one run). */
 export interface LighthouseResult extends LighthouseMeasurements {
   status: LighthouseStatus
   /** Why the run failed (only when status is "error"). */
   message?: string
-  strategy: LighthouseStrategy
+  /** The run this observation describes: mobile or desktop (never "both"). */
+  strategy: LighthouseRunStrategy
   /** The page Lighthouse actually audited, after the redirects. */
   final_url?: string
   ran_at: string
@@ -140,7 +153,7 @@ export interface LighthouseRun extends LighthouseMeasurements {
   id: number
   monitor_id: number
   ran_at: string
-  strategy: LighthouseStrategy
+  strategy: LighthouseRunStrategy
   status: LighthouseStatus
   message?: string
   ran_by_node?: string
@@ -267,8 +280,18 @@ export interface Monitor {
    * types offer it; the strategy lives in `config.lighthouse_strategy`.
    */
   lighthouse_enabled: boolean
-  /** Last score read by the job (only when lighthouse_enabled is on). */
+  /**
+   * Last score read by the job (only when lighthouse_enabled is on): the run of
+   * the strategy the monitor is configured with, or the newest one when it
+   * measures both.
+   */
   lighthouse?: LighthouseResult
+  /**
+   * Every stored score of the monitor, keyed by run (`mobile`, `desktop`): a
+   * monitor configured with `both` has two, and the UI renders one score block
+   * per entry.
+   */
+  lighthouses?: Record<string, LighthouseResult>
   /**
    * The template this monitor follows (its uuid), empty when it follows none.
    * Editing the template pushes its defaults to every linked monitor.

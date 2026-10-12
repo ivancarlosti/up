@@ -13,6 +13,7 @@ import {
   LIGHTHOUSE_INTERVALS,
   LIGHTHOUSE_INTERVAL_KEYS,
   LIGHTHOUSE_STRATEGIES,
+  LIGHTHOUSE_STRATEGY_KEYS,
   lighthouseInterval,
   sanitizeMonitorPayload,
   supportsCertificate as typeSupportsCertificate,
@@ -109,7 +110,7 @@ const supportsLighthouse = computed(() => typeSupportsLighthouse(type.value))
 const strategyOptions = computed(() =>
   LIGHTHOUSE_STRATEGIES.map((strategy) => ({
     value: strategy,
-    label: strategy === 'desktop' ? t('monitor.lighthouseStrategyDesktop') : t('monitor.lighthouseStrategyMobile'),
+    label: t(LIGHTHOUSE_STRATEGY_KEYS[strategy]),
   })),
 )
 

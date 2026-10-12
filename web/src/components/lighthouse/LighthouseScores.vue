@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Badge from '@/components/ui/Badge.vue'
 import { formatDateTime, formatScore, formatVital, scoreColor, scoreTextColor } from '@/lib/format'
+import { LIGHTHOUSE_STRATEGY_KEYS } from '@/lib/monitor-config'
 import type { LighthouseResult } from '@/lib/types'
 
 /**
@@ -44,9 +45,8 @@ const vitals = computed(() => {
   ]
 })
 
-const strategyLabel = computed(() =>
-  props.result?.strategy === 'desktop' ? t('monitor.lighthouseStrategyDesktop') : t('monitor.lighthouseStrategyMobile'),
-)
+/** The strategy of the observation: the badge labels every run it can be. */
+const strategyLabel = computed(() => t(LIGHTHOUSE_STRATEGY_KEYS[props.result?.strategy ?? 'mobile']))
 </script>
 
 <template>

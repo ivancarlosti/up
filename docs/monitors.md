@@ -848,7 +848,7 @@ on a cadence the monitor chooses** and an observation kept per monitor.
 | Field | Default | Range | Notes |
 |---|---|---|---|
 | `lighthouse_enabled` | `false` | - | `http` and `keyword` only: PageSpeed Insights audits a page |
-| `config.lighthouse_strategy` | `mobile` | mobile, desktop | which run produces the scores |
+| `config.lighthouse_strategy` | `mobile` | mobile, desktop, both | which run produces the scores (`both` measures the page twice) |
 | `config.lighthouse_interval` | `daily` | hourly, 6h, 12h, daily, weekly | how often the page is measured (see *Cadence*) |
 
 ### Where the scores come from
@@ -882,8 +882,9 @@ The worklist is built from the monitors and deduplicated by `url + strategy`:
 
 ### Cadence
 
-The run is anchored at `check_time` in `check_timezone` (defaults `04:00` / `UTC`,
-both in Admin > Settings) and every monitor picks its own cadence with
+The run is anchored at `check_time` in the timezone shared by the daily jobs
+(`settings.timezone`, edited in Admin > Settings, default `UTC`; both jobs use
+`check_time` of their own, `04:00` here) and every monitor picks its own cadence with
 `config.lighthouse_interval`:
 
 | Cadence | When it runs |
@@ -918,7 +919,7 @@ for a run now, not for a schedule.
 
 | Table | Content | Growth |
 |---|---|---|
-| `monitor_lighthouses` | one row per monitor: the last observation (status, strategy, scores, vitals, when, which node) | bounded by the number of monitors |
+| `monitor_lighthouses` | one row per (monitor, run): the last observation (status, strategy, scores, vitals, when, which node) | bounded by the number of monitors (two rows for a monitor that measures both runs) |
 | `lighthouse_runs` | one row per run and per monitor: the same measurements, the chart timeline | pruned by `lighthouse_retention_days` (default **30**, `0` = keep forever, `LIGHTHOUSE_RETENTION_DAYS` as the environment fallback) |
 
 The two tables hold the same measurements on purpose: what the list shows and

@@ -64,7 +64,7 @@ FLUSH PRIVILEGES;
 | `monitor_templates` | reusable monitor blueprints (uuid + unique name) | tens |
 | `monitor_certificates` | TLS certificate read by the probe + notification memory | tens |
 | `monitor_domains` | registrable domain expiration (manual / RDAP / WHOIS) + notification memory | tens |
-| `monitor_lighthouses` | last Lighthouse web performance observation of a monitor | one per measuring monitor |
+| `monitor_lighthouses` | last Lighthouse web performance observation of a monitor, one row per run | one per measuring monitor and run |
 | `lighthouse_runs` | the run history the *Web performance* page charts | pruned by `lighthouse_retention_days` |
 | `whois_parsers` | per-TLD rules that read an expiry date from a raw WHOIS response | few |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
@@ -127,8 +127,10 @@ others (see `internal/models/sync_payload.go`). The web performance switch
 way.
 
 `monitor_lighthouses` and `lighthouse_runs` keep the Google Lighthouse
-measurements: the first is the **last** observation of each monitor (the
-`monitor_id` is the primary key, like `monitor_certificates`), the second is the
+measurements: the first is the **last** observation of each monitor **per run**
+(the primary key is `(monitor_id, strategy)`: a monitor that measures both the
+mobile and the desktop run holds two rows, the strategy column alone would not be
+unique), the second is the
 **history** (`id`, `monitor_id`, `ran_at`, `strategy`, `status`, `message`,
 `ran_by_node` plus the four category scores and the five Core Web Vitals). Both
 carry the same measurement columns on purpose: what the list shows and what the
@@ -146,7 +148,12 @@ reported by the admin page).
 
 `settings` keeps the clock preference of the UI under `time_format` (`auto`,
 `12h` or `24h`); it only affects rendering, never a stored timestamp (everything in
-the database is UTC). It also holds the two housekeeping values edited in
+the database is UTC). `timezone` is the IANA zone the two daily jobs schedule
+their run in: the certificate/domain job and the web performance job share it (see
+`internal/services/settings.go`; the per-job `expiry_check_timezone` and
+`lighthouse_check_timezone` keys are still written so a node running an older
+binary reads the same value, and they are the fallback of an installation that
+never opened the field). It also holds the two housekeeping values edited in
 Admin > Settings: `heartbeat_retention_days` (how many days of history are kept,
 `0` = never, 180 days when the key is absent and `HEARTBEAT_RETENTION_DAYS` is
 unset) and `uptime_window_hours` (the global uptime period: `24`, `168`, `336` or
@@ -685,6 +692,13 @@ Notes on the generated DDL:
   table by `AutoMigrate`, while a fresh install creates them right after `id`.
   The column order has no functional meaning; the DDL above is from a fresh
   install.
+- A primary key is the one thing `AutoMigrate` cannot change on a table that
+  already exists (it adds missing columns and indexes, never a new key over an old
+  one). `monitor_lighthouses` needed exactly that when a monitor became able to
+  measure **both** runs, so `database.Migrate` replaces the key with an explicit,
+  idempotent `ALTER TABLE ... DROP PRIMARY KEY, ADD PRIMARY KEY (monitor_id,
+  strategy)` (`internal/database/lighthouse_strategy.go`). It runs on every boot
+  and matches nothing once the key is the new one.
 
 ### 3.1 Synchronisation tables (federated mode)
 

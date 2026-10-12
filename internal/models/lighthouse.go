@@ -19,33 +19,60 @@ import (
 
 // Lighthouse strategies -----------------------------------------------------
 
-// The two strategies PageSpeed Insights accepts: a mobile or a desktop run.
+// The strategies an operator can pick: a mobile run, a desktop run, or both of
+// them.
 const (
 	LighthouseStrategyMobile  = "mobile"
 	LighthouseStrategyDesktop = "desktop"
+	// LighthouseStrategyBoth is not a run PageSpeed Insights accepts: it means
+	// "the two of them", so a monitor that picks it measures its page twice and
+	// keeps one row per run (see LighthouseStrategyTargets).
+	LighthouseStrategyBoth = "both"
 	// DefaultLighthouseStrategy is what a monitor measures when it does not
 	// say: the mobile score is the harder one and the one Lighthouse reports by
 	// default.
 	DefaultLighthouseStrategy = LighthouseStrategyMobile
 )
 
-// LighthouseStrategies lists every accepted strategy (validation + UI).
-var LighthouseStrategies = []string{LighthouseStrategyMobile, LighthouseStrategyDesktop}
+// LighthouseStrategies lists every strategy an operator can pick (validation and
+// the pickers of the UI).
+var LighthouseStrategies = []string{LighthouseStrategyMobile, LighthouseStrategyDesktop, LighthouseStrategyBoth}
+
+// LighthouseRuns lists the runs PageSpeed Insights really accepts, in the order
+// they are performed for LighthouseStrategyBoth.
+var LighthouseRuns = []string{LighthouseStrategyMobile, LighthouseStrategyDesktop}
 
 // NormalizeLighthouseStrategy lower cases the input and falls back to the
 // documented default, so a stored monitor (or an old client payload) without a
 // strategy still describes a run.
 func NormalizeLighthouseStrategy(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
-	if value == LighthouseStrategyDesktop {
-		return LighthouseStrategyDesktop
+	for _, strategy := range LighthouseStrategies {
+		if value == strategy {
+			return strategy
+		}
 	}
-	return LighthouseStrategyMobile
+	return DefaultLighthouseStrategy
 }
 
 // ValidLighthouseStrategy reports whether the raw value names a strategy.
 func ValidLighthouseStrategy(raw string) bool {
-	return raw == LighthouseStrategyMobile || raw == LighthouseStrategyDesktop
+	for _, strategy := range LighthouseStrategies {
+		if raw == strategy {
+			return true
+		}
+	}
+	return false
+}
+
+// LighthouseStrategyTargets expands a strategy into the runs it stands for: the
+// run itself for mobile or desktop, both of them (in a stable order, so the
+// daily job and a manual run plan exactly the same work) for "both".
+func LighthouseStrategyTargets(strategy string) []string {
+	if NormalizeLighthouseStrategy(strategy) == LighthouseStrategyBoth {
+		return append([]string{}, LighthouseRuns...)
+	}
+	return []string{NormalizeLighthouseStrategy(strategy)}
 }
 
 // Lighthouse statuses -------------------------------------------------------
@@ -238,19 +265,21 @@ type LighthouseResult struct {
 
 // Current observation ------------------------------------------------------
 
-// MonitorLighthouse is the last Lighthouse observation of a monitor.
+// MonitorLighthouse is the last Lighthouse observation of a monitor for ONE run.
 //
-// One row per monitor (the monitor id is the primary key, exactly like
-// monitor_certificates): the table is the decoration source of the listings, so
-// it must never grow with the number of runs.
+// One row per (monitor, strategy), like monitor_certificates holds one row per
+// monitor: the table is the decoration source of the listings, so it never grows
+// with the number of runs. A monitor that measures both runs has two rows (see
+// LighthouseStrategyTargets).
 type MonitorLighthouse struct {
 	MonitorID uint `gorm:"primaryKey" json:"monitor_id"`
+	// Strategy is the run that produced the scores: mobile or desktop, never
+	// "both" (which means two runs, and therefore two rows).
+	Strategy string `gorm:"primaryKey;size:20;not null" json:"strategy"`
 
 	// Status is ok or error; a failed run carries Message instead of scores.
 	Status  string `gorm:"size:20;not null;default:ok" json:"status"`
 	Message string `gorm:"size:500" json:"message"`
-	// Strategy is the run that produced the scores (mobile or desktop).
-	Strategy string `gorm:"size:20" json:"strategy"`
 	// FinalURL is the page Lighthouse actually audited (after the redirects).
 	FinalURL string `gorm:"size:500" json:"final_url"`
 	// RanAt is when the API call happened, FetchTime when Lighthouse rendered

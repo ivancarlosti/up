@@ -16,6 +16,13 @@ const (
 	// SettingTimeFormat is the clock the UI renders: auto (the browser locale),
 	// 12h or 24h. It is a display preference, never a stored timestamp format.
 	SettingTimeFormat = "time_format"
+	// SettingTimezone is the IANA zone the daily jobs schedule their run in
+	// (Admin > Settings, "General settings"). The certificate/domain job and
+	// the web performance job share it: they used to keep one key each
+	// (SettingExpiryCheckTimezone and SettingLighthouseCheckTimezone), and
+	// those two keys are still written so a node running an older binary keeps
+	// reading the value the operator chose.
+	SettingTimezone   = "timezone"
 	SettingRateLogin  = "rate_limit_login"
 	SettingRatePublic = "rate_limit_public"
 	// Expiry job (Admin > TLD/SSL expiration): when the daily certificate and

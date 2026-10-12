@@ -76,12 +76,14 @@ func (s *LighthouseService) publish(event string, payload any) {
 	}
 }
 
-// Record stores one observation of a monitor: the current row is upserted and a
-// history row is appended.
+// Record stores one observation of a monitor: the current row of its run is
+// upserted and a history row is appended.
 //
 // The history is appended on every run (a run that repeats yesterday's score is
 // still a point of the trend), while the current row is overwritten, so the
-// table of the listing never grows.
+// table of the listing never grows. A monitor that measures both runs holds one
+// current row PER run: the row is identified by the monitor and the strategy,
+// which is why a monitor switched to "both" keeps both of its scores.
 func (s *LighthouseService) Record(ctx context.Context, monitorID uint, result *models.LighthouseResult) error {
 	if result == nil || monitorID == 0 {
 		return nil
@@ -91,9 +93,9 @@ func (s *LighthouseService) Record(ctx context.Context, monitorID uint, result *
 	}
 	row := models.MonitorLighthouse{
 		MonitorID:              monitorID,
+		Strategy:               models.NormalizeLighthouseStrategy(result.Strategy),
 		Status:                 result.Status,
 		Message:                result.Message,
-		Strategy:               result.Strategy,
 		FinalURL:               trimmed(result.FinalURL, 500),
 		RanAt:                  result.RanAt,
 		FetchTime:              result.FetchTime,
@@ -101,7 +103,7 @@ func (s *LighthouseService) Record(ctx context.Context, monitorID uint, result *
 		LighthouseMeasurements: result.LighthouseMeasurements,
 	}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "monitor_id"}},
+		Columns:   []clause.Column{{Name: "monitor_id"}, {Name: "strategy"}},
 		DoUpdates: clause.AssignmentColumns(lighthouseMeasurementColumns()),
 	}).Create(&row).Error; err != nil {
 		return ErrInternal(fmt.Errorf("storing the lighthouse result of monitor %d: %w", monitorID, err))
@@ -124,33 +126,54 @@ func (s *LighthouseService) Record(ctx context.Context, monitorID uint, result *
 
 // lighthouseMeasurementColumns lists the columns a new observation overwrites.
 // They are spelled out (instead of letting GORM update every column) so the row
-// identity and the creation columns are never rewritten by an upsert.
+// identity and the creation columns are never rewritten by an upsert: the
+// strategy is absent because it is part of the identity (the row of a run).
 func lighthouseMeasurementColumns() []string {
 	return []string{
-		"status", "message", "strategy", "final_url", "ran_at", "fetch_time", "ran_by_node",
+		"status", "message", "final_url", "ran_at", "fetch_time", "ran_by_node",
 		"performance", "accessibility", "best_practices", "seo",
 		"first_contentful_paint_ms", "largest_contentful_paint_ms", "total_blocking_time_ms",
 		"cumulative_layout_shift", "speed_index_ms",
 	}
 }
 
-// Get returns the stored observation of a monitor (nil when there is none).
-func (s *LighthouseService) Get(ctx context.Context, monitorID uint) (*models.MonitorLighthouse, error) {
-	var row models.MonitorLighthouse
-	err := s.db.WithContext(ctx).Where("monitor_id = ?", monitorID).First(&row).Error
-	if err == gorm.ErrRecordNotFound {
-		return nil, nil
-	}
+// Get returns the stored observations of a monitor keyed by strategy: one entry
+// for mobile or desktop, two for a monitor that measures both runs, none for a
+// monitor that was never measured.
+func (s *LighthouseService) Get(ctx context.Context, monitorID uint) (map[string]*models.MonitorLighthouse, error) {
+	rows, err := s.rowsFor(ctx, []uint{monitorID})
 	if err != nil {
-		return nil, ErrInternal(err)
+		return nil, err
 	}
-	return &row, nil
+	out := rows[monitorID]
+	if out == nil {
+		out = map[string]*models.MonitorLighthouse{}
+	}
+	return out, nil
 }
 
-// ByMonitorIDs returns the stored observation of each monitor (one query): it is
-// what decorates a listing.
-func (s *LighthouseService) ByMonitorIDs(ctx context.Context, monitorIDs []uint) (map[uint]*models.LighthouseResult, error) {
-	out := map[uint]*models.LighthouseResult{}
+// ByMonitorIDs returns the stored observations of each monitor keyed by strategy:
+// it is what decorates a listing, with one query for the whole page.
+func (s *LighthouseService) ByMonitorIDs(ctx context.Context, monitorIDs []uint) (map[uint]map[string]*models.LighthouseResult, error) {
+	rows, err := s.rowsFor(ctx, monitorIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]map[string]*models.LighthouseResult, len(rows))
+	for monitorID, byStrategy := range rows {
+		results := make(map[string]*models.LighthouseResult, len(byStrategy))
+		for strategy, row := range byStrategy {
+			results[strategy] = row.Info()
+		}
+		out[monitorID] = results
+	}
+	return out, nil
+}
+
+// rowsFor reads the current observation of every run of the given monitors, with
+// one query, keyed by monitor and then by strategy.
+func (s *LighthouseService) rowsFor(ctx context.Context, monitorIDs []uint) (map[uint]map[string]*models.MonitorLighthouse, error) {
+	out := map[uint]map[string]*models.MonitorLighthouse{}
 	if len(monitorIDs) == 0 {
 		return out, nil
 	}
@@ -159,7 +182,11 @@ func (s *LighthouseService) ByMonitorIDs(ctx context.Context, monitorIDs []uint)
 		return nil, ErrInternal(err)
 	}
 	for i := range rows {
-		out[rows[i].MonitorID] = rows[i].Info()
+		row := &rows[i]
+		if out[row.MonitorID] == nil {
+			out[row.MonitorID] = map[string]*models.MonitorLighthouse{}
+		}
+		out[row.MonitorID][row.Strategy] = row
 	}
 	return out, nil
 }
@@ -169,7 +196,8 @@ func (s *LighthouseService) ByMonitorIDs(ctx context.Context, monitorIDs []uint)
 //
 // It is the only state the cadence needs: the schedule is derived from it, so
 // nothing has to be written per tick and a restart (or a second node) cannot
-// lose a slot.
+// lose a slot. A monitor that measures both runs holds a row per run and the
+// newest one wins: the pair is due together.
 func (s *LighthouseService) LastRuns(ctx context.Context, monitorIDs []uint) (map[uint]time.Time, error) {
 	out := map[uint]time.Time{}
 	if len(monitorIDs) == 0 {
@@ -183,7 +211,10 @@ func (s *LighthouseService) LastRuns(ctx context.Context, monitorIDs []uint) (ma
 		return nil, ErrInternal(err)
 	}
 	for i := range rows {
-		out[rows[i].MonitorID] = rows[i].RanAt
+		last, seen := out[rows[i].MonitorID]
+		if !seen || rows[i].RanAt.After(last) {
+			out[rows[i].MonitorID] = rows[i].RanAt
+		}
 	}
 	return out, nil
 }
@@ -217,6 +248,25 @@ func (s *LighthouseService) Clear(ctx context.Context, monitorIDs []uint) error 
 	}
 	if err := s.db.WithContext(ctx).
 		Where("monitor_id IN ?", monitorIDs).
+		Delete(&models.MonitorLighthouse{}).Error; err != nil {
+		return ErrInternal(err)
+	}
+	return nil
+}
+
+// ClearExcept forgets the observations of a monitor whose run is not one of keep:
+// it is what narrowing the strategy of a monitor does ("both" to "mobile" must
+// not leave yesterday's desktop score on the monitor forever). The history of
+// every run is kept, like Clear.
+func (s *LighthouseService) ClearExcept(ctx context.Context, monitorID uint, keep []string) error {
+	if monitorID == 0 {
+		return nil
+	}
+	if len(keep) == 0 {
+		return s.Clear(ctx, []uint{monitorID})
+	}
+	if err := s.db.WithContext(ctx).
+		Where("monitor_id = ? AND strategy NOT IN ?", monitorID, keep).
 		Delete(&models.MonitorLighthouse{}).Error; err != nil {
 		return ErrInternal(err)
 	}

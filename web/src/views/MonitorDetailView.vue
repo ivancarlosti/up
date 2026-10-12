@@ -15,11 +15,13 @@ import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant, lighthouseTitle, lighthouseVariant } from '@/lib/expiry'
 import { formatDateTime, formatLatency, formatScore, formatUptime, formatUptimeWindow, statusColor } from '@/lib/format'
+import { LIGHTHOUSE_STRATEGY_KEYS, lighthouseResults } from '@/lib/monitor-config'
 import { uptimeWindowOptions } from '@/lib/uptime-window'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
 import type {
   Heartbeat,
+  LighthouseResult,
   Monitor,
   MonitorGroup,
   MonitorPayload,
@@ -119,6 +121,20 @@ const latencyStats = computed(() => {
 /** latencyTitle is the per bar tooltip: status, formatted latency and timestamp. */
 function latencyTitle(bar: Heartbeat): string {
   return `${t(`status.${bar.status}`)} · ${formatLatency(bar.latency_ms)} · ${formatDateTime(bar.created_at, locale.value)}`
+}
+
+/**
+ * lighthouseBadges lists the web performance observations the header shows: one
+ * per run the monitor measures with, so a monitor set to "both" carries a mobile
+ * and a desktop score.
+ */
+const lighthouseBadges = computed<LighthouseResult[]>(() =>
+  monitor.value ? lighthouseResults(monitor.value) : [],
+)
+
+/** strategyLabel names the run of a badge (mobile, desktop). */
+function strategyLabel(result: LighthouseResult): string {
+  return t(LIGHTHOUSE_STRATEGY_KEYS[result.strategy])
 }
 
 async function load(): Promise<void> {
@@ -258,13 +274,14 @@ watch(hours, load)
         <template v-else>{{ t('domain.unavailable') }}</template>
       </Badge>
       <Badge
-        v-if="monitor.lighthouse"
-        :variant="lighthouseVariant(monitor.lighthouse)"
-        :title="lighthouseTitle(monitor.lighthouse, locale)"
+        v-for="result in lighthouseBadges"
+        :key="result.strategy"
+        :variant="lighthouseVariant(result)"
+        :title="lighthouseTitle(result, locale)"
         class="ms-1"
       >
-        <template v-if="monitor.lighthouse.status === 'ok'">
-          {{ t('lighthouse.performance') }} {{ formatScore(monitor.lighthouse.performance) }}
+        <template v-if="result.status === 'ok'">
+          {{ strategyLabel(result) }} · {{ t('lighthouse.performance') }} {{ formatScore(result.performance) }}
         </template>
         <template v-else>{{ t('lighthouse.runFailed') }}</template>
       </Badge>

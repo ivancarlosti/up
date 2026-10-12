@@ -438,7 +438,8 @@ func deleteMonitorCascade(tx *gorm.DB, id uint) error {
 // Turning the switch on — or changing the page it measures or the strategy —
 // asks for one asynchronous run, so the operator sees a score within seconds
 // instead of waiting for the daily instant. Turning it off forgets the stored
-// observation (the history stays; the retention owns it).
+// observation (the history stays; the retention owns it), and narrowing the
+// strategy forgets the runs the monitor no longer measures.
 //
 // previous is the stored state before the write (nil on a creation), which is
 // what tells "the switch was just turned on" from an unrelated edit: an edit
@@ -456,12 +457,23 @@ func (s *MonitorService) applyLighthouse(ctx context.Context, monitor *models.Mo
 		}
 		return
 	}
+	strategyChanged := previous != nil && previous.Config.LighthouseStrategy != monitor.Config.LighthouseStrategy
 	changed := previous == nil ||
 		!previous.LighthouseEnabled ||
 		previous.Config.URL != monitor.Config.URL ||
-		previous.Config.LighthouseStrategy != monitor.Config.LighthouseStrategy
+		strategyChanged
 	if changed {
 		s.lighthouse.Enqueue(monitor.ID)
+	}
+	if strategyChanged {
+		// The monitor may have narrowed the runs it measures ("both" to
+		// "mobile"): the score of the run it dropped would never be refreshed,
+		// so it is forgotten instead of decorating the monitor forever.
+		keep := models.LighthouseStrategyTargets(monitor.Config.LighthouseStrategy)
+		if err := s.lighthouse.ClearExcept(ctx, monitor.ID, keep); err != nil {
+			s.log.Warn("could not clear the lighthouse runs the monitor dropped",
+				"monitor_id", monitor.ID, "error", err)
+		}
 	}
 }
 

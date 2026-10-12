@@ -81,7 +81,10 @@ type LighthouseStats struct {
 // Stats reads the counters of the page header.
 func (s *LighthouseService) Stats(ctx context.Context) (LighthouseStats, error) {
 	var out LighthouseStats
-	if err := s.db.WithContext(ctx).Model(&models.MonitorLighthouse{}).Count(&out.Measuring).Error; err != nil {
+	// COUNT(DISTINCT monitor_id): a monitor that measures both runs holds two
+	// rows in the current-observation table but is ONE monitor measured.
+	if err := s.db.WithContext(ctx).Model(&models.MonitorLighthouse{}).
+		Distinct("monitor_id").Count(&out.Measuring).Error; err != nil {
 		return out, ErrInternal(err)
 	}
 	if err := s.db.WithContext(ctx).Model(&models.LighthouseRun{}).Count(&out.Runs).Error; err != nil {
@@ -104,8 +107,9 @@ func (s *LighthouseService) Stats(ctx context.Context) (LighthouseStats, error) 
 }
 
 // Monitors returns every monitor that measures its page, decorated like the
-// monitors table (status, group, tags) and carrying its last observation in
-// Monitor.Lighthouse. It is the list the web performance page renders.
+// monitors table (status, group, tags) and carrying its last observations in
+// Monitor.Lighthouse (one run) and Monitor.Lighthouses (keyed by strategy). It is
+// the list the web performance page renders.
 //
 // The cadence of each monitor and the instant of its next measurement are filled
 // in here: the listing is the only place that knows both the job clock and the
@@ -121,13 +125,15 @@ func (s *LighthouseService) Monitors(ctx context.Context) ([]*models.Monitor, er
 	settings := s.Settings()
 	schedule := settings.Schedule()
 	for _, monitor := range measurers {
-		if monitor.Lighthouse == nil {
-			continue // never measured: there is no cadence to project yet
-		}
-		monitor.Lighthouse.Interval = lighthouse.IntervalFor(monitor, schedule.Interval)
-		if settings.Enabled {
-			next := schedule.NextRun(monitor.Lighthouse.RanAt, monitor.Lighthouse.Interval)
-			monitor.Lighthouse.NextRun = &next
+		// A monitor may hold one observation per run ("both"): each of them is
+		// projected on the clock of the job (an empty map is a monitor that was
+		// never measured, which has no cadence to project yet).
+		for _, result := range monitor.Lighthouses {
+			result.Interval = lighthouse.IntervalFor(monitor, schedule.Interval)
+			if settings.Enabled {
+				next := schedule.NextRun(result.RanAt, result.Interval)
+				result.NextRun = &next
+			}
 		}
 	}
 	return measurers, nil
@@ -205,14 +211,18 @@ func (s *LighthouseService) Refresh(ctx context.Context, monitorID uint) error {
 		return ErrNotFound(i18n.CodeNotFound, "monitor not found")
 	}
 	settings := s.Settings()
-	target, ok := lighthouse.TargetFor(monitor, settings.Strategy)
-	if !ok {
+	targets := lighthouse.TargetsFor(monitor, settings.Strategy)
+	if len(targets) == 0 {
 		return ErrBadRequest(i18n.CodeValidation,
 			"this monitor does not measure a page with Lighthouse")
 	}
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
-	s.refreshTarget(ctx, target, []*models.Monitor{monitor}, settings)
+	// One monitor may describe two runs ("both"): each of them is measured and
+	// stored under its own strategy.
+	for _, target := range targets {
+		s.refreshTarget(ctx, target, []*models.Monitor{monitor}, settings)
+	}
 	return nil
 }
 

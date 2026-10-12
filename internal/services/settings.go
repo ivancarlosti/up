@@ -9,6 +9,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -188,6 +189,51 @@ func (s *SettingService) SetDefaults(ctx context.Context, locale, theme, timeFor
 	return nil
 }
 
+// Timezone is the IANA zone the daily jobs schedule their run in (Admin >
+// Settings, "General settings"). The certificate/domain job and the web
+// performance job share it.
+//
+// The value is read from the unified "timezone" setting and falls back to the
+// per-job keys a deployment written before the two were unified still carries
+// (the certificate job's key first, since it is the older of the two, then the
+// web performance one), and finally to UTC: an upgrade therefore keeps the zone
+// the operator had already chosen, without a migration.
+func (s *SettingService) Timezone() string {
+	for _, key := range []string{
+		models.SettingTimezone,
+		models.SettingExpiryCheckTimezone,
+		models.SettingLighthouseCheckTimezone,
+	} {
+		if value := strings.TrimSpace(s.GetOr(key, "")); value != "" {
+			return value
+		}
+	}
+	return models.DefaultExpiryTimezone
+}
+
+// SetTimezone stores the shared timezone and mirrors it into the two per-job
+// keys, so the expiry job, the web performance job and a node running an older
+// binary all read the same value.
+func (s *SettingService) SetTimezone(ctx context.Context, timezone string) error {
+	timezone = strings.TrimSpace(timezone)
+	if timezone == "" {
+		timezone = models.DefaultExpiryTimezone
+	}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		return fmt.Errorf("timezone %q is not a known IANA timezone", timezone)
+	}
+	for _, key := range []string{
+		models.SettingTimezone,
+		models.SettingExpiryCheckTimezone,
+		models.SettingLighthouseCheckTimezone,
+	} {
+		if err := s.Set(ctx, key, timezone); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // HeartbeatRetentionDays is how many days of heartbeat history are kept.
 //
 // Precedence: the shared setting wins, HEARTBEAT_RETENTION_DAYS is only a
@@ -234,9 +280,8 @@ func (s *SettingService) ExpirySettings() models.ExpirySettings {
 	if value, ok := s.Get(models.SettingExpiryCheckTime); ok && strings.TrimSpace(value) != "" {
 		out.CheckTime = strings.TrimSpace(value)
 	}
-	if value, ok := s.Get(models.SettingExpiryCheckTimezone); ok && strings.TrimSpace(value) != "" {
-		out.CheckTimezone = strings.TrimSpace(value)
-	}
+	// The timezone is shared with the web performance job (see Timezone).
+	out.CheckTimezone = s.Timezone()
 	if value, ok := s.Get(models.SettingExpiryRDAPEnabled); ok {
 		if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
 			out.RDAPEnabled = parsed
@@ -310,9 +355,8 @@ func (s *SettingService) LighthouseSettings() models.LighthouseSettings {
 	if value, ok := s.Get(models.SettingLighthouseCheckTime); ok && strings.TrimSpace(value) != "" {
 		out.CheckTime = strings.TrimSpace(value)
 	}
-	if value, ok := s.Get(models.SettingLighthouseCheckTimezone); ok && strings.TrimSpace(value) != "" {
-		out.CheckTimezone = strings.TrimSpace(value)
-	}
+	// The timezone is shared with the certificate/domain job (see Timezone).
+	out.CheckTimezone = s.Timezone()
 	if value, ok := s.Get(models.SettingLighthouseStrategy); ok && strings.TrimSpace(value) != "" {
 		out.Strategy = strings.TrimSpace(value)
 	}

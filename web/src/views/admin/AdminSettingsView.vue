@@ -29,6 +29,7 @@ const form = ref({
   default_locale: 'en-US',
   default_theme: 'system',
   time_format: 'auto',
+  timezone: 'UTC',
   app_name: '',
   heartbeat_retention_days: 180,
   uptime_window_hours: 24,
@@ -50,20 +51,6 @@ const expiryForm = ref<ExpirySettings>({
   timeout_seconds: 10,
 })
 const expirySaved = ref(false)
-
-/** Common IANA names offered as suggestions (the field accepts any name). */
-const timezoneSuggestions = [
-  'UTC',
-  'America/Sao_Paulo',
-  'America/New_York',
-  'America/Los_Angeles',
-  'Europe/London',
-  'Europe/Lisbon',
-  'Europe/Madrid',
-  'Europe/Berlin',
-  'Asia/Tokyo',
-  'Australia/Sydney',
-]
 
 /**
  * The time of day is picked with two explicit selects (00-23 and 00-59): a native
@@ -116,6 +103,23 @@ const timeFormatOptions = computed(() =>
 /** The uptime windows the operator can choose from. */
 const windowOptions = computed(() => uptimeWindowOptions())
 
+/**
+ * Common IANA names offered as suggestions for the timezone of the General
+ * settings card (the field accepts any name).
+ */
+const timezoneSuggestions = [
+  'UTC',
+  'America/Sao_Paulo',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Lisbon',
+  'Europe/Madrid',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+]
+
 /** String wrappers, because the Select and the number input speak strings. */
 const uptimeWindow = computed({
   get: () => String(form.value.uptime_window_hours),
@@ -144,6 +148,7 @@ async function load(): Promise<void> {
       default_locale: adminSettings.default_locale,
       default_theme: adminSettings.default_theme,
       time_format: adminSettings.time_format ?? 'auto',
+      timezone: adminSettings.timezone ?? 'UTC',
       app_name: adminSettings.app_name,
       heartbeat_retention_days: adminSettings.heartbeat_retention_days,
       uptime_window_hours: adminSettings.uptime_window_hours,
@@ -209,7 +214,7 @@ onMounted(load)
       <p class="text-xs text-muted-foreground">{{ t('settings.subtitle') }}</p>
     </header>
 
-    <Card :title="t('settings.defaultsHelp')">
+    <Card :title="t('settings.generalTitle')" :description="t('settings.generalHelp')">
       <div class="grid gap-3 sm:grid-cols-3">
         <div class="grid gap-1">
           <Label for="settings-locale">{{ t('settings.defaultLocale') }}</Label>
@@ -228,6 +233,13 @@ onMounted(load)
             {{ t('settings.timeFormat') }}
           </Label>
           <Select id="settings-time-format" v-model="form.time_format" :options="timeFormatOptions" />
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-timezone" :help="t('settings.timezoneHelp')">{{ t('settings.timezone') }}</Label>
+          <Input id="settings-timezone" v-model="form.timezone" list="settings-timezones" placeholder="UTC" />
+          <datalist id="settings-timezones">
+            <option v-for="zone in timezoneSuggestions" :key="zone" :value="zone" />
+          </datalist>
         </div>
         <div class="grid gap-1">
           <Label for="settings-uptime-window" :help="t('settings.uptimeWindowHelp')">
@@ -305,18 +317,6 @@ onMounted(load)
             <Select v-model="checkMinute" :options="minuteOptions" class="w-20" @update:model-value="setCheckMinute" />
             <span class="font-mono text-xs text-muted-foreground">{{ expiryForm.check_time }}</span>
           </div>
-        </div>
-        <div class="grid gap-1">
-          <Label for="settings-expiry-zone" :help="t('expiry.timezoneHelp')">{{ t('expiry.timezone') }}</Label>
-          <Input
-            id="settings-expiry-zone"
-            v-model="expiryForm.check_timezone"
-            list="expiry-timezones"
-            placeholder="UTC"
-          />
-          <datalist id="expiry-timezones">
-            <option v-for="zone in timezoneSuggestions" :key="zone" :value="zone" />
-          </datalist>
         </div>
         <div class="grid gap-1">
           <Label for="settings-expiry-rate" :help="t('expiry.rateLimitHelp')">{{ t('expiry.rateLimit') }}</Label>

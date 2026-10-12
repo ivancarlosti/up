@@ -202,8 +202,14 @@ type Monitor struct {
 	// domain (only when the monitor watches its domain).
 	Domain *DomainInfo `gorm:"-" json:"domain,omitempty"`
 	// Lighthouse is the last web performance observation of the monitor (only
-	// when it measures its page).
+	// when it measures its page): the run of the strategy the monitor is
+	// configured with, or the newest one when it measures both.
 	Lighthouse *LighthouseResult `gorm:"-" json:"lighthouse,omitempty"`
+	// Lighthouses is every stored observation of the monitor keyed by strategy
+	// (mobile, desktop): a monitor that measures both runs has two, and the UI
+	// renders one score block per entry. Additive on purpose: the single
+	// `lighthouse` field above keeps the shape the public API always had.
+	Lighthouses map[string]*LighthouseResult `gorm:"-" json:"lighthouses,omitempty"`
 	// TemplateName is the name of the template the monitor follows (filled by the
 	// decoration, never stored).
 	TemplateName string `gorm:"-" json:"template_name,omitempty"`

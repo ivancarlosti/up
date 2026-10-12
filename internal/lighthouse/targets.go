@@ -29,28 +29,32 @@ type Target struct {
 // Key is the deduplication identity of the target.
 func (t Target) Key() string { return t.URL + "|" + t.Strategy }
 
-// TargetFor builds the target of a monitor and reports whether it has one.
+// TargetsFor builds the targets of a monitor: one per run its strategy stands
+// for, so a monitor that measures both runs yields two (mobile first, then
+// desktop). It returns nil for a monitor that does not measure its page, for a
+// type PageSpeed Insights cannot audit and for a target that is not an absolute
+// HTTP(S) URL.
 //
-// It returns false for a monitor that does not measure its page, for a type
-// PageSpeed Insights cannot audit and for a target that is not an absolute
-// HTTP(S) URL. defaultStrategy is used when the monitor does not carry a
-// strategy of its own (a row written before the field existed).
-func TargetFor(monitor *models.Monitor, defaultStrategy string) (Target, bool) {
+// defaultStrategy is used when the monitor does not carry a strategy of its own
+// (a row written before the field existed).
+func TargetsFor(monitor *models.Monitor, defaultStrategy string) []Target {
 	if monitor == nil || !monitor.LighthouseEnabled || !monitor.Type.SupportsLighthouse() {
-		return Target{}, false
+		return nil
 	}
 	page, ok := NormalizeURL(monitor.Config.URL)
 	if !ok {
-		return Target{}, false
+		return nil
 	}
 	strategy := strings.TrimSpace(monitor.Config.LighthouseStrategy)
 	if strategy == "" {
 		strategy = defaultStrategy
 	}
-	return Target{
-		URL:      page,
-		Strategy: models.NormalizeLighthouseStrategy(strategy),
-	}, true
+	runs := models.LighthouseStrategyTargets(strategy)
+	targets := make([]Target, 0, len(runs))
+	for _, run := range runs {
+		targets = append(targets, Target{URL: page, Strategy: run})
+	}
+	return targets
 }
 
 // IntervalFor resolves the cadence a monitor measures its page with: its own when
@@ -129,21 +133,23 @@ type Plan struct {
 // BuildPlan turns a monitor listing into the worklist of a run: one entry per
 // distinct target, with the monitors that must receive its result.
 //
+// A monitor is expanded to the runs its strategy stands for (TargetsFor), so a
+// monitor that measures both runs appears under the mobile key AND the desktop
+// one: each run is stored under its own strategy.
+//
 // It is pure, which is what lets the daily job, the admin run-now and the
 // per-monitor refresh share exactly the same definition of "the same target".
-// defaultStrategy is passed to TargetFor.
+// defaultStrategy is passed to TargetsFor.
 func BuildPlan(monitors []*models.Monitor, defaultStrategy string) Plan {
 	plan := Plan{Monitors: map[string][]*models.Monitor{}}
 	for _, monitor := range monitors {
-		target, ok := TargetFor(monitor, defaultStrategy)
-		if !ok {
-			continue
+		for _, target := range TargetsFor(monitor, defaultStrategy) {
+			key := target.Key()
+			if _, seen := plan.Monitors[key]; !seen {
+				plan.Targets = append(plan.Targets, target)
+			}
+			plan.Monitors[key] = append(plan.Monitors[key], monitor)
 		}
-		key := target.Key()
-		if _, seen := plan.Monitors[key]; !seen {
-			plan.Targets = append(plan.Targets, target)
-		}
-		plan.Monitors[key] = append(plan.Monitors[key], monitor)
 	}
 	return plan
 }

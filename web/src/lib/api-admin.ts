@@ -67,6 +67,8 @@ export const adminApi = {
     default_locale?: string
     default_theme?: string
     time_format?: string
+    /** IANA zone shared by the daily certificate/domain and web performance jobs. */
+    timezone?: string
     app_name?: string
     heartbeat_retention_days?: number
     uptime_window_hours?: number

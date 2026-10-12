@@ -16,6 +16,7 @@ import {
   LIGHTHOUSE_INTERVALS,
   LIGHTHOUSE_INTERVAL_KEYS,
   LIGHTHOUSE_STRATEGIES,
+  LIGHTHOUSE_STRATEGY_KEYS,
   LIGHTHOUSE_WEEKDAYS,
   LIGHTHOUSE_WEEKDAY_KEYS,
   lighthouseInterval,
@@ -25,11 +26,14 @@ import { useToastStore } from '@/stores/toast'
 import type { LighthouseSettingsPayload } from '@/lib/types'
 
 /**
- * LighthouseJobCard is the web performance job configuration (Admin > Settings,
- * reused by the Web performance page so the two views cannot drift).
+ * LighthouseJobCard is the web performance job configuration (Admin > Settings).
  *
- * It owns its own load and save: the card is the single place where the schedule,
- * the pacing, the API key and the retention are edited.
+ * The schedule, the pacing, the API key and the retention are edited here, the
+ * single place the job is configured: the Web performance page only lists the
+ * monitors and their scores. The timezone is not here either, it belongs to the
+ * "General settings" card, which the certificate/domain job shares.
+ *
+ * It owns its own load and save.
  */
 const emit = defineEmits<{ saved: [] }>()
 
@@ -59,7 +63,7 @@ const form = ref<LighthouseSettingsPayload & { retention_days: number }>({
 const strategyOptions = computed(() =>
   LIGHTHOUSE_STRATEGIES.map((strategy) => ({
     value: strategy,
-    label: strategy === 'desktop' ? t('monitor.lighthouseStrategyDesktop') : t('monitor.lighthouseStrategyMobile'),
+    label: t(LIGHTHOUSE_STRATEGY_KEYS[strategy]),
   })),
 )
 
@@ -186,11 +190,6 @@ onMounted(load)
           <span class="text-muted-foreground">:</span>
           <Select v-model="checkMinute" :options="minuteOptions" class="w-20" @update:model-value="setCheckMinute" />
         </div>
-      </div>
-
-      <div class="grid gap-1">
-        <Label for="lighthouse-timezone" :help="t('lighthouse.timezoneHelp')">{{ t('lighthouse.timezone') }}</Label>
-        <Input id="lighthouse-timezone" v-model="form.check_timezone" placeholder="UTC" />
       </div>
 
       <div class="grid gap-1">

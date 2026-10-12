@@ -219,8 +219,10 @@ type decorateSources struct {
 	groups       map[uint]models.MonitorGroupRef
 	certificates map[uint]*models.CertificateInfo
 	domains      map[uint]*models.DomainInfo
-	lighthouses  map[uint]*models.LighthouseResult
-	templates    map[string]string
+	// lighthouses holds the web performance observations of each monitor keyed
+	// by strategy (mobile, desktop): a monitor that measures both runs has two.
+	lighthouses map[uint]map[string]*models.LighthouseResult
+	templates   map[string]string
 }
 
 // decorate fills the runtime fields of a listing.
@@ -349,6 +351,27 @@ func (s *MonitorService) monitorStatesFor(ctx context.Context, monitorIDs []uint
 	return out, nil
 }
 
+// primaryLighthouse picks the observation the single `lighthouse` field of the
+// API reports: the run of the strategy the monitor measures with when there is
+// one (the operator asked for that run), the newest one otherwise. A monitor
+// switched to "both" has no single run, so the most recent of the two is the
+// least surprising answer; the Lighthouses map carries both.
+func primaryLighthouse(monitor *models.Monitor, results map[string]*models.LighthouseResult) *models.LighthouseResult {
+	runs := models.LighthouseStrategyTargets(monitor.Config.LighthouseStrategy)
+	if len(runs) == 1 {
+		if result, ok := results[runs[0]]; ok {
+			return result
+		}
+	}
+	var newest *models.LighthouseResult
+	for _, result := range results {
+		if newest == nil || result.RanAt.After(newest.RanAt) {
+			newest = result
+		}
+	}
+	return newest
+}
+
 // applySources copies the gathered data onto the monitors.
 func (s *MonitorService) applySources(monitors []*models.Monitor, windowHours int, sources *decorateSources) {
 	linksByMonitor := map[uint][]uint{}
@@ -418,9 +441,13 @@ func (s *MonitorService) applySources(monitors []*models.Monitor, windowHours in
 		}
 		// The score of a monitor is only reported while its switch is on: a
 		// monitor that stopped measuring must not keep showing an old result.
+		// Lighthouses carries every run the monitor has (one per strategy, so
+		// "both" holds two) and Lighthouse the single observation the public API
+		// reports (the run of its strategy, or the newest one).
 		if m.LighthouseEnabled {
-			if result, ok := sources.lighthouses[m.ID]; ok {
-				m.Lighthouse = result
+			if results, ok := sources.lighthouses[m.ID]; ok && len(results) > 0 {
+				m.Lighthouses = results
+				m.Lighthouse = primaryLighthouse(m, results)
 			}
 		}
 		if name, ok := sources.templates[m.TemplateUUID]; ok {
@@ -497,9 +524,10 @@ func (s *MonitorService) domainsFor(ctx context.Context, monitorIDs []uint) (map
 	return out, nil
 }
 
-// lighthousesFor returns the stored web performance observation of every
-// monitor that has one (one query for a whole listing).
-func (s *MonitorService) lighthousesFor(ctx context.Context, monitorIDs []uint) (map[uint]*models.LighthouseResult, error) {
+// lighthousesFor returns the stored web performance observations of every monitor
+// that has one (one query for a whole listing), keyed by monitor and then by
+// strategy: a monitor that measures both runs carries two.
+func (s *MonitorService) lighthousesFor(ctx context.Context, monitorIDs []uint) (map[uint]map[string]*models.LighthouseResult, error) {
 	if s.lighthouse == nil {
 		return nil, nil
 	}

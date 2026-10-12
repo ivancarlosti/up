@@ -361,6 +361,11 @@ export interface AdminSettings {
   default_locale: string
   default_theme: ThemeMode
   time_format: string
+  /**
+   * IANA zone the daily jobs schedule their run in (the certificate/domain job
+   * and the web performance job share it).
+   */
+  timezone: string
   supported_time_formats: string[]
   app_name: string
   app_url: string
@@ -586,7 +591,13 @@ export interface LighthouseHistoryResponse {
 export interface LighthouseRunResult {
   ran: boolean
   at: string
+  /** The newest observation (the endpoint always reported one). */
   result?: LighthouseResult
+  /**
+   * Every observation the monitor now has, keyed by run: a monitor that measures
+   * both carries two entries (mobile and desktop).
+   */
+  results?: Record<string, LighthouseResult>
 }
 
 /** Response of POST /api/admin/lighthouse/purge. */

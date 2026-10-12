@@ -184,18 +184,20 @@ When `cert_watch` is on, the decorated monitor carries a `certificate` object
 certificate configuration answers `400 ERR_MONITOR_CERT_INVALID`.
 
 The web performance watch rides along the same way: `lighthouse_enabled` plus
-`config.lighthouse_strategy` (`mobile` or `desktop`) and
+`config.lighthouse_strategy` (`mobile`, `desktop` or `both`, which measures the
+page twice) and
 `config.lighthouse_interval` (`hourly`, `6h`, `12h`, `daily` or `weekly`; absent
 means the job setting applies). It is available on the two HTTP(s) types only, and
 an incoherent configuration answers `400 ERR_MONITOR_LIGHTHOUSE_INVALID`. When the
 switch is on, the decorated monitor carries a `lighthouse` object (`status`,
 `strategy`, `performance`, `accessibility`, `best_practices`, `seo`, the five
-vitals, `final_url`, `ran_at`, `fetch_time`); a score the API could not measure is
+vitals, `final_url`, `ran_at`, `fetch_time`) plus a `lighthouses` map with one
+entry per measured run (`mobile`, `desktop`); a score the API could not measure is
 `null` (never `0`) and a failed run is `status: "error"` with its `message`. On the
-*Web performance* listing the same object also carries the computed `interval` and
+*Web performance* listing the same objects also carry the computed `interval` and
 `next_run` of the monitor. The job, its schedule (cadence, weekday, time of day,
-timezone), the API key and the history are managed by `/api/admin/lighthouse` (see
-the admin section).
+the shared timezone), the API key and the history are managed by
+`/api/admin/lighthouse` (see the admin section).
 
 The domain expiration watch rides along the same way: `domain_watch`,
 `domain_notify`, `domain_warn_days` and the optional manual date
@@ -481,7 +483,7 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/admin/settings` | locale/theme/clock defaults, the global uptime period and the history retention + instance info |
-| PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","app_name":"Up","heartbeat_retention_days":90,"uptime_window_hours":168}` -> `204` (`time_format` is `auto`, `12h` or `24h`; `uptime_window_hours` is `24`, `168`, `336` or `720`; `heartbeat_retention_days` is `0`-`3650`, `0` = never purge). Every field is optional |
+| PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","timezone":"America/Sao_Paulo","app_name":"Up","heartbeat_retention_days":90,"uptime_window_hours":168}` -> `204` (`time_format` is `auto`, `12h` or `24h`; `timezone` is an IANA name, shared by the daily certificate/domain and web performance jobs; `uptime_window_hours` is `24`, `168`, `336` or `720`; `heartbeat_retention_days` is `0`-`3650`, `0` = never purge). Every field is optional |
 | GET | `/api/admin/maintenance/heartbeats` | `{retention_days, default_days, max_days, total, oldest, newest, would_delete, cutoff?}` |
 | POST | `/api/admin/maintenance/heartbeats/purge` | deletes the history older than the retention: `{}` uses the configured days, `{"days": 90}` overrides it -> `{deleted, days, before}` |
 | GET | `/api/tokens` | API tokens (never the secret) |
@@ -499,7 +501,7 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/admin/expiry` | `{settings, parsers, defaults, last_run_day, next_run}` |
-| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds` |
+| PUT | `/api/admin/expiry` | job settings: `check_time` (`03:00`), `check_timezone` (IANA, mirrored from the shared `timezone` of `/api/admin/settings`), `rdap_enabled`, `whois_enabled`, `rate_limit_ms`, `timeout_seconds` |
 | POST | `/api/admin/expiry/run` | runs the daily check now (deduplicated targets) -> `{ran: true, at}` |
 | GET | `/api/admin/expiry/targets` | the deduplicated worklist: `{targets, count}` (no lookup is performed) |
 | POST | `/api/admin/expiry/targets/refresh` | refreshes ONE target: `{kind, target}` -> `{ran: true, kind, target, monitors, at}` |
@@ -510,10 +512,10 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | POST | `/api/admin/expiry/whois-parsers/test` | runs a candidate rule against a live `domain` or a pasted `raw` response -> `{ok, raw, not_found, expires_at?, days_left?, error?}` |
 | POST | `/api/admin/expiry/whois-parsers/reset` | **destructive**: deletes every rule (custom ones included) and installs the built-in table again -> `{parsers, count}` |
 | GET | `/api/admin/lighthouse` | web performance job: `{settings, defaults, strategies, intervals, weekdays, last_run_day, next_run, retention_days, retention_max, retention_default, stats}` |
-| PUT | `/api/admin/lighthouse` | job settings: `enabled`, `check_time` (`04:00`), `check_timezone` (IANA), `strategy` (`mobile`), `interval` (`daily`, the cadence of a monitor that carries none), `weekday` (`monday`, anchors the weekly cadence), `rate_limit_ms` (`60000`), `timeout_seconds` (`90`), `api_key`, plus the optional `retention_days` |
+| PUT | `/api/admin/lighthouse` | job settings: `enabled`, `check_time` (`04:00`), `check_timezone` (IANA, mirrored from the shared `timezone` of `/api/admin/settings`), `strategy` (`mobile`; also `desktop` and `both`), `interval` (`daily`, the cadence of a monitor that carries none), `weekday` (`monday`, anchors the weekly cadence), `rate_limit_ms` (`60000`), `timeout_seconds` (`90`), `api_key`, plus the optional `retention_days` |
 | POST | `/api/admin/lighthouse/run` | measures every deduplicated `url + strategy` target now -> `{ran: true, at}` (asynchronous, paced by the job limiter) |
 | GET | `/api/admin/lighthouse/monitors` | the monitors that measure their page, with their last observation and its computed `interval` + `next_run`: `{monitors, count, stats, interval_default, retention_days, next_run}` |
-| POST | `/api/admin/lighthouse/monitors/:id/run` | measures ONE monitor now -> `{ran: true, at, result?}` |
+| POST | `/api/admin/lighthouse/monitors/:id/run` | measures ONE monitor now (both runs when its strategy is `both`) -> `{ran: true, at, result?, results?}` |
 | GET | `/api/admin/lighthouse/monitors/:id/history` | the runs of one monitor, oldest first (the chart data): `{monitor_id, runs, count}`. Optional `?limit=N` keeps the N newest runs (capped at 1000) |
 | POST | `/api/admin/lighthouse/purge` | **destructive**: deletes the runs older than `{days}` (the configured retention when omitted) -> `{deleted, days, before}` |
 

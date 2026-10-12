@@ -41,21 +41,22 @@ func TestNormalizeURL(t *testing.T) {
 	}
 }
 
-// TestTargetFor checks who measures and with which strategy: only the HTTP(s)
-// types, only when the switch is on, and mobile unless the monitor says
-// otherwise.
-func TestTargetFor(t *testing.T) {
+// TestTargetsFor checks who measures and with which runs: only the HTTP(s)
+// types, only when the switch is on, mobile unless the monitor says otherwise
+// and TWO targets for a monitor that measures both runs.
+func TestTargetsFor(t *testing.T) {
 	measure := &models.Monitor{
 		Type:              models.MonitorTypeHTTP,
 		LighthouseEnabled: true,
 		Config:            models.MonitorConfig{URL: "https://Example.com/"},
 	}
-	target, ok := TargetFor(measure, models.DefaultLighthouseStrategy)
-	if !ok || target.URL != "https://example.com/" || target.Strategy != models.LighthouseStrategyMobile {
-		t.Fatalf("target = %+v (ok=%v)", target, ok)
+	targets := TargetsFor(measure, models.DefaultLighthouseStrategy)
+	if len(targets) != 1 || targets[0].URL != "https://example.com/" ||
+		targets[0].Strategy != models.LighthouseStrategyMobile {
+		t.Fatalf("targets = %+v", targets)
 	}
-	if target.Key() != "https://example.com/|mobile" {
-		t.Fatalf("key = %q", target.Key())
+	if targets[0].Key() != "https://example.com/|mobile" {
+		t.Fatalf("key = %q", targets[0].Key())
 	}
 
 	desktop := &models.Monitor{
@@ -63,9 +64,28 @@ func TestTargetFor(t *testing.T) {
 		LighthouseEnabled: true,
 		Config:            models.MonitorConfig{URL: "https://example.com/", LighthouseStrategy: "Desktop"},
 	}
-	desktopTarget, ok := TargetFor(desktop, models.DefaultLighthouseStrategy)
-	if !ok || desktopTarget.Strategy != models.LighthouseStrategyDesktop {
-		t.Fatalf("strategy = %q (ok=%v)", desktopTarget.Strategy, ok)
+	desktopTargets := TargetsFor(desktop, models.DefaultLighthouseStrategy)
+	if len(desktopTargets) != 1 || desktopTargets[0].Strategy != models.LighthouseStrategyDesktop {
+		t.Fatalf("strategy = %+v", desktopTargets)
+	}
+
+	// "both" is not a run PageSpeed Insights accepts: it expands into the two of
+	// them, mobile first, so a run is deterministic.
+	both := &models.Monitor{
+		Type:              models.MonitorTypeHTTP,
+		LighthouseEnabled: true,
+		Config:            models.MonitorConfig{URL: "https://example.com/app", LighthouseStrategy: "both"},
+	}
+	bothTargets := TargetsFor(both, models.DefaultLighthouseStrategy)
+	if len(bothTargets) != 2 ||
+		bothTargets[0].Strategy != models.LighthouseStrategyMobile ||
+		bothTargets[1].Strategy != models.LighthouseStrategyDesktop {
+		t.Fatalf("both targets = %+v", bothTargets)
+	}
+	for _, target := range bothTargets {
+		if target.URL != "https://example.com/app" {
+			t.Fatalf("both target url = %q", target.URL)
+		}
 	}
 
 	// A type PageSpeed Insights cannot audit, a monitor that does not measure
@@ -78,8 +98,8 @@ func TestTargetFor(t *testing.T) {
 		nil,
 	}
 	for _, monitor := range others {
-		if _, ok := TargetFor(monitor, models.DefaultLighthouseStrategy); ok {
-			t.Fatalf("monitor %+v must have no lighthouse target", monitor)
+		if targets := TargetsFor(monitor, models.DefaultLighthouseStrategy); len(targets) > 0 {
+			t.Fatalf("monitor %+v must have no lighthouse target, got %+v", monitor, targets)
 		}
 	}
 }
@@ -115,26 +135,44 @@ func TestIntervalFor(t *testing.T) {
 }
 
 // TestBuildPlan checks the worklist of a run: one entry per distinct target,
-// with every monitor that must receive its result.
+// with every monitor that must receive its result. A monitor that measures both
+// runs is the SAME monitor under two keys, so both scores are stored.
 func TestBuildPlan(t *testing.T) {
 	monitors := []*models.Monitor{
 		{ID: 1, Type: models.MonitorTypeHTTP, LighthouseEnabled: true, Config: models.MonitorConfig{URL: "https://example.com"}},
 		{ID: 2, Type: models.MonitorTypeKeyword, LighthouseEnabled: true, Config: models.MonitorConfig{URL: "https://EXAMPLE.com/"}},
 		{ID: 3, Type: models.MonitorTypeHTTP, LighthouseEnabled: false, Config: models.MonitorConfig{URL: "https://other.example.com"}},
 		{ID: 4, Type: models.MonitorTypeHTTP, LighthouseEnabled: true, Config: models.MonitorConfig{URL: "https://example.com", LighthouseStrategy: "desktop"}},
+		{ID: 5, Type: models.MonitorTypeHTTP, LighthouseEnabled: true, Config: models.MonitorConfig{URL: "https://both.example.com", LighthouseStrategy: "both"}},
 	}
 	plan := BuildPlan(monitors, models.DefaultLighthouseStrategy)
-	if len(plan.Targets) != 2 {
+	if len(plan.Targets) != 4 {
 		t.Fatalf("targets = %+v", plan.Targets)
 	}
 	// The order follows the monitors, so a run is deterministic.
-	if plan.Targets[0].Key() != "https://example.com/|mobile" || plan.Targets[1].Key() != "https://example.com/|desktop" {
-		t.Fatalf("targets = %+v", plan.Targets)
+	want := []string{
+		"https://example.com/|mobile",
+		"https://example.com/|desktop",
+		"https://both.example.com/|mobile",
+		"https://both.example.com/|desktop",
+	}
+	for i, key := range want {
+		if plan.Targets[i].Key() != key {
+			t.Fatalf("target %d = %q, want %q", i, plan.Targets[i].Key(), key)
+		}
 	}
 	if len(plan.Monitors["https://example.com/|mobile"]) != 2 {
 		t.Fatalf("the two mobile monitors must share one target: %+v", plan.Monitors)
 	}
 	if len(plan.Monitors["https://example.com/|desktop"]) != 1 {
 		t.Fatalf("the desktop monitor is its own target: %+v", plan.Monitors)
+	}
+	// "both" is one monitor under two keys: forgetting one of them would leave
+	// half of its screen unmeasured.
+	for _, key := range []string{"https://both.example.com/|mobile", "https://both.example.com/|desktop"} {
+		shared := plan.Monitors[key]
+		if len(shared) != 1 || shared[0].ID != 5 {
+			t.Fatalf("monitor 5 must receive %s: %+v", key, plan.Monitors)
+		}
 	}
 }

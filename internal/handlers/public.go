@@ -172,6 +172,7 @@ func (h *Container) adminSettings(c *gin.Context) {
 		"default_locale":         h.Settings.DefaultLocale(),
 		"default_theme":          h.Settings.DefaultTheme(),
 		"time_format":            h.Settings.TimeFormat(),
+		"timezone":               h.Settings.Timezone(),
 		"app_name":               h.Settings.GetOr(models.SettingAppName, "Up"),
 		"app_url":                h.Cfg.AppURL,
 		"supported_locales":      config.SupportedLocales,
@@ -191,15 +192,18 @@ func (h *Container) adminSettings(c *gin.Context) {
 	})
 }
 
-// updateAdminSettings stores the locale/theme defaults, the instance name and
-// the housekeeping values. Every field is optional: an omitted one keeps its
-// current value.
+// updateAdminSettings stores the locale/theme defaults, the shared timezone of
+// the daily jobs, the instance name and the housekeeping values. Every field is
+// optional: an omitted one keeps its current value.
 func (h *Container) updateAdminSettings(c *gin.Context) {
 	var payload struct {
 		DefaultLocale string `json:"default_locale"`
 		DefaultTheme  string `json:"default_theme"`
 		TimeFormat    string `json:"time_format"`
-		AppName       string `json:"app_name"`
+		// Timezone is the zone the daily jobs schedule their run in, shared by
+		// the certificate/domain job and the web performance job.
+		Timezone string `json:"timezone"`
+		AppName  string `json:"app_name"`
 		// Pointers so an omitted field keeps the current value (0 is a valid
 		// retention: it means "never purge").
 		HeartbeatRetentionDays *int `json:"heartbeat_retention_days"`
@@ -211,6 +215,12 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 	if err := h.Settings.SetDefaults(c.Request.Context(), payload.DefaultLocale, payload.DefaultTheme, payload.TimeFormat); err != nil {
 		api.WriteError(c, http.StatusBadRequest, i18n.CodeValidation, err.Error())
 		return
+	}
+	if payload.Timezone != "" {
+		if err := h.Settings.SetTimezone(c.Request.Context(), payload.Timezone); err != nil {
+			api.WriteError(c, http.StatusBadRequest, i18n.CodeValidation, err.Error())
+			return
+		}
 	}
 	if payload.AppName != "" {
 		if err := h.Settings.Set(c.Request.Context(), models.SettingAppName, payload.AppName); err != nil {

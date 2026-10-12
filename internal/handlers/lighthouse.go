@@ -145,11 +145,23 @@ func (h *Container) runLighthouseMonitor(c *gin.Context) {
 		api.WriteServiceError(c, err)
 		return
 	}
-	if stored == nil {
+	if len(stored) == 0 {
 		api.OK(c, gin.H{"ran": true, "at": time.Now().UTC()})
 		return
 	}
-	api.OK(c, gin.H{"ran": true, "at": time.Now().UTC(), "result": stored.Info()})
+	// One entry per run the monitor measured (two for "both"): `results` is the
+	// map the page reads, `result` the single newest observation the endpoint
+	// always reported.
+	results := make(map[string]*models.LighthouseResult, len(stored))
+	var newest *models.LighthouseResult
+	for strategy, row := range stored {
+		result := row.Info()
+		results[strategy] = result
+		if newest == nil || result.RanAt.After(newest.RanAt) {
+			newest = result
+		}
+	}
+	api.OK(c, gin.H{"ran": true, "at": time.Now().UTC(), "result": newest, "results": results})
 }
 
 // lighthouseMonitorHistory returns the runs of one monitor (the chart data).

@@ -18,6 +18,10 @@ var settingsWhitelist = []string{
 	models.SettingAppName,
 	models.SettingDefaultLocale,
 	models.SettingDefaultTheme,
+	// The zone the daily jobs schedule their run in is a policy of the whole
+	// installation, exactly like the housekeeping below: two nodes of one cluster
+	// must not measure and check at different instants.
+	models.SettingTimezone,
 	// Housekeeping: every node must purge on the same policy and show the same
 	// uptime period, otherwise two dashboards of one cluster would disagree
 	// about how much history exists.

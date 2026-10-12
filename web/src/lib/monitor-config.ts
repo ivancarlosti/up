@@ -1,5 +1,7 @@
 import type {
   LighthouseInterval,
+  LighthouseResult,
+  LighthouseRunStrategy,
   LighthouseStrategy,
   LighthouseWeekday,
   Monitor,
@@ -126,18 +128,65 @@ export function supportsLighthouse(type: MonitorType): boolean {
   return type === 'http' || type === 'keyword'
 }
 
-/** The two runs PageSpeed Insights accepts (mirror of `models.LighthouseStrategies`). */
-export const LIGHTHOUSE_STRATEGIES: readonly LighthouseStrategy[] = ['mobile', 'desktop']
+/**
+ * The strategies a monitor (or the job) can be configured with (mirror of
+ * `models.LighthouseStrategies`): a single run, or `both` of them. `both` costs
+ * two PageSpeed Insights calls per measurement.
+ */
+export const LIGHTHOUSE_STRATEGIES: readonly LighthouseStrategy[] = ['mobile', 'desktop', 'both']
 
 /** The strategy a monitor measures with when it does not pick one. */
 export const DEFAULT_LIGHTHOUSE_STRATEGY: LighthouseStrategy = 'mobile'
 
 /**
- * lighthouseStrategy normalizes a stored strategy: anything but `desktop` reads
- * as the default run, like `models.NormalizeLighthouseStrategy` on the Go side.
+ * The runs a strategy stands for (mirror of `models.LighthouseStrategyTargets`):
+ * one run, or the two of them for `both`, mobile first. It is what tells the UI
+ * how many score blocks a monitor has.
+ */
+export const LIGHTHOUSE_STRATEGY_TARGETS: Record<LighthouseStrategy, readonly LighthouseRunStrategy[]> = {
+  mobile: ['mobile'],
+  desktop: ['desktop'],
+  both: ['mobile', 'desktop'],
+}
+
+/**
+ * The i18n key of each strategy label: the pickers and the score badges all read
+ * it, so a strategy cannot be labelled one way in the form and another in the
+ * table.
+ */
+export const LIGHTHOUSE_STRATEGY_KEYS: Record<LighthouseStrategy, string> = {
+  mobile: 'monitor.lighthouseStrategyMobile',
+  desktop: 'monitor.lighthouseStrategyDesktop',
+  both: 'monitor.lighthouseStrategyBoth',
+}
+
+/**
+ * lighthouseStrategy normalizes a stored strategy: an unknown value reads as the
+ * default run, like `models.NormalizeLighthouseStrategy` on the Go side.
  */
 export function lighthouseStrategy(value?: string | null): LighthouseStrategy {
-  return value === 'desktop' ? 'desktop' : DEFAULT_LIGHTHOUSE_STRATEGY
+  const raw = (value ?? '').trim().toLowerCase()
+  const found = LIGHTHOUSE_STRATEGIES.find((strategy) => strategy === raw)
+  return found ?? DEFAULT_LIGHTHOUSE_STRATEGY
+}
+
+/**
+ * lighthouseResults lists the observations of a monitor, one per run it measures
+ * with (a monitor set to `both` has two, mobile first), which is what the
+ * listings and the monitor detail render.
+ *
+ * A payload without `lighthouses` (an older node, a client that only knows the
+ * single field) falls back to `lighthouse`, so a stored score is never hidden.
+ */
+export function lighthouseResults(
+  monitor: Pick<Monitor, 'config' | 'lighthouse' | 'lighthouses'>,
+): LighthouseResult[] {
+  const stored = monitor.lighthouses ?? {}
+  const results = LIGHTHOUSE_STRATEGY_TARGETS[lighthouseStrategy(monitor.config?.lighthouse_strategy)]
+    .map((run) => stored[run])
+    .filter((result): result is LighthouseResult => Boolean(result))
+  if (results.length > 0) return results
+  return monitor.lighthouse ? [monitor.lighthouse] : []
 }
 
 /** The cadences the settings page and the monitor form offer (mirror of `models.LighthouseIntervals`). */

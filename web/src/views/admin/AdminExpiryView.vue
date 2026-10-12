@@ -380,14 +380,6 @@ onMounted(load)
       <span v-if="nextRunLabel"> {{ t('expiry.nextRun', { at: nextRunLabel }) }}</span>
     </Alert>
 
-    <Card :title="t('expiry.settingsTitle')" :description="t('expiry.settingsMoved')">
-      <template #footer>
-        <RouterLink to="/admin/settings">
-          <Button variant="outline" size="sm">{{ t('nav.settings') }}</Button>
-        </RouterLink>
-      </template>
-    </Card>
-
     <Card :title="t('expiry.parsersTitle')" :description="t('expiry.parsersHelp')">
       <template #actions>
         <Button

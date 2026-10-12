@@ -160,6 +160,9 @@ func Migrate(db *gorm.DB, log *slog.Logger) error {
 	if err := dropLegacyIndexes(db, log); err != nil {
 		return err
 	}
+	if err := widenLighthousePrimaryKey(db, log); err != nil {
+		return err
+	}
 	log.Info("database schema up to date", "tables", len(MigrationModels()))
 	return nil
 }

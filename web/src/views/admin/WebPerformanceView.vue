@@ -10,7 +10,6 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import LighthouseHistoryChart from '@/components/lighthouse/LighthouseHistoryChart.vue'
-import LighthouseJobCard from '@/components/lighthouse/LighthouseJobCard.vue'
 import LighthouseScores from '@/components/lighthouse/LighthouseScores.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
@@ -18,19 +17,21 @@ import { formatDateTime, scoreColor } from '@/lib/format'
 import {
   LIGHTHOUSE_INTERVAL_KEYS,
   effectiveLighthouseInterval,
+  lighthouseResults,
   monitorTarget,
 } from '@/lib/monitor-config'
 import { useToastStore } from '@/stores/toast'
 import type { LighthouseInterval, LighthouseRun, Monitor } from '@/lib/types'
 
 /**
- * WebPerformanceView is the admin page of the Lighthouse measurements: the job
- * configuration, the monitors that measure their page with their last score, and
- * the history of one monitor.
+ * WebPerformanceView is the admin page of the Lighthouse measurements: the
+ * monitors that measure their page with their last score, and the history of one
+ * monitor.
  *
- * The page is read-only about the monitors: the switch and the strategy belong to
- * the monitor form (and to a template), so this view never writes a monitor — it
- * only asks for a run.
+ * The job configuration (schedule, pacing, API key, retention) lives in
+ * Admin > Settings, and the switch and the strategy belong to the monitor form
+ * (and to a template), so this view never writes a monitor — it only asks for a
+ * run.
  */
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -199,8 +200,6 @@ onMounted(load)
       </div>
     </div>
 
-    <LighthouseJobCard @saved="load" />
-
     <Card :title="t('lighthouse.monitorsTitle')" :description="t('lighthouse.monitorsHelp')">
       <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div class="grid gap-1 sm:max-w-xs">
@@ -250,7 +249,18 @@ onMounted(load)
                 </span>
               </td>
               <td class="py-2 sm:min-w-72">
-                <LighthouseScores :result="monitor.lighthouse ?? null" :locale="locale" />
+                <div class="grid gap-2">
+                  <!-- One block per run the monitor measures (two for "both"). -->
+                  <LighthouseScores
+                    v-for="result in lighthouseResults(monitor)"
+                    :key="result.strategy"
+                    :result="result"
+                    :locale="locale"
+                  />
+                  <p v-if="!lighthouseResults(monitor).length" class="text-xs text-muted-foreground">
+                    {{ t('lighthouse.neverMeasured') }}
+                  </p>
+                </div>
               </td>
               <td class="whitespace-nowrap py-2 text-xs">
                 <span>{{ intervalLabel(monitor) }}</span>
@@ -293,7 +303,14 @@ onMounted(load)
       <div v-if="historyLoading" class="text-xs text-muted-foreground">{{ t('common.loading') }}</div>
       <div v-else class="grid gap-3">
         <LighthouseHistoryChart :runs="historyRuns" :locale="locale" />
-        <LighthouseScores v-if="historyMonitor" :result="historyMonitor.lighthouse ?? null" :locale="locale" />
+        <div v-if="historyMonitor" class="grid gap-2">
+          <LighthouseScores
+            v-for="result in lighthouseResults(historyMonitor)"
+            :key="result.strategy"
+            :result="result"
+            :locale="locale"
+          />
+        </div>
       </div>
       <template #footer>
         <Button variant="outline" @click="historyOpen = false">{{ t('common.close') }}</Button>
