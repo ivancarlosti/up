@@ -58,6 +58,19 @@ const router = createRouter({
       component: () => import('@/views/admin/WebPerformanceView.vue'),
       meta: { auth: true, app: true },
     },
+    /**
+     * The results of ONE measured page: every stored run, the vitals and the
+     * details of the last observation of each run. It is a page and not just a
+     * dialog because a monitor measured on "both" keeps two series, and a chart
+     * of two interleaved runs belongs on a page of its own (the listing links to
+     * it from each row).
+     */
+    {
+      path: '/admin/web-performance/:id',
+      name: 'admin-web-performance-monitor',
+      component: () => import('@/views/admin/WebPerformanceDetailView.vue'),
+      meta: { auth: true, app: true },
+    },
     {
       path: '/admin/status-pages',
       name: 'admin-status-pages',

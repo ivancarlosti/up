@@ -95,9 +95,9 @@ const (
 	DefaultLighthouseTimezone = "UTC"
 	// DefaultLighthouseRateLimitMS is the minimum delay between two PageSpeed
 	// Insights calls. The anonymous quota (no API key) is harsh and a Lighthouse
-	// run costs the API tens of seconds of real work: one call a minute is
-	// polite, and an operator with a key lowers it on the settings page.
-	DefaultLighthouseRateLimitMS = 60000
+	// run costs the API tens of seconds of real work: one call every five minutes
+	// is polite, and an operator with a key lowers it on the settings page.
+	DefaultLighthouseRateLimitMS = 300000
 	// DefaultLighthouseTimeoutSeconds bounds a single API call. A throttled
 	// mobile run regularly needs 30 to 45 seconds.
 	DefaultLighthouseTimeoutSeconds = 90

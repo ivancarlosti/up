@@ -74,6 +74,9 @@ func TestRunnerRunParsesTheReport(t *testing.T) {
 	if result.Status != models.LighthouseStatusOK {
 		t.Fatalf("status = %q", result.Status)
 	}
+	if result.Strategy != models.LighthouseStrategyMobile {
+		t.Fatalf("strategy = %q", result.Strategy)
+	}
 	if result.FinalURL != "https://www.example.com/" {
 		t.Fatalf("final url = %q", result.FinalURL)
 	}
@@ -91,6 +94,38 @@ func TestRunnerRunParsesTheReport(t *testing.T) {
 	}
 	if result.FirstContentfulPaintMS != 1834.512 || result.CumulativeLayoutShift != 0.012 {
 		t.Fatalf("vitals = %+v", result.LighthouseMeasurements)
+	}
+}
+
+// TestRunnerRunKeepsTheTargetStrategy pins the run an answer describes: the
+// service identifies a stored observation by (monitor, strategy), so a page
+// measured on "both" must come back once per run and never as the default one —
+// it used to come back without any strategy, which filed the desktop score on
+// the mobile row of the monitor.
+func TestRunnerRunKeepsTheTargetStrategy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(reportBody))
+	}))
+	defer server.Close()
+
+	runner := NewRunnerWithBaseURL(server.URL, "", 0)
+	for _, testCase := range []struct {
+		target string
+		want   string
+	}{
+		{target: "mobile", want: models.LighthouseStrategyMobile},
+		{target: "desktop", want: models.LighthouseStrategyDesktop},
+		{target: "DESKTOP", want: models.LighthouseStrategyDesktop},
+		{target: "", want: models.DefaultLighthouseStrategy},
+	} {
+		result, err := runner.Run(context.Background(), Target{URL: "https://example.com/", Strategy: testCase.target})
+		if err != nil {
+			t.Fatalf("Run(%q): %v", testCase.target, err)
+		}
+		if result.Strategy != testCase.want {
+			t.Fatalf("the strategy of %q = %q, want %q", testCase.target, result.Strategy, testCase.want)
+		}
 	}
 }
 

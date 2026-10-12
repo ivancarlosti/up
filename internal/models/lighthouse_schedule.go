@@ -34,8 +34,9 @@ const (
 	LighthouseIntervalDaily    = "daily"
 	LighthouseIntervalWeekly   = "weekly"
 	// DefaultLighthouseInterval is the cadence of a monitor that does not pick
-	// one: the daily measurement the feature shipped with.
-	DefaultLighthouseInterval = LighthouseIntervalDaily
+	// one: the weekly measurement is the pace a page really changes at, and the
+	// job clock falls back to it too.
+	DefaultLighthouseInterval = LighthouseIntervalWeekly
 )
 
 // LighthouseIntervals lists every accepted cadence (validation + API + UI).

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { History, Play, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ExternalLink, History, Play, RefreshCw, Trash2 } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -46,7 +46,7 @@ const monitors = ref<Monitor[]>([])
 const nextRun = ref<string | null>(null)
 const retentionDays = ref(30)
 /** Cadence of a monitor that carries none: the backend applies it, the page shows it. */
-const intervalDefault = ref<LighthouseInterval>('daily')
+const intervalDefault = ref<LighthouseInterval>('weekly')
 
 /**
  * How many runs the history dialog asks for. An hourly monitor stores 24 points a
@@ -248,7 +248,12 @@ onMounted(load)
                   → {{ monitor.lighthouse.final_url }}
                 </span>
               </td>
-              <td class="py-2 sm:min-w-72">
+              <!--
+                The row keeps the four scores and the run badge only: the vitals
+                and the timestamps of a run belong to the results page of the
+                monitor, linked from the actions below.
+              -->
+              <td class="py-2 sm:min-w-56">
                 <div class="grid gap-2">
                   <!-- One block per run the monitor measures (two for "both"). -->
                   <LighthouseScores
@@ -256,6 +261,7 @@ onMounted(load)
                     :key="result.strategy"
                     :result="result"
                     :locale="locale"
+                    compact
                   />
                   <p v-if="!lighthouseResults(monitor).length" class="text-xs text-muted-foreground">
                     {{ t('lighthouse.neverMeasured') }}
@@ -288,6 +294,16 @@ onMounted(load)
                     <History class="h-3.5 w-3.5" aria-hidden="true" />
                     {{ t('lighthouse.history') }}
                   </Button>
+                  <!-- The vitals, the audited URL and every stored run live there. -->
+                  <RouterLink
+                    :to="{ name: 'admin-web-performance-monitor', params: { id: monitor.id } }"
+                    :title="t('lighthouse.details')"
+                  >
+                    <Button variant="outline" size="sm">
+                      <ExternalLink class="h-3.5 w-3.5" aria-hidden="true" />
+                      {{ t('lighthouse.details') }}
+                    </Button>
+                  </RouterLink>
                 </div>
               </td>
             </tr>

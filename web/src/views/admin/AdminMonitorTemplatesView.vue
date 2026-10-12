@@ -307,7 +307,7 @@ const intervalOptions = computed(() =>
   LIGHTHOUSE_INTERVALS.map((interval) => ({ value: interval, label: t(LIGHTHOUSE_INTERVAL_KEYS[interval]) })),
 )
 const intervalValue = computed({
-  get: () => String(form.config.lighthouse_interval ?? 'daily'),
+  get: () => String(form.config.lighthouse_interval ?? 'weekly'),
   set: (value: string) => {
     form.config = { ...form.config, lighthouse_interval: lighthouseInterval(value) }
   },

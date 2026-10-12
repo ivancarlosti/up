@@ -49,8 +49,9 @@ func TestLighthouseIntervalNormalization(t *testing.T) {
 	if got := LighthouseIntervalDuration(LighthouseIntervalEvery6H); got != 6*time.Hour {
 		t.Fatalf("6h duration = %s", got)
 	}
-	if got := LighthouseIntervalDuration("nonsense"); got != 24*time.Hour {
-		t.Fatalf("the fallback duration = %s", got)
+	// An unknown cadence is measured at the default pace, whatever that pace is.
+	if got := LighthouseIntervalDuration("nonsense"); got != LighthouseIntervalDuration(DefaultLighthouseInterval) {
+		t.Fatalf("the fallback duration = %s, want the one of %q", got, DefaultLighthouseInterval)
 	}
 }
 

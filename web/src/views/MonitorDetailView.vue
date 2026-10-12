@@ -273,18 +273,25 @@ watch(hours, load)
         <template v-else-if="monitor.domain.status === 'unsupported'">{{ t('domain.unsupported') }}</template>
         <template v-else>{{ t('domain.unavailable') }}</template>
       </Badge>
-      <Badge
+      <!--
+        A score badge opens the web performance page of this monitor: the vitals,
+        the audited URL and every stored run live there, which is where a monitor
+        measured on "both" shows its two series.
+      -->
+      <RouterLink
         v-for="result in lighthouseBadges"
         :key="result.strategy"
-        :variant="lighthouseVariant(result)"
-        :title="lighthouseTitle(result, locale)"
-        class="ms-1"
+        :to="{ name: 'admin-web-performance-monitor', params: { id: monitor.id } }"
+        :aria-label="t('lighthouse.details')"
+        class="ms-1 inline-flex hover:opacity-80"
       >
-        <template v-if="result.status === 'ok'">
-          {{ strategyLabel(result) }} · {{ t('lighthouse.performance') }} {{ formatScore(result.performance) }}
-        </template>
-        <template v-else>{{ t('lighthouse.runFailed') }}</template>
-      </Badge>
+        <Badge :variant="lighthouseVariant(result)" :title="lighthouseTitle(result, locale)">
+          <template v-if="result.status === 'ok'">
+            {{ strategyLabel(result) }} · {{ t('lighthouse.performance') }} {{ formatScore(result.performance) }}
+          </template>
+          <template v-else>{{ t('lighthouse.runFailed') }}</template>
+        </Badge>
+      </RouterLink>
       <div class="ms-auto flex items-center gap-2">
         <Select v-model="windowValue" :options="windowOptions" class="w-24" :aria-label="t('common.uptime')" />
         <Button variant="outline" size="sm" @click="openEdit">

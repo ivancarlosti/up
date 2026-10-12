@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { computed, type Component } from 'vue'
+import { RouterLink, useRoute, type RouteLocationRaw } from 'vue-router'
 import {
   Bell,
   CalendarClock,
@@ -22,18 +22,38 @@ import { cn } from '@/lib/utils'
 const props = defineProps<{ mobileOpen: boolean }>()
 defineEmits<{ navigate: [] }>()
 
+/** One entry of the nav: a route, its icon and the routes that belong to it. */
+interface NavItem {
+  name: string
+  to: RouteLocationRaw
+  icon: Component
+  label: string
+  /**
+   * Detail routes of the entry. They are not entries of their own (nobody wants
+   * a second sidebar line per monitor), so the entry they belong to stays
+   * highlighted while one of them is open.
+   */
+  also?: string[]
+}
+
 const app = useAppStore()
 const { settings } = storeToRefs(app)
 const route = useRoute()
 
-const items = computed(() => [
+const items = computed<NavItem[]>(() => [
   { name: 'dashboard', to: { name: 'dashboard' }, icon: LayoutDashboard, label: 'nav.dashboard' },
   { name: 'monitor-groups', to: { name: 'admin-monitor-groups' }, icon: FolderTree, label: 'nav.monitorGroups' },
   { name: 'monitor-tags', to: { name: 'admin-monitor-tags' }, icon: Tags, label: 'nav.monitorTags' },
   { name: 'monitor-templates', to: { name: 'admin-monitor-templates' }, icon: FileCog, label: 'nav.monitorTemplates' },
   { name: 'notifications', to: { name: 'admin-notifications' }, icon: Bell, label: 'nav.notifications' },
   { name: 'expiry', to: { name: 'admin-expiry' }, icon: CalendarClock, label: 'nav.expiry' },
-  { name: 'web-performance', to: { name: 'admin-web-performance' }, icon: Gauge, label: 'nav.webPerformance' },
+  {
+    name: 'web-performance',
+    to: { name: 'admin-web-performance' },
+    icon: Gauge,
+    label: 'nav.webPerformance',
+    also: ['admin-web-performance-monitor'],
+  },
   { name: 'status-pages', to: { name: 'admin-status-pages' }, icon: Globe, label: 'nav.statusPages' },
   { name: 'security', to: { name: 'admin-security' }, icon: ShieldCheck, label: 'nav.security' },
   { name: 'cluster', to: { name: 'admin-cluster' }, icon: Network, label: 'nav.cluster' },
@@ -41,8 +61,9 @@ const items = computed(() => [
   { name: 'about', to: { name: 'admin-about' }, icon: Info, label: 'nav.about' },
 ])
 
-function isActive(name: string): boolean {
-  return route.name === name
+/** isActive reports whether an entry is the one being read (or one of its pages). */
+function isActive(item: NavItem): boolean {
+  return route.name === item.name || (item.also?.includes(String(route.name)) ?? false)
 }
 </script>
 
@@ -76,7 +97,7 @@ function isActive(name: string): boolean {
         :class="
           cn(
             'flex items-center gap-2.5 rounded-md px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            isActive(item.name) && 'bg-accent font-medium text-foreground',
+            isActive(item) && 'bg-accent font-medium text-foreground',
           )
         "
         @click="$emit('navigate')"

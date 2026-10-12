@@ -109,10 +109,13 @@ func (s *LighthouseService) Record(ctx context.Context, monitorID uint, result *
 		return ErrInternal(fmt.Errorf("storing the lighthouse result of monitor %d: %w", monitorID, err))
 	}
 
+	// The history row is filed under the same strategy as the current one, so a
+	// result that arrives without it (an older node during a rolling upgrade)
+	// lands with the run it was upserted into instead of in an empty column.
 	run := models.LighthouseRun{
 		MonitorID:              monitorID,
 		RanAt:                  result.RanAt,
-		Strategy:               result.Strategy,
+		Strategy:               models.NormalizeLighthouseStrategy(result.Strategy),
 		Status:                 result.Status,
 		Message:                result.Message,
 		RanByNode:              result.RanByNode,

@@ -49,9 +49,9 @@ const form = ref<LighthouseSettingsPayload & { retention_days: number }>({
   enabled: true,
   check_time: '04:00',
   check_timezone: 'UTC',
-  interval: 'daily',
+  interval: 'weekly',
   weekday: 'monday',
-  rate_limit_ms: 60000,
+  rate_limit_ms: 300000,
   timeout_seconds: 90,
   api_key: '',
   retention_days: 30,
@@ -140,7 +140,7 @@ async function save(): Promise<void> {
   try {
     await api.updateLighthouseSettings({
       ...form.value,
-      rate_limit_ms: toNumber(form.value.rate_limit_ms, 60000),
+      rate_limit_ms: toNumber(form.value.rate_limit_ms, 300000),
       timeout_seconds: toNumber(form.value.timeout_seconds, 90),
       retention_days: toNumber(form.value.retention_days, retentionDefault.value),
     })

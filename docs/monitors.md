@@ -849,7 +849,7 @@ on a cadence the monitor chooses** and an observation kept per monitor.
 |---|---|---|---|
 | `lighthouse_enabled` | `false` | - | `http` and `keyword` only: PageSpeed Insights audits a page |
 | `config.lighthouse_strategy` | `mobile` | mobile, desktop, both | which run produces the scores (`both` measures the page twice) |
-| `config.lighthouse_interval` | `daily` | hourly, 6h, 12h, daily, weekly | how often the page is measured (see *Cadence*) |
+| `config.lighthouse_interval` | `weekly` | hourly, 6h, 12h, daily, weekly | how often the page is measured (see *Cadence*) |
 
 ### Where the scores come from
 
@@ -864,7 +864,8 @@ no Chromium, no Node and no extra container: the only requirement is egress to
 `www.googleapis.com:443`, and the only configuration is an optional API key
 (`LIGHTHOUSE_API_KEY` seeds it, Admin > Settings overrides it). Without a key the
 API answers on the shared anonymous quota, which is heavily rate limited — the
-job paces itself accordingly (`rate_limit_ms`, 60 s by default).
+job paces itself accordingly (`rate_limit_ms`, 300000 ms — five minutes — by
+default).
 
 A failed run is **data, not an outage**: the monitor stores a `status: "error"`
 observation with the message the API returned ("Lighthouse returned error:
@@ -923,7 +924,11 @@ for a run now, not for a schedule.
 | `lighthouse_runs` | one row per run and per monitor: the same measurements, the chart timeline | pruned by `lighthouse_retention_days` (default **30**, `0` = keep forever, `LIGHTHOUSE_RETENTION_DAYS` as the environment fallback) |
 
 The two tables hold the same measurements on purpose: what the list shows and
-what the chart plots can never disagree. The history is an observation, so it is
+what the chart plots can never disagree. Every observation **carries the run that
+produced it**: the job stamps the strategy of the target on the result (`TargetsFor`
+expands `both` into two runs) and both tables identify the row by it, so a monitor
+measured on both runs keeps one current row per run and two points per instant in
+the timeline. The history is an observation, so it is
 **not** synchronised between nodes (like heartbeats and certificates), while
 `lighthouse_enabled`, the strategy and the cadence travel with the monitor like
 every other column. `settings.lighthouse_last_run_day` is kept as information (the
@@ -937,7 +942,15 @@ that, and the *Web performance* page has a *purge now* for the explicit cleanup.
 ### The admin page
 
 *Web performance* (sidebar) holds the job configuration, the counters, the list of
-measured pages with their last scores and vitals, and a per-monitor history chart.
+measured pages with their last scores and a per-monitor history chart. A row shows
+one block of scores per run the monitor measures (two of them for `both`) and
+nothing else: the vitals, the URL Lighthouse audited and the run history live on
+the **results page** of that monitor (`/admin/web-performance/:id`, linked from the
+row and from the score badges of the monitor detail page), which also offers
+*measure now*, the trend of every run (one run at a time when the monitor measures
+both) and the table of every stored run. The *History* dialog of the list is kept
+for the quick look, without leaving the table.
+
 The same configuration is edited from Admin > Settings, which is also where the
 **certificate & domain job settings moved** (the TLD/SSL page keeps the target
 list, the WHOIS rules and its own *check now*).

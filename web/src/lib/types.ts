@@ -71,7 +71,7 @@ export interface MonitorConfig {
   lighthouse_strategy?: LighthouseStrategy
   /**
    * How often the page is measured (see `lighthouse_enabled`): `hourly`, `6h`,
-   * `12h`, `daily` (default) or `weekly`. Absent means the cadence of the job
+   * `12h`, `daily` or `weekly` (default). Absent means the cadence of the job
    * (Admin > Web performance), which is what a monitor stored before the field
    * existed follows.
    */

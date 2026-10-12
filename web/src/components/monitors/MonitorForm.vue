@@ -129,7 +129,7 @@ const intervalOptions = computed(() =>
 
 /** How often the page is measured, read and written as a string (Select contract). */
 const intervalValue = computed({
-  get: () => String(config.value.lighthouse_interval ?? 'daily'),
+  get: () => String(config.value.lighthouse_interval ?? 'weekly'),
   set: (value: string) => {
     form.config = { ...config.value, lighthouse_interval: lighthouseInterval(value) }
   },

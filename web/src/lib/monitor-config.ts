@@ -193,7 +193,7 @@ export function lighthouseResults(
 export const LIGHTHOUSE_INTERVALS: readonly LighthouseInterval[] = ['hourly', '6h', '12h', 'daily', 'weekly']
 
 /** The cadence a monitor measures with when it does not pick one. */
-export const DEFAULT_LIGHTHOUSE_INTERVAL: LighthouseInterval = 'daily'
+export const DEFAULT_LIGHTHOUSE_INTERVAL: LighthouseInterval = 'weekly'
 
 /** The weekdays the settings page offers (mirror of `models.LighthouseWeekdays`). */
 export const LIGHTHOUSE_WEEKDAYS: readonly LighthouseWeekday[] = [

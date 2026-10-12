@@ -193,7 +193,11 @@ switch is on, the decorated monitor carries a `lighthouse` object (`status`,
 `strategy`, `performance`, `accessibility`, `best_practices`, `seo`, the five
 vitals, `final_url`, `ran_at`, `fetch_time`) plus a `lighthouses` map with one
 entry per measured run (`mobile`, `desktop`); a score the API could not measure is
-`null` (never `0`) and a failed run is `status: "error"` with its `message`. On the
+`null` (never `0`) and a failed run is `status: "error"` with its `message`. Every
+stored observation **carries the run that produced it** (`strategy` is `mobile` or
+`desktop`, never `both`): the job stamps it from the target, which is why a monitor
+measured on `both` holds one entry per run and its history holds one point per run.
+On the
 *Web performance* listing the same objects also carry the computed `interval` and
 `next_run` of the monitor. The job, its schedule (cadence, weekday, time of day,
 the shared timezone), the API key and the history are managed by
@@ -512,7 +516,7 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | POST | `/api/admin/expiry/whois-parsers/test` | runs a candidate rule against a live `domain` or a pasted `raw` response -> `{ok, raw, not_found, expires_at?, days_left?, error?}` |
 | POST | `/api/admin/expiry/whois-parsers/reset` | **destructive**: deletes every rule (custom ones included) and installs the built-in table again -> `{parsers, count}` |
 | GET | `/api/admin/lighthouse` | web performance job: `{settings, defaults, intervals, weekdays, last_run_day, next_run, retention_days, retention_max, retention_default, stats}` |
-| PUT | `/api/admin/lighthouse` | job settings: `enabled`, `check_time` (`04:00`), `check_timezone` (IANA, mirrored from the shared `timezone` of `/api/admin/settings`), `interval` (`daily`, the cadence of a monitor that carries none), `weekday` (`monday`, anchors the weekly cadence), `rate_limit_ms` (`60000`), `timeout_seconds` (`90`), `api_key`, plus the optional `retention_days` |
+| PUT | `/api/admin/lighthouse` | job settings: `enabled`, `check_time` (`04:00`), `check_timezone` (IANA, mirrored from the shared `timezone` of `/api/admin/settings`), `interval` (`weekly`, the cadence of a monitor that carries none), `weekday` (`monday`, anchors the weekly cadence), `rate_limit_ms` (`300000`), `timeout_seconds` (`90`), `api_key`, plus the optional `retention_days` |
 | POST | `/api/admin/lighthouse/run` | measures every deduplicated `url + strategy` target now -> `{ran: true, at}` (asynchronous, paced by the job limiter) |
 | GET | `/api/admin/lighthouse/monitors` | the monitors that measure their page, with their last observation and its computed `interval` + `next_run`: `{monitors, count, stats, interval_default, retention_days, next_run}` |
 | POST | `/api/admin/lighthouse/monitors/:id/run` | measures ONE monitor now (both runs when its strategy is `both`) -> `{ran: true, at, result?, results?}` |

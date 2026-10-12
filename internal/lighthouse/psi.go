@@ -127,7 +127,7 @@ func (r *Runner) Run(ctx context.Context, target Target) (*models.LighthouseResu
 	if payload.LighthouseResult == nil {
 		return nil, errors.New("the PageSpeed Insights API answered without a Lighthouse report")
 	}
-	return payload.result(), nil
+	return payload.result(target.Strategy), nil
 }
 
 // Wire types ----------------------------------------------------------------
@@ -166,10 +166,17 @@ type psiAudit struct {
 }
 
 // result converts the answer into the observation stored and displayed.
-func (p *psiResponse) result() *models.LighthouseResult {
+//
+// The strategy travels with the TARGET, not with the answer: PageSpeed Insights
+// echoes it in the report (in `configSettings`, which Up does not decode) and the
+// caller identifies the stored observation by (monitor, strategy). A result
+// without it is filed under the default run, so a page measured on "both" would
+// see its desktop score upserted onto its mobile row and no desktop row at all.
+func (p *psiResponse) result(strategy string) *models.LighthouseResult {
 	report := p.LighthouseResult
 	out := &models.LighthouseResult{
 		Status:   models.LighthouseStatusOK,
+		Strategy: models.NormalizeLighthouseStrategy(strategy),
 		FinalURL: strings.TrimSpace(report.FinalURL),
 	}
 	if out.FinalURL == "" {
