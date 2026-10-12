@@ -941,15 +941,14 @@ that, and the *Web performance* page has a *purge now* for the explicit cleanup.
 
 ### The admin page
 
-*Web performance* (sidebar) holds the job configuration, the counters, the list of
-measured pages with their last scores and a per-monitor history chart. A row shows
-one block of scores per run the monitor measures (two of them for `both`) and
-nothing else: the vitals, the URL Lighthouse audited and the run history live on
-the **results page** of that monitor (`/admin/web-performance/:id`, linked from the
-row and from the score badges of the monitor detail page), which also offers
-*measure now*, the trend of every run (one run at a time when the monitor measures
-both) and the table of every stored run. The *History* dialog of the list is kept
-for the quick look, without leaving the table.
+*Web performance* (sidebar) holds the job configuration, the counters and the
+list of measured pages with their last scores. A row shows one block of scores per
+run the monitor measures (two of them for `both`) and nothing else: the vitals, the
+URL Lighthouse audited and the run history live on the **results page** of that
+monitor (`/admin/web-performance/:id`, linked from the row and from the score badges
+of the monitor detail page), which also offers *measure now*, the trend of every run
+(one run at a time when the monitor measures both) and the table of every stored
+run.
 
 The same configuration is edited from Admin > Settings, which is also where the
 **certificate & domain job settings moved** (the TLD/SSL page keeps the target

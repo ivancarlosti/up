@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink, History, Play, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ExternalLink, Play, RefreshCw, Trash2 } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
-import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
-import LighthouseHistoryChart from '@/components/lighthouse/LighthouseHistoryChart.vue'
 import LighthouseScores from '@/components/lighthouse/LighthouseScores.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
@@ -21,17 +19,17 @@ import {
   monitorTarget,
 } from '@/lib/monitor-config'
 import { useToastStore } from '@/stores/toast'
-import type { LighthouseInterval, LighthouseRun, Monitor } from '@/lib/types'
+import type { LighthouseInterval, Monitor } from '@/lib/types'
 
 /**
  * WebPerformanceView is the admin page of the Lighthouse measurements: the
- * monitors that measure their page with their last score, and the history of one
- * monitor.
+ * monitors that measure their page, with their last score.
  *
  * The job configuration (schedule, pacing, API key, retention) lives in
  * Admin > Settings, and the switch and the strategy belong to the monitor form
  * (and to a template), so this view never writes a monitor — it only asks for a
- * run.
+ * run. The vitals, the audited URL and the whole run history belong to the
+ * results page of a monitor (`/admin/web-performance/:id`), linked from every row.
  */
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -47,18 +45,6 @@ const nextRun = ref<string | null>(null)
 const retentionDays = ref(30)
 /** Cadence of a monitor that carries none: the backend applies it, the page shows it. */
 const intervalDefault = ref<LighthouseInterval>('weekly')
-
-/**
- * How many runs the history dialog asks for. An hourly monitor stores 24 points a
- * day, so the chart reads the newest few hundred instead of the whole table.
- */
-const HISTORY_LIMIT = 200
-
-// History dialog: the runs of the monitor the operator opened.
-const historyOpen = ref(false)
-const historyLoading = ref(false)
-const historyMonitor = ref<Monitor | null>(null)
-const historyRuns = ref<LighthouseRun[]>([])
 
 /** Text filter of the monitors table (name, target, strategy). */
 const search = ref('')
@@ -140,22 +126,6 @@ async function runMonitor(monitor: Monitor): Promise<void> {
     toasts.error(t('common.error'), translateError(error))
   } finally {
     runningMonitor.value = null
-  }
-}
-
-/** openHistory loads the runs of one monitor and opens the chart. */
-async function openHistory(monitor: Monitor): Promise<void> {
-  historyMonitor.value = monitor
-  historyRuns.value = []
-  historyOpen.value = true
-  historyLoading.value = true
-  try {
-    const response = await api.lighthouseHistory(monitor.id, HISTORY_LIMIT)
-    historyRuns.value = response.runs
-  } catch (error) {
-    toasts.error(t('common.error'), translateError(error))
-  } finally {
-    historyLoading.value = false
   }
 }
 
@@ -290,10 +260,6 @@ onMounted(load)
                     <Play class="h-3.5 w-3.5" aria-hidden="true" />
                     {{ t('lighthouse.runNow') }}
                   </Button>
-                  <Button variant="outline" size="sm" @click="openHistory(monitor)">
-                    <History class="h-3.5 w-3.5" aria-hidden="true" />
-                    {{ t('lighthouse.history') }}
-                  </Button>
                   <!-- The vitals, the audited URL and every stored run live there. -->
                   <RouterLink
                     :to="{ name: 'admin-web-performance-monitor', params: { id: monitor.id } }"
@@ -311,27 +277,6 @@ onMounted(load)
         </table>
       </div>
     </Card>
-
-    <Dialog
-      v-model="historyOpen"
-      :title="historyMonitor ? t('lighthouse.historyTitleOf', { name: historyMonitor.name }) : t('lighthouse.history')"
-    >
-      <div v-if="historyLoading" class="text-xs text-muted-foreground">{{ t('common.loading') }}</div>
-      <div v-else class="grid gap-3">
-        <LighthouseHistoryChart :runs="historyRuns" :locale="locale" />
-        <div v-if="historyMonitor" class="grid gap-2">
-          <LighthouseScores
-            v-for="result in lighthouseResults(historyMonitor)"
-            :key="result.strategy"
-            :result="result"
-            :locale="locale"
-          />
-        </div>
-      </div>
-      <template #footer>
-        <Button variant="outline" @click="historyOpen = false">{{ t('common.close') }}</Button>
-      </template>
-    </Dialog>
 
     <ConfirmDialog
       v-model="purgeOpen"

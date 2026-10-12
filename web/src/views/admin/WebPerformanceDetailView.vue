@@ -30,9 +30,8 @@ import type { LighthouseInterval, LighthouseResult, LighthouseRun, Monitor } fro
  * the details the listing has no room for (the vitals, the audited URL, the node
  * that ran it) and the whole stored history.
  *
- * The listing keeps the scores and links here; the history *dialog* of the
- * listing is untouched, because it answers a different question ("how did this
- * page move lately?") without leaving the table.
+ * The listing keeps the scores and links here, the only surface that reads the
+ * history: the row no longer opens a dialog of its own.
  *
  * The page never writes a monitor: measuring on demand is the job's own endpoint,
  * and the switch, the strategy and the cadence belong to the monitor form.
