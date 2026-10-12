@@ -37,6 +37,9 @@ type Scheduler struct {
 	certificates *services.CertificateService
 	// expiry runs the daily certificate/domain refresh (optional: nil disables it).
 	expiry *services.ExpiryService
+	// lighthouse runs the daily web performance measurement (optional: nil
+	// disables it).
+	lighthouse *services.LighthouseService
 	// notifications is injected for the retention job only: the delivery history
 	// is the one notification table that grows over time, and the scheduler owns
 	// the housekeeping loop.
@@ -106,6 +109,9 @@ func (s *Scheduler) SetCertificateService(c *services.CertificateService) { s.ce
 
 // SetExpiryService injects the daily certificate/domain refresh job.
 func (s *Scheduler) SetExpiryService(e *services.ExpiryService) { s.expiry = e }
+
+// SetLighthouseService injects the daily web performance job.
+func (s *Scheduler) SetLighthouseService(l *services.LighthouseService) { s.lighthouse = l }
 
 // SetNotificationService injects the notification service so the maintenance
 // loop can apply NOTIFICATION_LOG_RETENTION_DAYS to the delivery history.

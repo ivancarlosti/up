@@ -62,6 +62,9 @@ const (
 	// Domain expiration
 	CodeMonitorDomain = "ERR_MONITOR_DOMAIN_INVALID"
 
+	// Lighthouse web performance
+	CodeMonitorLighthouse = "ERR_MONITOR_LIGHTHOUSE_INVALID"
+
 	// Notifications
 	CodeNotificationNotFound = "ERR_NOTIFICATION_NOT_FOUND"
 	CodeNotificationConfig   = "ERR_NOTIFICATION_CONFIG_INVALID"
@@ -104,6 +107,7 @@ func AllCodes() []string {
 		CodeMonitorGroupNotFound, CodeMonitorGroupInvalid,
 		CodeMonitorTemplateNotFound, CodeMonitorTemplateInvalid, CodeMonitorBulkInvalid,
 		CodeMonitorCert, CodeMonitorDomain,
+		CodeMonitorLighthouse,
 		CodeNotificationNotFound, CodeNotificationConfig, CodeNotificationSend,
 		CodeClusterDisabled, CodeClusterKeyInvalid, CodeClusterJoinFailed, CodeClusterPrimarySelf,
 		CodeClusterStrategy,

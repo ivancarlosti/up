@@ -10,9 +10,14 @@ import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
 import {
+  LIGHTHOUSE_INTERVALS,
+  LIGHTHOUSE_INTERVAL_KEYS,
+  LIGHTHOUSE_STRATEGIES,
+  lighthouseInterval,
   sanitizeMonitorPayload,
   supportsCertificate as typeSupportsCertificate,
   supportsDomainWatch as typeSupportsDomainWatch,
+  supportsLighthouse as typeSupportsLighthouse,
 } from '@/lib/monitor-config'
 import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, MonitorGroup, MonitorTemplate, Notification } from '@/lib/types'
 
@@ -57,6 +62,7 @@ function emptyForm(): MonitorPayload {
     domain_notify: false,
     domain_warn_days: '',
     domain_expires_at: null,
+    lighthouse_enabled: false,
   }
 }
 
@@ -96,6 +102,37 @@ const supportsCertificate = computed(() => typeSupportsCertificate(type.value))
 
 /** Every type has a target a registrable domain can be derived from. */
 const supportsDomain = computed(() => typeSupportsDomainWatch(type.value))
+
+/** Only the two HTTP(s) types have a page PageSpeed Insights can audit. */
+const supportsLighthouse = computed(() => typeSupportsLighthouse(type.value))
+
+const strategyOptions = computed(() =>
+  LIGHTHOUSE_STRATEGIES.map((strategy) => ({
+    value: strategy,
+    label: strategy === 'desktop' ? t('monitor.lighthouseStrategyDesktop') : t('monitor.lighthouseStrategyMobile'),
+  })),
+)
+
+/** The strategy of the run, read and written as a string (Select contract). */
+const strategyValue = computed({
+  get: () => String(config.value.lighthouse_strategy ?? 'mobile'),
+  set: (value: string) => {
+    form.config = { ...config.value, lighthouse_strategy: value as MonitorConfig['lighthouse_strategy'] }
+  },
+})
+
+/** The cadences the job accepts (the same list the settings page offers). */
+const intervalOptions = computed(() =>
+  LIGHTHOUSE_INTERVALS.map((interval) => ({ value: interval, label: t(LIGHTHOUSE_INTERVAL_KEYS[interval]) })),
+)
+
+/** How often the page is measured, read and written as a string (Select contract). */
+const intervalValue = computed({
+  get: () => String(config.value.lighthouse_interval ?? 'daily'),
+  set: (value: string) => {
+    form.config = { ...config.value, lighthouse_interval: lighthouseInterval(value) }
+  },
+})
 
 /**
  * Type of the template the monitor follows, when the template list is available:
@@ -178,6 +215,7 @@ function onTemplateChange(uuid: string): void {
   form.domain_watch = defaults.domain_watch
   form.domain_notify = defaults.domain_notify
   form.domain_warn_days = defaults.domain_warn_days
+  form.lighthouse_enabled = defaults.lighthouse_enabled
 }
 
 function toggleNotification(id: number, value: boolean): void {
@@ -405,6 +443,29 @@ function submit(): void {
       <section v-if="props.groups?.length" class="grid gap-1 border-t border-border pt-4">
         <Label for="monitor-group" :help="t('monitor.groupsHelp')">{{ t('monitor.groupsSection') }}</Label>
         <Select id="monitor-group" v-model="groupValue" :options="groupOptions" class="sm:max-w-sm" />
+      </section>
+
+      <!-- Web performance (Google Lighthouse through PageSpeed Insights) -->
+      <section v-if="supportsLighthouse" id="monitor-lighthouse" class="grid gap-2 border-t border-border pt-4">
+        <Label :help="t('monitor.lighthouseHelp')">{{ t('monitor.lighthouseSection') }}</Label>
+        <div class="flex flex-wrap items-center gap-4">
+          <Switch v-model="form.lighthouse_enabled as boolean">{{ t('monitor.lighthouseEnabled') }}</Switch>
+        </div>
+        <div v-if="form.lighthouse_enabled" class="grid gap-3 sm:grid-cols-2">
+          <div class="grid gap-1 sm:max-w-sm">
+            <Label for="monitor-lighthouse-strategy" :help="t('monitor.lighthouseStrategyHelp')">
+              {{ t('monitor.lighthouseStrategy') }}
+            </Label>
+            <Select id="monitor-lighthouse-strategy" v-model="strategyValue" :options="strategyOptions" />
+          </div>
+          <div class="grid gap-1 sm:max-w-sm">
+            <Label for="monitor-lighthouse-interval" :help="t('monitor.lighthouseIntervalHelp')">
+              {{ t('monitor.lighthouseInterval') }}
+            </Label>
+            <Select id="monitor-lighthouse-interval" v-model="intervalValue" :options="intervalOptions" />
+          </div>
+        </div>
+        <p class="text-xs text-muted-foreground">{{ t('monitor.lighthouseScheduleHint') }}</p>
       </section>
     </div>
 

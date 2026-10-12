@@ -201,6 +201,7 @@ func monitorFromBulkRow(template *models.MonitorTemplate, row BulkRow, opts Bulk
 		DomainWatch:            template.Defaults.DomainWatch,
 		DomainNotify:           template.Defaults.DomainNotify,
 		DomainWarnDays:         template.Defaults.DomainWarnDays,
+		LighthouseEnabled:      template.Defaults.LighthouseEnabled,
 		// A monitor imported from a template follows it, so a later template edit
 		// reaches it too.
 		TemplateUUID: templateUUID,
@@ -244,6 +245,10 @@ func sanitizeBulkDefaults(monitor *models.Monitor) {
 		monitor.DomainWatch = false
 		monitor.DomainNotify = false
 		monitor.DomainWarnDays = ""
+	}
+	if !monitor.Type.SupportsLighthouse() || !monitor.LighthouseEnabled {
+		monitor.LighthouseEnabled = false
+		monitor.Config.LighthouseStrategy = ""
 	}
 }
 

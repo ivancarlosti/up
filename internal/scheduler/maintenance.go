@@ -18,6 +18,9 @@ import (
 //     time): it refreshes the deduplicated TLS certificate and domain
 //     registrations with a single lookup per target and sends the reminders that
 //     are due (see services.ExpiryService).
+//   - the web performance job (ticked every minute too, run once a day at its own
+//     configured time): it scores the page of every measuring monitor with the
+//     deduplicated target of each run (see services.LighthouseService).
 //   - retention (every 6h): heartbeats when HEARTBEAT_RETENTION_DAYS > 0,
 //     notification de-duplication locks always, delivery history when
 //     NOTIFICATION_LOG_RETENTION_DAYS > 0.
@@ -29,6 +32,11 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	// configured time of day has been reached: a daily certificate/domain check
 	// must not depend on a process that happens to be up at 03:00.
 	expiry := time.NewTicker(time.Minute)
+	// The web performance job ticks the same way (its own clock and timezone,
+	// default 04:00 UTC). Every monitor picks its own cadence (hourly to
+	// weekly), so a tick only measures the monitors that are due — and it never
+	// blocks the loop, see the case below.
+	lighthouseTick := time.NewTicker(time.Minute)
 	retention := time.NewTicker(6 * time.Hour)
 
 	// The pull loop only exists when this node synchronises with peers. A nil
@@ -60,6 +68,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer sweep.Stop()
 		defer reconcile.Stop()
 		defer expiry.Stop()
+		defer lighthouseTick.Stop()
 		defer retention.Stop()
 		if pull != nil {
 			defer pull.Stop()
@@ -100,6 +109,24 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				"rdap", settings.RDAPEnabled,
 				"whois", settings.WHOISEnabled)
 		}
+		// The same visibility for the web performance job: it reports its own
+		// schedule (the default cadence; each monitor can pick its own) and
+		// whether it is switched off.
+		if s.lighthouse != nil {
+			settings := s.lighthouse.Settings()
+			if settings.Enabled {
+				s.log.Info("lighthouse job scheduled",
+					"check_time", settings.CheckTime,
+					"timezone", settings.CheckTimezone,
+					"strategy", settings.Strategy,
+					"interval", settings.Interval,
+					"weekday", settings.Weekday,
+					"next_run", s.lighthouse.NextRun(time.Now().UTC()).Format(time.RFC3339),
+					"api_key", settings.APIKey != "")
+			} else {
+				s.log.Info("lighthouse job disabled: no page is measured")
+			}
+		}
 		// The first pull happens right after the boot, so a node that was restarted
 		// catches up without waiting a whole interval.
 		if s.sync != nil {
@@ -136,6 +163,18 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 					if err := s.expiry.RunDue(ctx, time.Now().UTC()); err != nil {
 						s.log.Error("could not run the expiry job", "error", err)
 					}
+				}
+			case <-lighthouseTick.C:
+				// The tick never blocks the loop: a run queues behind the
+				// limiter (one API call a minute) and can easily outlast the
+				// tick, so it is handed to a goroutine that skips itself while
+				// the previous run is still working.
+				if s.lighthouse != nil {
+					go func(moment time.Time) {
+						if err := s.lighthouse.RunDue(ctx, moment); err != nil {
+							s.log.Error("could not run the lighthouse job", "error", err)
+						}
+					}(time.Now().UTC())
 				}
 			case <-retention.C:
 				s.purgeRetention(ctx)
@@ -209,6 +248,19 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		case deleted > 0:
 			s.log.Info("notification log retention purge finished",
 				"deleted", deleted, "older_than_days", s.cfg.NotificationLogRetentionDays)
+		}
+	}
+
+	// The web performance history is bounded by its own retention (default 30
+	// days, 0 = keep forever).
+	if s.lighthouse != nil {
+		if days := s.lighthouse.RetentionDays(); days > 0 {
+			switch deleted, err := s.lighthouse.Purge(ctx); {
+			case err != nil:
+				s.log.Error("lighthouse retention purge failed", "error", err)
+			case deleted > 0:
+				s.log.Info("lighthouse retention purge finished", "deleted", deleted, "older_than_days", days)
+			}
 		}
 	}
 

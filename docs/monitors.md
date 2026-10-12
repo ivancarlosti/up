@@ -22,6 +22,7 @@
 | `node_id` | - | - | required when `run_on=node` |
 | `run_on_nodes` | - | - | comma separated node ids, required when `run_on=some` |
 | `tags` | - | 255 chars | comma separated, used by filters, status pages and tag scopes |
+| `lighthouse_enabled` | `false` | - | measure the page with Google Lighthouse (only `http`/`keyword`; see §15) |
 
 ### Retries, verdicts and "check now"
 
@@ -835,3 +836,108 @@ The rules (`web/src/lib/sort.ts`):
   unknown, maintenance, up) and the **paused** monitors stay last either way;
 - every comparison falls back to the name, so a re-render never reshuffles rows
   with equal values.
+
+## 15. Web performance (Google Lighthouse)
+
+A monitor can opt into a **web performance measurement** with `lighthouse_enabled`
+(Admin > Settings holds the job; the *Web performance* page shows the results). It
+is the third watch of a monitor, after the certificate and the domain, and it
+follows the same philosophy: an **admin switch** for the job, a **deduplicated run
+on a cadence the monitor chooses** and an observation kept per monitor.
+
+| Field | Default | Range | Notes |
+|---|---|---|---|
+| `lighthouse_enabled` | `false` | - | `http` and `keyword` only: PageSpeed Insights audits a page |
+| `config.lighthouse_strategy` | `mobile` | mobile, desktop | which run produces the scores |
+| `config.lighthouse_interval` | `daily` | hourly, 6h, 12h, daily, weekly | how often the page is measured (see *Cadence*) |
+
+### Where the scores come from
+
+The job calls the **PageSpeed Insights API** (`runPagespeed`, v5) with the
+monitor's URL; Up parses the answer and stores four category scores (performance,
+accessibility, best practices, SEO, `0..100`) plus the Core Web Vitals (FCP, LCP,
+TBT, CLS, speed index). Nothing else is kept: no HTML, no audit list, no
+screenshot, so the history table stays small.
+
+The API does the rendering in Google's own infrastructure, which is why Up needs
+no Chromium, no Node and no extra container: the only requirement is egress to
+`www.googleapis.com:443`, and the only configuration is an optional API key
+(`LIGHTHOUSE_API_KEY` seeds it, Admin > Settings overrides it). Without a key the
+API answers on the shared anonymous quota, which is heavily rate limited — the
+job paces itself accordingly (`rate_limit_ms`, 60 s by default).
+
+A failed run is **data, not an outage**: the monitor stores a `status: "error"`
+observation with the message the API returned ("Lighthouse returned error:
+ERRORED_DOCUMENT_REQUEST"), exactly like a certificate that could not be read.
+
+### Deduplication
+
+The worklist is built from the monitors and deduplicated by `url + strategy`:
+
+- two monitors on `https://example.com/` measure **one** page (one API call, both
+  get the score);
+- `https://example.com` and `https://EXAMPLE.com/` are the same target (the URL is
+  canonicalized: scheme/host lower cased, default port dropped, fragment removed);
+- switching one of them to `desktop` makes it a second target on purpose.
+
+### Cadence
+
+The run is anchored at `check_time` in `check_timezone` (defaults `04:00` / `UTC`,
+both in Admin > Settings) and every monitor picks its own cadence with
+`config.lighthouse_interval`:
+
+| Cadence | When it runs |
+|---|---|
+| `hourly` | every hour, at the minute of `check_time` (`04:15` gives `:15` every hour) |
+| `6h` | every 6 hours, repeating from `check_time` (`04:15` gives `04:15`, `10:15`, `16:15`, `22:15`) |
+| `12h` | every 12 hours, repeating from `check_time` (`04:15` gives `04:15` and `16:15`) |
+| `daily` | once a day at `check_time` |
+| `weekly` | once a week at `check_time`, on the weekday of `settings.lighthouse_weekday` (default `monday`) |
+
+`settings.lighthouse_interval` is the cadence of a monitor that carries **none** (a
+row written before the field existed): it is a fallback, never an override.
+Turning the switch off clears the strategy and the cadence, so a stale one can
+never apply to the next enable, and the cadence travels with a template exactly
+like the strategy does.
+
+Due-ness is **derived, never counted**: the ticker runs every minute, reads
+`monitor_lighthouses.ran_at` and asks the schedule for the next instant of each
+monitor's cadence. A process that was down during a slot therefore catches up on
+its next tick, a restart repeats nothing, and every node of a cluster derives the
+same answer (the cluster lock elects who performs the runs of the hour slot, so
+the PageSpeed Insights quota is spent once). A monitor that becomes due while a run
+is in flight is measured by the following tick instead of queueing behind it: the
+ticker never blocks, while the manual actions wait for a run in flight.
+
+The admin page also offers a global *measure now* and a per-monitor one, both
+asynchronous and paced by the same limiter, so a bulk edit that turns the switch on
+for 30 monitors does not burst the API. Both ignore the cadence: the operator asked
+for a run now, not for a schedule.
+
+### What is stored
+
+| Table | Content | Growth |
+|---|---|---|
+| `monitor_lighthouses` | one row per monitor: the last observation (status, strategy, scores, vitals, when, which node) | bounded by the number of monitors |
+| `lighthouse_runs` | one row per run and per monitor: the same measurements, the chart timeline | pruned by `lighthouse_retention_days` (default **30**, `0` = keep forever, `LIGHTHOUSE_RETENTION_DAYS` as the environment fallback) |
+
+The two tables hold the same measurements on purpose: what the list shows and
+what the chart plots can never disagree. The history is an observation, so it is
+**not** synchronised between nodes (like heartbeats and certificates), while
+`lighthouse_enabled`, the strategy and the cadence travel with the monitor like
+every other column. `settings.lighthouse_last_run_day` is kept as information (the
+admin page reports the last run day) but the schedule no longer reads it: the only
+state a cadence needs is the instant of the last observation of each monitor.
+
+Turning the switch off **forgets the last score** (a monitor that no longer
+measures must not keep showing one) but keeps its history: the retention owns
+that, and the *Web performance* page has a *purge now* for the explicit cleanup.
+
+### The admin page
+
+*Web performance* (sidebar) holds the job configuration, the counters, the list of
+measured pages with their last scores and vitals, and a per-monitor history chart.
+The same configuration is edited from Admin > Settings, which is also where the
+**certificate & domain job settings moved** (the TLD/SSL page keeps the target
+list, the WHOIS rules and its own *check now*).
+

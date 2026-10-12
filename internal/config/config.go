@@ -197,6 +197,14 @@ type Config struct {
 	// CRUD handlers can only touch the process that served the request.
 	SchedulerReconcileSeconds int
 	HeartbeatRetentionDays    int
+	// LighthouseAPIKey seeds the PageSpeed Insights key sent as the `key`
+	// parameter. The shared setting wins once an admin types one, so the
+	// variable is only the fallback of a deployment that never opened Admin >
+	// Settings. Empty means the anonymous quota.
+	LighthouseAPIKey string
+	// LighthouseRetentionDays is the fallback of the web performance history
+	// retention (the shared setting wins), exactly like HeartbeatRetentionDays.
+	LighthouseRetentionDays int
 	// NotificationLogRetentionDays purges the delivery history
 	// (notification_logs). 0 keeps every entry, so retention is opt-in and
 	// nothing is deleted behind the operator's back. Unlike the heartbeat
@@ -265,6 +273,8 @@ func Load() (*Config, error) {
 		SchedulerMaxConcurrent:        envInt("SCHEDULER_MAX_CONCURRENT", 20),
 		SchedulerReconcileSeconds:     envInt("SCHEDULER_RECONCILE_SECONDS", 30),
 		HeartbeatRetentionDays:        envInt("HEARTBEAT_RETENTION_DAYS", 0),
+		LighthouseAPIKey:              strings.TrimSpace(env("LIGHTHOUSE_API_KEY", "")),
+		LighthouseRetentionDays:       envInt("LIGHTHOUSE_RETENTION_DAYS", 0),
 		NotificationLogRetentionDays:  envInt("NOTIFICATION_LOG_RETENTION_DAYS", 0),
 		SessionTTLHours:               envInt("SESSION_TTL_HOURS", 720),
 		SecurityBypassIPRules:         mustBool("SECURITY_BYPASS_IP_RULES", false),

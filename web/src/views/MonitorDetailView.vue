@@ -13,8 +13,8 @@ import MonitorForm from '@/components/monitors/MonitorForm.vue'
 import StatusBadge from '@/components/monitors/StatusBadge.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
-import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant } from '@/lib/expiry'
-import { formatDateTime, formatLatency, formatUptime, formatUptimeWindow, statusColor } from '@/lib/format'
+import { certificateTitle, domainTitle, expiryStateVariant, expiryVariant, lighthouseTitle, lighthouseVariant } from '@/lib/expiry'
+import { formatDateTime, formatLatency, formatScore, formatUptime, formatUptimeWindow, statusColor } from '@/lib/format'
 import { uptimeWindowOptions } from '@/lib/uptime-window'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
@@ -256,6 +256,17 @@ watch(hours, load)
         <template v-else-if="monitor.domain.status === 'not_found'">{{ t('domain.notFound') }}</template>
         <template v-else-if="monitor.domain.status === 'unsupported'">{{ t('domain.unsupported') }}</template>
         <template v-else>{{ t('domain.unavailable') }}</template>
+      </Badge>
+      <Badge
+        v-if="monitor.lighthouse"
+        :variant="lighthouseVariant(monitor.lighthouse)"
+        :title="lighthouseTitle(monitor.lighthouse, locale)"
+        class="ms-1"
+      >
+        <template v-if="monitor.lighthouse.status === 'ok'">
+          {{ t('lighthouse.performance') }} {{ formatScore(monitor.lighthouse.performance) }}
+        </template>
+        <template v-else>{{ t('lighthouse.runFailed') }}</template>
       </Badge>
       <div class="ms-auto flex items-center gap-2">
         <Select v-model="windowValue" :options="windowOptions" class="w-24" :aria-label="t('common.uptime')" />

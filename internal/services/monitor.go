@@ -58,7 +58,16 @@ type MonitorService struct {
 	// observation of the whole domain. It is optional: a nil value just leaves the
 	// date to the daily job.
 	domains *DomainService
+	// lighthouse decorates a listing with the stored web performance
+	// observation and schedules the first run of a monitor whose switch was
+	// just turned on. It is optional: a nil value leaves the monitors without a
+	// score and never calls the API.
+	lighthouse *LighthouseService
 }
+
+// SetLighthouseService injects the web performance service (decoration of the
+// listings plus the first run of a monitor that starts measuring).
+func (s *MonitorService) SetLighthouseService(l *LighthouseService) { s.lighthouse = l }
 
 // SetSyncEmitter injects the publisher of the synchronisation outbox.
 func (s *MonitorService) SetSyncEmitter(emitter *SyncEmitter) { s.emit = emitter }
@@ -210,6 +219,7 @@ type decorateSources struct {
 	groups       map[uint]models.MonitorGroupRef
 	certificates map[uint]*models.CertificateInfo
 	domains      map[uint]*models.DomainInfo
+	lighthouses  map[uint]*models.LighthouseResult
 	templates    map[string]string
 }
 
@@ -302,6 +312,11 @@ func (s *MonitorService) gatherSources(ctx context.Context, monitors []*models.M
 	group.Go(func() error {
 		domains, err := s.domainsFor(gctx, ids)
 		sources.domains = domains
+		return err
+	})
+	group.Go(func() error {
+		lighthouses, err := s.lighthousesFor(gctx, ids)
+		sources.lighthouses = lighthouses
 		return err
 	})
 	group.Go(func() error {
@@ -401,6 +416,13 @@ func (s *MonitorService) applySources(monitors []*models.Monitor, windowHours in
 		if manual := manualDomainInfo(m, m.Domain); manual != nil {
 			m.Domain = manual
 		}
+		// The score of a monitor is only reported while its switch is on: a
+		// monitor that stopped measuring must not keep showing an old result.
+		if m.LighthouseEnabled {
+			if result, ok := sources.lighthouses[m.ID]; ok {
+				m.Lighthouse = result
+			}
+		}
 		if name, ok := sources.templates[m.TemplateUUID]; ok {
 			m.TemplateName = name
 		}
@@ -473,6 +495,43 @@ func (s *MonitorService) domainsFor(ctx context.Context, monitorIDs []uint) (map
 		out[rows[i].MonitorID] = rows[i].Info()
 	}
 	return out, nil
+}
+
+// lighthousesFor returns the stored web performance observation of every
+// monitor that has one (one query for a whole listing).
+func (s *MonitorService) lighthousesFor(ctx context.Context, monitorIDs []uint) (map[uint]*models.LighthouseResult, error) {
+	if s.lighthouse == nil {
+		return nil, nil
+	}
+	return s.lighthouse.ByMonitorIDs(ctx, monitorIDs)
+}
+
+// LighthouseWatchers returns the active monitors that measure their page. It is
+// the worklist of the daily web performance job: the targets are then
+// normalized and deduplicated, so several monitors on the same page produce a
+// single API call.
+func (s *MonitorService) LighthouseWatchers(ctx context.Context) ([]*models.Monitor, error) {
+	return s.lighthouseMonitors(ctx, true)
+}
+
+// LighthouseMeasurers returns every monitor that measures its page, active or
+// not: it is the list the web performance page shows (a paused monitor keeps
+// its history and its switch).
+func (s *MonitorService) LighthouseMeasurers(ctx context.Context) ([]*models.Monitor, error) {
+	return s.lighthouseMonitors(ctx, false)
+}
+
+// lighthouseMonitors reads the monitors with the web performance switch on.
+func (s *MonitorService) lighthouseMonitors(ctx context.Context, activeOnly bool) ([]*models.Monitor, error) {
+	query := s.db.WithContext(ctx).Where("lighthouse_enabled = ?", true)
+	if activeOnly {
+		query = query.Where("active = ?", true)
+	}
+	var monitors []*models.Monitor
+	if err := query.Order("id ASC").Find(&monitors).Error; err != nil {
+		return nil, ErrInternal(fmt.Errorf("listing the lighthouse monitors: %w", err))
+	}
+	return monitors, nil
 }
 
 // ExpiryWatchers returns the active monitors that watch a certificate or a

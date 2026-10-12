@@ -76,6 +76,68 @@ export function formatLatency(milliseconds: number): string {
 }
 
 /**
+ * The band of a Lighthouse score: 90 and above is good, 50 and above average,
+ * below that poor, and `none` when the run did not measure the category. It is
+ * the mirror of `models.LighthouseScoreBand`, so the API and the UI cannot
+ * colour the same score differently.
+ */
+export type ScoreBand = 'good' | 'average' | 'poor' | 'none'
+
+/** scoreBand classifies a score (null = not measured). */
+export function scoreBand(score: number | null | undefined): ScoreBand {
+  if (score === null || score === undefined) return 'none'
+  if (score >= 90) return 'good'
+  if (score >= 50) return 'average'
+  return 'poor'
+}
+
+/** scoreColor maps a score to the Tailwind token of its band. */
+export function scoreColor(score: number | null | undefined): string {
+  switch (scoreBand(score)) {
+    case 'good':
+      return 'bg-status-up'
+    case 'average':
+      return 'bg-status-degraded'
+    case 'poor':
+      return 'bg-status-down'
+    default:
+      return 'bg-status-unknown/40'
+  }
+}
+
+/** scoreTextColor maps a score to the Tailwind text token of its band. */
+export function scoreTextColor(score: number | null | undefined): string {
+  switch (scoreBand(score)) {
+    case 'good':
+      return 'text-status-up'
+    case 'average':
+      return 'text-status-degraded'
+    case 'poor':
+      return 'text-status-down'
+    default:
+      return 'text-muted-foreground'
+  }
+}
+
+/**
+ * formatScore renders a Lighthouse score: the number, or a dash when the
+ * category was not measured (a null is "not measured", never zero).
+ */
+export function formatScore(score: number | null | undefined): string {
+  return score === null || score === undefined ? '—' : String(Math.round(score))
+}
+
+/** formatVital renders a Core Web Vital (milliseconds, or the layout shift). */
+export function formatVital(value: number, unit: 'ms' | 'cls' = 'ms'): string {
+  if (unit === 'cls') {
+    if (!value) return '0'
+    return value < 0.01 ? value.toFixed(3) : value.toFixed(2)
+  }
+  if (!value) return '—'
+  return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`
+}
+
+/**
  * hour12Preference is the administrator clock choice (Admin > Settings). It is
  * undefined in "auto" mode, which lets Intl follow the browser locale.
  */

@@ -115,6 +115,21 @@ func (s *MonitorService) Validate(monitor *models.Monitor) error {
 		monitor.DomainWarnDays = ""
 	}
 
+	// Web performance: PageSpeed Insights navigates a real page, so the switch is
+	// only available on the two HTTP(s) types the API can audit, and the strategy
+	// must be one of the two runs it accepts (MonitorConfig.Validate checks it).
+	if monitor.LighthouseEnabled && !monitor.Type.SupportsLighthouse() {
+		return ErrBadRequest(i18n.CodeMonitorLighthouse,
+			"lighthouse_enabled is not available for "+string(monitor.Type)+" monitors")
+	}
+	if !monitor.LighthouseEnabled {
+		// A monitor that does not measure keeps neither the strategy nor the
+		// cadence: they are part of the measurement, and a stale one would
+		// silently apply to the next enable.
+		monitor.Config.LighthouseStrategy = ""
+		monitor.Config.LighthouseInterval = ""
+	}
+
 	// The template link: the template must exist and describe the same kind of
 	// probe (a template never reshapes a monitor of another type). A link that
 	// points nowhere — the template was deleted on another node — is cleared

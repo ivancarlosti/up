@@ -34,6 +34,18 @@ func (c *MonitorConfig) Validate(monitorType MonitorType) string {
 		if _, err := ParseStatusRanges(c.AcceptedStatusCodes); err != nil {
 			return err.Error()
 		}
+		// The strategy only describes the web performance run, but it travels
+		// with the HTTP configuration, so it is checked with it.
+		if c.LighthouseStrategy != "" && !ValidLighthouseStrategy(strings.ToLower(strings.TrimSpace(c.LighthouseStrategy))) {
+			return fmt.Sprintf("config.lighthouse_strategy must be one of %s", strings.Join(LighthouseStrategies, ", "))
+		}
+		// The cadence travels with the same configuration; it is normalized to
+		// the documented default on write, so it is only ever absent on a row
+		// written before the field existed (which is valid: the job cadence
+		// applies).
+		if c.LighthouseInterval != "" && !ValidLighthouseInterval(strings.ToLower(strings.TrimSpace(c.LighthouseInterval))) {
+			return fmt.Sprintf("config.lighthouse_interval must be one of %s", strings.Join(LighthouseIntervals, ", "))
+		}
 		if monitorType == MonitorTypeKeyword && strings.TrimSpace(c.Keyword) == "" {
 			return "config.keyword is required for Keyword monitors"
 		}

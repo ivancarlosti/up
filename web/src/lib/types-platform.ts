@@ -3,7 +3,7 @@
  * tokens, IP rules, authentication and settings.
  */
 
-import type { AggregateStatus, FailureStrategy, Header, Monitor, NotificationSenderStrategy, NodeStatus, NodeUnavailableStrategy, ThemeMode } from './types'
+import type { AggregateStatus, FailureStrategy, Header, LighthouseInterval, LighthouseResult, LighthouseRun, LighthouseStrategy, LighthouseWeekday, Monitor, NotificationSenderStrategy, NodeStatus, NodeUnavailableStrategy, ThemeMode } from './types'
 
 export interface ClusterSettings {
   id: number
@@ -506,4 +506,92 @@ export interface ExpiryTargetRefreshResult {
   target: string
   monitors: number
   at: string
+}
+
+/**
+ * LighthouseSettings is the daily web performance job configuration
+ * (Admin > Settings, shown again on the Web performance page).
+ */
+export interface LighthouseSettings {
+  enabled: boolean
+  check_time: string
+  check_timezone: string
+  strategy: LighthouseStrategy
+  /** Cadence of a monitor that does not carry one of its own. */
+  interval: LighthouseInterval
+  /** Weekday the weekly cadence is anchored to. */
+  weekday: LighthouseWeekday
+  /** Minimum delay between two PageSpeed Insights calls (0 = no delay). */
+  rate_limit_ms: number
+  timeout_seconds: number
+  /** Google API key, empty on the anonymous quota. */
+  api_key: string
+}
+
+/** Payload of PUT /api/admin/lighthouse (the retention is optional). */
+export type LighthouseSettingsPayload = LighthouseSettings & { retention_days?: number }
+
+/** What the two web performance tables hold. */
+export interface LighthouseStats {
+  /** How many monitors have a stored score. */
+  measuring: number
+  /** How many history rows exist. */
+  runs: number
+  oldest?: string
+  newest?: string
+}
+
+/** Response of GET /api/admin/lighthouse. */
+export interface LighthouseSettingsResponse {
+  settings: LighthouseSettings
+  defaults: LighthouseSettings
+  strategies: LighthouseStrategy[]
+  /** Every accepted cadence, in the order the settings page offers them. */
+  intervals: LighthouseInterval[]
+  /** Every weekday a weekly cadence can be anchored to. */
+  weekdays: LighthouseWeekday[]
+  last_run_day: number
+  next_run: string
+  retention_days: number
+  retention_max: number
+  retention_default: number
+  stats: LighthouseStats
+}
+
+/** Response of GET /api/admin/lighthouse/monitors. */
+export interface LighthouseMonitorsResponse {
+  monitors: Monitor[]
+  count: number
+  stats: LighthouseStats
+  /**
+   * Cadence of a monitor that carries none: the page renders it as the
+   * effective cadence of such a monitor, which is what the backend applies.
+   */
+  interval_default: LighthouseInterval
+  retention_days: number
+  next_run: string
+}
+
+/**
+ * Response of GET /api/admin/lighthouse/monitors/:id/history. The endpoint takes
+ * an optional ?limit=N and returns the N newest runs, oldest first.
+ */
+export interface LighthouseHistoryResponse {
+  monitor_id: number
+  runs: LighthouseRun[]
+  count: number
+}
+
+/** Response of POST /api/admin/lighthouse/monitors/:id/run. */
+export interface LighthouseRunResult {
+  ran: boolean
+  at: string
+  result?: LighthouseResult
+}
+
+/** Response of POST /api/admin/lighthouse/purge. */
+export interface LighthousePurgeResult {
+  deleted: number
+  days: number
+  before: string
 }

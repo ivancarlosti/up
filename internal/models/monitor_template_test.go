@@ -39,6 +39,30 @@ func TestMonitorTemplateValidate(t *testing.T) {
 		}
 	}
 
+	// The web performance switch follows the same rule: PageSpeed Insights
+	// audits a page, so a template of another type must not carry it.
+	for _, monitorType := range []MonitorType{
+		MonitorTypeTCP, MonitorTypeDNS, MonitorTypeSSL, MonitorTypeWebSocket,
+	} {
+		template := valid()
+		template.Type = monitorType
+		template.Defaults.LighthouseEnabled = true
+		if problem := template.Validate(); problem == "" {
+			t.Fatalf("lighthouse_enabled on a %s template must be rejected", monitorType)
+		}
+	}
+	// ... while the two HTTP(s) types accept it, and the field is listed for the
+	// bulk link checklist.
+	http := valid()
+	http.Defaults.LighthouseEnabled = true
+	http.Config.LighthouseStrategy = LighthouseStrategyDesktop
+	if problem := http.Validate(); problem != "" {
+		t.Fatalf("a http template with lighthouse_enabled must be accepted: %s", problem)
+	}
+	if !containsString(TemplateDefaultFields(), "lighthouse_enabled") {
+		t.Fatalf("lighthouse_enabled must be an applicable template field: %v", TemplateDefaultFields())
+	}
+
 	template := valid()
 	template.Defaults.CertNotify = true
 	if problem := template.Validate(); problem == "" {

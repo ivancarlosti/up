@@ -101,6 +101,10 @@ type TemplateDefaults struct {
 	DomainWatch    bool   `json:"domain_watch"`
 	DomainNotify   bool   `json:"domain_notify"`
 	DomainWarnDays string `json:"domain_warn_days"`
+	// LighthouseEnabled turns the PageSpeed Insights measurement on for the
+	// monitors created from the template (and for the ones a bulk link applies
+	// the field to). The strategy is part of Config.
+	LighthouseEnabled bool `json:"lighthouse_enabled"`
 	// NotificationIDs and GroupID are the links applied to the new monitors.
 	NotificationIDs []uint `json:"notification_ids"`
 	// GroupID is the single group the monitors created from the template join
@@ -119,6 +123,7 @@ func TemplateDefaultFields() []string {
 		"active", "notification_ids", "config",
 		"cert_watch", "cert_notify", "cert_warn_days",
 		"domain_watch", "domain_notify", "domain_warn_days",
+		"lighthouse_enabled",
 	}
 }
 
@@ -318,6 +323,11 @@ func (t *MonitorTemplate) Validate() string {
 	}
 	if _, err := ParseCertWarnDays(t.Defaults.DomainWarnDays); err != nil {
 		return "domain_warn_days must be a list of days before expiry: " + err.Error()
+	}
+	// The web performance switch follows the same rule: a template must not
+	// describe a monitor the API would refuse to create.
+	if t.Defaults.LighthouseEnabled && !t.Type.SupportsLighthouse() {
+		return "lighthouse_enabled is only available for http and keyword monitors"
 	}
 	return ""
 }

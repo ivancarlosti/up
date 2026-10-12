@@ -124,6 +124,19 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// configured in Admin > TLD/SSL expiration) over the deduplicated targets,
 	// instead of being rewritten by every probe.
 	expiries := services.NewExpiryService(cfg, log, settings, monitors, certificates, domains, whoisParsers, cluster)
+	// --- daily web performance job ---------------------------------------
+	// The page of every measuring monitor is scored with Google Lighthouse
+	// through the PageSpeed Insights API, once a day (at the time configured in
+	// Admin > Settings > Web performance) over the deduplicated url+strategy
+	// targets.
+	lighthouses := services.NewLighthouseService(db, cfg, log)
+	lighthouses.SetPublisher(hub)
+	lighthouses.SetSettingService(settings)
+	lighthouses.SetMonitorService(monitors)
+	lighthouses.SetClusterService(cluster)
+	// The monitor service decorates its listings with the stored score and asks
+	// for the first run of a monitor whose switch was just turned on.
+	monitors.SetLighthouseService(lighthouses)
 	container := &handlers.Container{
 		Cfg:              cfg,
 		Log:              log,
@@ -137,6 +150,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		Domains:          domains,
 		WhoisParsers:     whoisParsers,
 		Expiry:           expiries,
+		Lighthouse:       lighthouses,
 		Heartbeats:       heartbeats,
 		Stats:            stats,
 		Notifications:    notifications,
@@ -159,6 +173,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	container.Scheduler = sched
 	sched.SetCertificateService(certificates)
 	sched.SetExpiryService(expiries)
+	sched.SetLighthouseService(lighthouses)
 	sched.SetNotificationService(notifications)
 	sched.SetSyncService(syncService)
 	sched.SetSettingService(settings)

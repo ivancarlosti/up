@@ -30,6 +30,31 @@ const (
 	// run, kept so a restart does not repeat the work and a process that was
 	// down at the scheduled time catches up on the next tick.
 	SettingExpiryLastRunDay = "expiry_last_run_day"
+	// Lighthouse web performance (Admin > Settings and the Web performance
+	// page): when the daily PageSpeed Insights job runs, how it paces itself,
+	// which key it uses and how much history it keeps.
+	SettingLighthouseEnabled        = "lighthouse_enabled"
+	SettingLighthouseCheckTime      = "lighthouse_check_time"
+	SettingLighthouseCheckTimezone  = "lighthouse_check_timezone"
+	SettingLighthouseStrategy       = "lighthouse_strategy"
+	SettingLighthouseRateLimitMS    = "lighthouse_rate_limit_ms"
+	SettingLighthouseTimeoutSeconds = "lighthouse_timeout_seconds"
+	// SettingLighthouseInterval is the cadence (hourly, 6h, 12h, daily, weekly)
+	// of a monitor that does not carry its own; SettingLighthouseWeekday anchors
+	// the weekly one. Both are key/value rows, so adding them needed no
+	// migration.
+	SettingLighthouseInterval = "lighthouse_interval"
+	SettingLighthouseWeekday  = "lighthouse_weekday"
+	// SettingLighthouseAPIKey seeds the `key` parameter of the PageSpeed
+	// Insights API. The environment variable only fills it on the first boot;
+	// the setting wins afterwards (an admin can rotate the key at runtime).
+	SettingLighthouseAPIKey = "lighthouse_api_key"
+	// SettingLighthouseRetentionDays bounds the run history the web performance
+	// page charts. 0 means "never purge".
+	SettingLighthouseRetentionDays = "lighthouse_retention_days"
+	// SettingLighthouseLastRunDay is the day bucket (unix/86400) of the last
+	// daily run, kept so a restart does not repeat the work.
+	SettingLighthouseLastRunDay = "lighthouse_last_run_day"
 	// SettingHeartbeatRetentionDays is how many days of heartbeat history are
 	// kept (Admin > Settings). 0 means "never purge"; see
 	// models.DefaultHeartbeatRetentionDays for the value used when the setting

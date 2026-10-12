@@ -41,6 +41,10 @@ type MonitorPayload struct {
 	CertWatch    bool   `json:"cert_watch"`
 	CertNotify   bool   `json:"cert_notify"`
 	CertWarnDays string `json:"cert_warn_days"`
+	// LighthouseEnabled travels like the certificate and domain switches: the
+	// node that runs the daily PageSpeed Insights job must know which pages to
+	// score, whatever node the monitor was created on.
+	LighthouseEnabled bool `json:"lighthouse_enabled"`
 	// The domain expiration watch travels like the certificate switches: a monitor
 	// created on one node has to watch the same things on every other node.
 	DomainWatch     bool       `json:"domain_watch"`

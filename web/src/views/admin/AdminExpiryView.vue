@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FlaskConical, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-vue-next'
+import { FlaskConical, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next'
 import Alert from '@/components/ui/Alert.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
@@ -22,7 +22,7 @@ import { formatDateTime } from '@/lib/format'
 import { expiryTargetSortKeys, sortExpiryTargets } from '@/lib/sort'
 import type { ExpiryTargetSortKey, SortDirection } from '@/lib/sort'
 import { useToastStore } from '@/stores/toast'
-import type { ExpirySettings, ExpiryTarget, WhoisParser, WhoisParserPayload, WhoisTestResult } from '@/lib/types'
+import type { ExpiryTarget, WhoisParser, WhoisParserPayload, WhoisTestResult } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -117,7 +117,6 @@ const sortedTargets = computed(() =>
   }),
 )
 
-const settingsForm = reactive<ExpirySettings>(blankSettings())
 const parserForm = reactive<WhoisParserPayload>(blankParser())
 const editing = ref<WhoisParser | null>(null)
 const dialogOpen = ref(false)
@@ -133,31 +132,6 @@ const resetBusy = ref(false)
 const testDomain = ref('')
 const testRaw = ref('')
 const testResult = ref<WhoisTestResult | null>(null)
-
-/** Common IANA names offered as suggestions (the field accepts any name). */
-const timezoneSuggestions = [
-  'UTC',
-  'America/Sao_Paulo',
-  'America/New_York',
-  'America/Los_Angeles',
-  'Europe/London',
-  'Europe/Lisbon',
-  'Europe/Madrid',
-  'Europe/Berlin',
-  'Asia/Tokyo',
-  'Australia/Sydney',
-]
-
-function blankSettings(): ExpirySettings {
-  return {
-    check_time: '03:00',
-    check_timezone: 'UTC',
-    rdap_enabled: true,
-    whois_enabled: true,
-    rate_limit_ms: 100,
-    timeout_seconds: 10,
-  }
-}
 
 function blankParser(): WhoisParserPayload {
   return {
@@ -187,43 +161,12 @@ function toNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-/** settingsPayload normalizes the numeric fields before they hit the API. */
-function settingsPayload(): ExpirySettings {
-  return {
-    ...settingsForm,
-    rate_limit_ms: toNumber(settingsForm.rate_limit_ms, 100),
-    timeout_seconds: toNumber(settingsForm.timeout_seconds, 10),
-  }
-}
-
 /** parserPayload normalizes the numeric field of a rule. */
 function parserPayload(): WhoisParserPayload {
   return { ...parserForm, min_interval_ms: toNumber(parserForm.min_interval_ms, 0) }
 }
 
 const nextRunLabel = computed(() => (nextRun.value ? formatDateTime(nextRun.value, locale.value) : ''))
-
-/**
- * The time of day is picked with two explicit selects (00-23 and 00-59): a native
- * <input type="time"> renders AM/PM or 24h depending on the browser locale, which
- * cannot be overridden, and the operator wants a predictable clock here.
- */
-const hourOptions = Array.from({ length: 24 }, (_, index) => {
-  const value = String(index).padStart(2, '0')
-  return { value, label: value }
-})
-const minuteOptions = Array.from({ length: 60 }, (_, index) => {
-  const value = String(index).padStart(2, '0')
-  return { value, label: value }
-})
-const checkHour = computed(() => settingsForm.check_time.split(':')[0] ?? '03')
-const checkMinute = computed(() => settingsForm.check_time.split(':')[1] ?? '00')
-function setCheckHour(value: string): void {
-  settingsForm.check_time = `${value}:${checkMinute.value}`
-}
-function setCheckMinute(value: string): void {
-  settingsForm.check_time = `${checkHour.value}:${value}`
-}
 
 /**
  * Registry lookups always dial both families (Go's happy eyeballs), so there is
@@ -237,7 +180,6 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     const response = await api.expirySettings()
-    Object.assign(settingsForm, blankSettings(), response.settings)
     parsers.value = response.parsers ?? []
     nextRun.value = response.next_run ?? null
   } catch (error) {
@@ -308,19 +250,6 @@ function sniFor(target: ExpiryTarget): string {
   const sni = target.server_name ?? ''
   if (!sni) return ''
   return sni.toLowerCase() === dialHost(target.address ?? target.label) ? '' : sni
-}
-
-async function saveSettings(): Promise<void> {
-  saving.value = true
-  try {
-    const saved = await api.updateExpirySettings(settingsPayload())
-    Object.assign(settingsForm, blankSettings(), saved)
-    toasts.success(t('common.saved'))
-  } catch (error) {
-    toasts.error(t('common.error'), translateError(error))
-  } finally {
-    saving.value = false
-  }
 }
 
 async function runNow(): Promise<void> {
@@ -451,56 +380,11 @@ onMounted(load)
       <span v-if="nextRunLabel"> {{ t('expiry.nextRun', { at: nextRunLabel }) }}</span>
     </Alert>
 
-    <Card :title="t('expiry.settingsTitle')" :description="t('expiry.settingsHelp')">
-      <div class="grid gap-3 sm:grid-cols-2">
-        <div class="grid gap-1">
-          <Label for="expiry-hour" :help="t('expiry.checkTimeHelp')">{{ t('expiry.checkTime') }}</Label>
-          <div class="flex items-center gap-2">
-            <div class="w-20">
-              <Select
-                id="expiry-hour"
-                :model-value="checkHour"
-                :options="hourOptions"
-                @update:model-value="setCheckHour($event as string)"
-              />
-            </div>
-            <span class="text-sm text-muted-foreground">:</span>
-            <div class="w-20">
-              <Select
-                id="expiry-minute"
-                :model-value="checkMinute"
-                :options="minuteOptions"
-                @update:model-value="setCheckMinute($event as string)"
-              />
-            </div>
-            <span class="font-mono text-xs text-muted-foreground">{{ settingsForm.check_time }}</span>
-          </div>
-        </div>
-        <div class="grid gap-1">
-          <Label for="expiry-zone" :help="t('expiry.timezoneHelp')">{{ t('expiry.timezone') }}</Label>
-          <Input id="expiry-zone" v-model="settingsForm.check_timezone" list="expiry-timezones" placeholder="UTC" />
-          <datalist id="expiry-timezones">
-            <option v-for="zone in timezoneSuggestions" :key="zone" :value="zone" />
-          </datalist>
-        </div>
-        <div class="grid gap-1">
-          <Label for="expiry-rate" :help="t('expiry.rateLimitHelp')">{{ t('expiry.rateLimit') }}</Label>
-          <Input id="expiry-rate" v-model.number="settingsForm.rate_limit_ms" type="number" min="0" max="60000" />
-        </div>
-        <div class="grid gap-1">
-          <Label for="expiry-timeout" :help="t('expiry.timeoutHelp')">{{ t('expiry.timeout') }}</Label>
-          <Input id="expiry-timeout" v-model.number="settingsForm.timeout_seconds" type="number" min="1" max="60" />
-        </div>
-        <div class="flex flex-col gap-2 sm:col-span-2">
-          <Switch v-model="settingsForm.rdap_enabled as boolean">{{ t('expiry.rdapEnabled') }}</Switch>
-          <Switch v-model="settingsForm.whois_enabled as boolean">{{ t('expiry.whoisEnabled') }}</Switch>
-        </div>
-      </div>
+    <Card :title="t('expiry.settingsTitle')" :description="t('expiry.settingsMoved')">
       <template #footer>
-        <Button size="sm" :loading="saving" @click="saveSettings">
-          <Save class="h-3.5 w-3.5" aria-hidden="true" />
-          {{ t('common.save') }}
-        </Button>
+        <RouterLink to="/admin/settings">
+          <Button variant="outline" size="sm">{{ t('nav.settings') }}</Button>
+        </RouterLink>
       </template>
     </Card>
 

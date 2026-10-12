@@ -123,6 +123,10 @@ func MigrationModels() []any {
 		&models.MonitorTemplate{},
 		&models.MonitorCertificate{},
 		&models.MonitorDomain{},
+		// Web performance (PageSpeed Insights): the last observation of each
+		// monitor and the history the admin page charts.
+		&models.MonitorLighthouse{},
+		&models.LighthouseRun{},
 		&models.WhoisParser{},
 		&models.MonitorState{},
 		&models.Heartbeat{},

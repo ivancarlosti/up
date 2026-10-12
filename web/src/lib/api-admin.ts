@@ -13,6 +13,13 @@ import type {
   HeartbeatPurgeResult,
   HeartbeatRetentionStats,
   IPRule,
+  LighthouseHistoryResponse,
+  LighthouseMonitorsResponse,
+  LighthousePurgeResult,
+  LighthouseRunResult,
+  LighthouseSettings,
+  LighthouseSettingsPayload,
+  LighthouseSettingsResponse,
   PeerStatusReport,
   StatusPage,
   StatusPageMonitorItem,
@@ -88,6 +95,28 @@ export const adminApi = {
   resetWhoisParsers: () => post<WhoisParsersResetResult>('/api/admin/expiry/whois-parsers/reset'),
   testWhoisParser: (payload: WhoisParserPayload & { domain?: string; raw?: string }) =>
     post<WhoisTestResult>('/api/admin/expiry/whois-parsers/test', payload),
+
+  // Web performance (Google Lighthouse through PageSpeed Insights).
+  lighthouseSettings: () => get<LighthouseSettingsResponse>('/api/admin/lighthouse'),
+  updateLighthouseSettings: (payload: LighthouseSettingsPayload) =>
+    put<LighthouseSettings>('/api/admin/lighthouse', payload),
+  /** Measures every deduplicated url+strategy target without waiting for the schedule. */
+  runLighthouseNow: () => post<{ ran: boolean; at: string }>('/api/admin/lighthouse/run'),
+  /** The monitors that measure their page, with their last stored score. */
+  lighthouseMonitors: () => get<LighthouseMonitorsResponse>('/api/admin/lighthouse/monitors'),
+  /** Measures ONE monitor now ("run now" for a row). */
+  runLighthouseMonitor: (id: number) => post<LighthouseRunResult>(`/api/admin/lighthouse/monitors/${id}/run`),
+  /**
+   * The runs of one monitor (the chart data, oldest first). `limit` keeps only
+   * the newest N runs: an hourly monitor collects a day of points in a day, so
+   * the dialog asks for the last few hundred instead of everything.
+   */
+  lighthouseHistory: (id: number, limit?: number) =>
+    get<LighthouseHistoryResponse>(
+      `/api/admin/lighthouse/monitors/${id}/history${limit ? `?limit=${limit}` : ''}`,
+    ),
+  /** Deletes the history older than the retention (or than `days`). */
+  purgeLighthouse: (days?: number) => post<LighthousePurgeResult>('/api/admin/lighthouse/purge', { days }),
 
   tokens: () => get<APIToken[]>('/api/tokens'),
   createToken: (payload: { name: string; scopes: string[]; expires_in_days?: number }) =>

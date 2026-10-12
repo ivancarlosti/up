@@ -49,6 +49,21 @@ func (t MonitorType) SupportsDomainWatch() bool {
 	return false
 }
 
+// SupportsLighthouse reports whether a monitor type has a page PageSpeed
+// Insights can audit.
+//
+// Only the two HTTP(s) types: the API navigates a real website, so a tcp, dns,
+// ssl or websocket target has nothing to score. The switch exists for the same
+// reason as SupportsCertificate: the monitor form and the validation both read
+// it, so a new type cannot silently offer a measurement that would always fail.
+func (t MonitorType) SupportsLighthouse() bool {
+	switch t {
+	case MonitorTypeHTTP, MonitorTypeKeyword:
+		return true
+	}
+	return false
+}
+
 // Valid reports whether the type is known.
 func (t MonitorType) Valid() bool {
 	switch t {

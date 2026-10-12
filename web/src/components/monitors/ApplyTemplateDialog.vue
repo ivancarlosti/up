@@ -53,6 +53,7 @@ const ALL_FIELDS = [
   'domain_watch',
   'domain_notify',
   'domain_warn_days',
+  'lighthouse_enabled',
 ]
 
 const form = reactive<{ templateId: number | null; fields: string[]; monitorIds: number[]; search: string }>({
@@ -89,6 +90,7 @@ const fieldLabels: Record<string, string> = {
   domain_watch: 'monitor.domainWatch',
   domain_notify: 'monitor.domainNotify',
   domain_warn_days: 'monitor.domainWarnDays',
+  lighthouse_enabled: 'monitor.lighthouseEnabled',
 }
 
 const filteredMonitors = computed(() => {

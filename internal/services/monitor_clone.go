@@ -65,6 +65,9 @@ func (s *MonitorService) Clone(ctx context.Context, id uint, opts MonitorCloneOp
 		DomainNotify:    source.DomainNotify,
 		DomainWarnDays:  source.DomainWarnDays,
 		DomainExpiresAt: source.DomainExpiresAt,
+		// The web performance switch travels with the copy (the strategy is part
+		// of Config above).
+		LighthouseEnabled: source.LighthouseEnabled,
 		// The copy follows the same template as its source.
 		TemplateUUID: source.TemplateUUID,
 	}

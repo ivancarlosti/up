@@ -19,11 +19,16 @@ import MonitorConfigFields from '@/components/monitors/MonitorConfigFields.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import {
+  LIGHTHOUSE_INTERVALS,
+  LIGHTHOUSE_INTERVAL_KEYS,
+  LIGHTHOUSE_STRATEGIES,
+  lighthouseInterval,
   pruneMonitorConfig,
   sanitizeTemplateDefaults,
   stripMonitorAuth,
   supportsCertificate as typeSupportsCertificate,
   supportsDomainWatch as typeSupportsDomainWatch,
+  supportsLighthouse as typeSupportsLighthouse,
 } from '@/lib/monitor-config'
 import { monitorTemplateSortKeys, sortMonitorTemplates } from '@/lib/sort'
 import type { MonitorTemplateSortKey } from '@/lib/sort'
@@ -156,6 +161,7 @@ function blank(): TemplateForm {
       domain_watch: false,
       domain_notify: false,
       domain_warn_days: '',
+      lighthouse_enabled: false,
     },
   }
 }
@@ -279,6 +285,32 @@ const config = computed(() => form.config ?? {})
  */
 const supportsCertificate = computed(() => typeSupportsCertificate(type.value))
 const supportsDomain = computed(() => typeSupportsDomainWatch(type.value))
+const supportsLighthouse = computed(() => typeSupportsLighthouse(type.value))
+
+/** The strategy of the template's web performance run (Select contract). */
+const strategyOptions = computed(() =>
+  LIGHTHOUSE_STRATEGIES.map((strategy) => ({
+    value: strategy,
+    label: strategy === 'desktop' ? t('monitor.lighthouseStrategyDesktop') : t('monitor.lighthouseStrategyMobile'),
+  })),
+)
+const strategyValue = computed({
+  get: () => String(form.config.lighthouse_strategy ?? 'mobile'),
+  set: (value: string) => {
+    form.config = { ...form.config, lighthouse_strategy: value as MonitorConfig['lighthouse_strategy'] }
+  },
+})
+
+/** The cadence a monitor created (or updated) from this template will measure with. */
+const intervalOptions = computed(() =>
+  LIGHTHOUSE_INTERVALS.map((interval) => ({ value: interval, label: t(LIGHTHOUSE_INTERVAL_KEYS[interval]) })),
+)
+const intervalValue = computed({
+  get: () => String(form.config.lighthouse_interval ?? 'daily'),
+  set: (value: string) => {
+    form.config = { ...form.config, lighthouse_interval: lighthouseInterval(value) }
+  },
+})
 
 async function load(): Promise<void> {
   loading.value = true
@@ -612,6 +644,9 @@ onMounted(load)
                   <Badge v-if="typeSupportsDomainWatch(template.type) && template.defaults?.domain_watch" variant="outline">
                     {{ t('monitor.domainWatch') }}
                   </Badge>
+                  <Badge v-if="typeSupportsLighthouse(template.type) && template.defaults?.lighthouse_enabled" variant="outline">
+                    {{ t('monitor.lighthouseEnabled') }}
+                  </Badge>
                 </span>
               </td>
               <td>
@@ -777,6 +812,25 @@ onMounted(load)
               {{ t('monitor.domainWarnDays') }}
             </Label>
             <Input id="template-domain-warn" v-model="form.defaults.domain_warn_days" placeholder="30,14,7,1" />
+          </div>
+        </section>
+
+        <section v-if="supportsLighthouse" class="grid gap-2 border-t border-border pt-4">
+          <Label :help="t('templates.lighthouseHelp')">{{ t('monitor.lighthouseSection') }}</Label>
+          <div class="flex flex-wrap items-center gap-4">
+            <Switch v-model="form.defaults.lighthouse_enabled as boolean">{{ t('monitor.lighthouseEnabled') }}</Switch>
+          </div>
+          <div v-if="form.defaults.lighthouse_enabled" class="grid gap-1 sm:max-w-sm">
+            <Label for="template-lighthouse-strategy" :help="t('monitor.lighthouseStrategyHelp')">
+              {{ t('monitor.lighthouseStrategy') }}
+            </Label>
+            <Select id="template-lighthouse-strategy" v-model="strategyValue" :options="strategyOptions" />
+          </div>
+          <div v-if="form.defaults.lighthouse_enabled" class="grid gap-1 sm:max-w-sm">
+            <Label for="template-lighthouse-interval" :help="t('monitor.lighthouseIntervalHelp')">
+              {{ t('monitor.lighthouseInterval') }}
+            </Label>
+            <Select id="template-lighthouse-interval" v-model="intervalValue" :options="intervalOptions" />
           </div>
         </section>
 

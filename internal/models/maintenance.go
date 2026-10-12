@@ -87,3 +87,31 @@ func UptimeWindowLabel(hours int) string {
 	}
 	return fmt.Sprintf("%dh", hours)
 }
+
+// Lighthouse retention ------------------------------------------------------
+
+const (
+	// DefaultLighthouseRetentionDays is how much PageSpeed Insights history the
+	// web performance page charts when nothing else is configured. A month of
+	// daily runs is enough to see a regression and small enough that the table
+	// never becomes the biggest one of the database.
+	DefaultLighthouseRetentionDays = 30
+	// MaxLighthouseRetentionDays bounds the operator input (ten years), like the
+	// heartbeat retention.
+	MaxLighthouseRetentionDays = 3650
+)
+
+// NormalizeLighthouseRetentionDays clamps a retention to the accepted range.
+//
+// 0 means "never purge" and is kept as is (it is the way to switch the job off);
+// a negative value reads as the documented default rather than as "delete
+// everything".
+func NormalizeLighthouseRetentionDays(days int) int {
+	switch {
+	case days < 0:
+		return DefaultLighthouseRetentionDays
+	case days > MaxLighthouseRetentionDays:
+		return MaxLighthouseRetentionDays
+	}
+	return days
+}

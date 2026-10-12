@@ -119,6 +119,76 @@ func TestMonitorConfigNormalizeIPFamily(t *testing.T) {
 	}
 }
 
+// TestMonitorConfigLighthouseStrategy documents where the strategy lives: it
+// travels with the two HTTP(s) types PageSpeed Insights can audit (defaulting to
+// mobile) and it is dropped from every other type, like the web performance
+// switch itself.
+func TestMonitorConfigLighthouseStrategy(t *testing.T) {
+	config := MonitorConfig{URL: "https://example.com", LighthouseStrategy: "desktop"}
+	config.Normalize(MonitorTypeHTTP)
+	if config.LighthouseStrategy != LighthouseStrategyDesktop {
+		t.Fatalf("strategy = %q", config.LighthouseStrategy)
+	}
+	if pruned := config.PruneToType(MonitorTypeHTTP); pruned.LighthouseStrategy != LighthouseStrategyDesktop {
+		t.Fatalf("the http prune must keep the strategy: %+v", pruned)
+	}
+	if pruned := config.PruneToType(MonitorTypeKeyword); pruned.LighthouseStrategy != LighthouseStrategyDesktop {
+		t.Fatalf("the keyword prune must keep the strategy: %+v", pruned)
+	}
+	if pruned := config.PruneToType(MonitorTypeTCP); pruned.LighthouseStrategy != "" {
+		t.Fatalf("the tcp prune must drop the strategy: %+v", pruned)
+	}
+
+	empty := MonitorConfig{URL: "https://example.com"}
+	empty.Normalize(MonitorTypeHTTP)
+	if empty.LighthouseStrategy != DefaultLighthouseStrategy {
+		t.Fatalf("a monitor without a strategy must default to %q, got %q",
+			DefaultLighthouseStrategy, empty.LighthouseStrategy)
+	}
+
+	if problem := (&MonitorConfig{URL: "https://example.com", Method: "GET", Encoding: "json",
+		LighthouseStrategy: "phone"}).Validate(MonitorTypeHTTP); problem == "" {
+		t.Fatal("an unknown strategy must be rejected")
+	}
+}
+
+// TestMonitorConfigLighthouseInterval documents where the cadence lives: with the
+// two HTTP(s) types, defaulting to daily, dropped from every other type and
+// rejected when it is not one of the accepted values.
+func TestMonitorConfigLighthouseInterval(t *testing.T) {
+	config := MonitorConfig{URL: "https://example.com", LighthouseInterval: "6h"}
+	config.Normalize(MonitorTypeHTTP)
+	if config.LighthouseInterval != LighthouseIntervalEvery6H {
+		t.Fatalf("interval = %q", config.LighthouseInterval)
+	}
+	if pruned := config.PruneToType(MonitorTypeHTTP); pruned.LighthouseInterval != LighthouseIntervalEvery6H {
+		t.Fatalf("the http prune must keep the cadence: %+v", pruned)
+	}
+	if pruned := config.PruneToType(MonitorTypeKeyword); pruned.LighthouseInterval != LighthouseIntervalEvery6H {
+		t.Fatalf("the keyword prune must keep the cadence: %+v", pruned)
+	}
+	if pruned := config.PruneToType(MonitorTypeTCP); pruned.LighthouseInterval != "" {
+		t.Fatalf("the tcp prune must drop the cadence: %+v", pruned)
+	}
+
+	empty := MonitorConfig{URL: "https://example.com"}
+	empty.Normalize(MonitorTypeHTTP)
+	if empty.LighthouseInterval != DefaultLighthouseInterval {
+		t.Fatalf("a monitor without a cadence must default to %q, got %q",
+			DefaultLighthouseInterval, empty.LighthouseInterval)
+	}
+
+	if problem := (&MonitorConfig{URL: "https://example.com", Method: "GET", Encoding: "json",
+		LighthouseInterval: "minutely"}).Validate(MonitorTypeHTTP); problem == "" {
+		t.Fatal("an unknown cadence must be rejected")
+	}
+	// An absent cadence stays valid: the job setting applies to such a row.
+	if problem := (&MonitorConfig{URL: "https://example.com", Method: "GET", Encoding: "json",
+		LighthouseInterval: ""}).Validate(MonitorTypeHTTP); problem != "" {
+		t.Fatalf("an omitted cadence must be valid: %s", problem)
+	}
+}
+
 // TestMonitorConfigWithoutAuth documents the helper that makes a template
 // credential free: every credential goes, the auth type falls back to "none", and
 // nothing else of the probe is touched (a monitor created from the template must

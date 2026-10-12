@@ -250,6 +250,9 @@ func (s *MonitorService) Create(ctx context.Context, monitor *models.Monitor, no
 	// monitor (and every other watcher of the domain) shows it without waiting for
 	// the next run of the daily job.
 	s.applyManualDomainDate(ctx, monitor, nil)
+	// A monitor created with the web performance switch on gets its first score
+	// straight away (asynchronously and paced by the API limiter).
+	s.applyLighthouse(ctx, monitor, nil)
 	s.log.Info("monitor created", "id", monitor.ID, "name", monitor.Name, "type", monitor.Type)
 	s.publish("monitor.created", monitor)
 	return nil
@@ -284,6 +287,7 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		"cert_watch":               monitor.CertWatch,
 		"cert_notify":              monitor.CertNotify,
 		"cert_warn_days":           monitor.CertWarnDays,
+		"lighthouse_enabled":       monitor.LighthouseEnabled,
 		"domain_watch":             monitor.DomainWatch,
 		"domain_notify":            monitor.DomainNotify,
 		"domain_warn_days":         monitor.DomainWarnDays,
@@ -301,6 +305,10 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 	// The stored value of the date before this edit: it tells an explicit clear
 	// from an unrelated edit, and it is what the post-commit pass needs.
 	var previous *time.Time
+	// The stored web performance state before this edit: the post-commit pass
+	// needs it to tell "the switch was just turned on" (or the page changed)
+	// from an unrelated edit.
+	var previousLighthouse *models.Monitor
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Captured before the write, so the relation diff knows what moved.
 		before, err := s.snapshotLinks(ctx, tx, monitor.ID)
@@ -311,15 +319,21 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 		// edit: only the former is mirrored to the siblings (see
 		// resolveDomainExpiresAt).
 		var existing struct {
-			DomainExpiresAt *time.Time `gorm:"column:domain_expires_at"`
+			DomainExpiresAt   *time.Time `gorm:"column:domain_expires_at"`
+			LighthouseEnabled bool       `gorm:"column:lighthouse_enabled"`
+			Config            []byte     `gorm:"column:config"`
 		}
 		if err := tx.Model(&models.Monitor{}).
-			Select("domain_expires_at").
+			Select("domain_expires_at", "lighthouse_enabled", "config").
 			Where("id = ?", monitor.ID).
 			Take(&existing).Error; err != nil {
 			return err
 		}
 		previous = existing.DomainExpiresAt
+		previousLighthouse = &models.Monitor{
+			LighthouseEnabled: existing.LighthouseEnabled,
+			Config:            decodeMonitorConfig(existing.Config),
+		}
 		result := tx.Model(&models.Monitor{}).Where("id = ?", monitor.ID).Updates(updates)
 		if result.Error != nil {
 			return result.Error
@@ -357,6 +371,9 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 	// A date that was typed, changed or cleared is applied to the stored
 	// observation now, so the badge never waits for the daily job.
 	s.applyManualDomainDate(ctx, monitor, previous)
+	// The web performance switch (and the page or strategy it measures) decides
+	// whether a first run is queued, or whether a stale score must be forgotten.
+	s.applyLighthouse(ctx, monitor, previousLighthouse)
 	s.log.Info("monitor updated", "id", monitor.ID, "name", monitor.Name, "active", monitor.Active)
 	s.publish("monitor.updated", monitor)
 	return nil
@@ -403,6 +420,8 @@ func deleteMonitorCascade(tx *gorm.DB, id uint) error {
 		&models.MonitorGroupMember{},
 		&models.MonitorCertificate{},
 		&models.MonitorDomain{},
+		&models.MonitorLighthouse{},
+		&models.LighthouseRun{},
 		&models.NotificationLock{},
 		&models.StatusPageMonitor{},
 	} {
@@ -411,6 +430,53 @@ func deleteMonitorCascade(tx *gorm.DB, id uint) error {
 		}
 	}
 	return tx.Delete(&models.Monitor{}, id).Error
+}
+
+// applyLighthouse starts (or clears) the web performance side of a monitor
+// write.
+//
+// Turning the switch on — or changing the page it measures or the strategy —
+// asks for one asynchronous run, so the operator sees a score within seconds
+// instead of waiting for the daily instant. Turning it off forgets the stored
+// observation (the history stays; the retention owns it).
+//
+// previous is the stored state before the write (nil on a creation), which is
+// what tells "the switch was just turned on" from an unrelated edit: an edit
+// that changes neither the page nor the strategy must not spend an API call.
+func (s *MonitorService) applyLighthouse(ctx context.Context, monitor *models.Monitor, previous *models.Monitor) {
+	if s.lighthouse == nil {
+		return
+	}
+	if !monitor.LighthouseEnabled {
+		if previous != nil && previous.LighthouseEnabled {
+			if err := s.lighthouse.Clear(ctx, []uint{monitor.ID}); err != nil {
+				s.log.Warn("could not clear the stored lighthouse result",
+					"monitor_id", monitor.ID, "error", err)
+			}
+		}
+		return
+	}
+	changed := previous == nil ||
+		!previous.LighthouseEnabled ||
+		previous.Config.URL != monitor.Config.URL ||
+		previous.Config.LighthouseStrategy != monitor.Config.LighthouseStrategy
+	if changed {
+		s.lighthouse.Enqueue(monitor.ID)
+	}
+}
+
+// decodeMonitorConfig reads a stored JSON configuration (the column is written
+// as a marshalled string, so a read returns the raw text). An unreadable value
+// reads as an empty configuration: the caller only compares it with the new one.
+func decodeMonitorConfig(raw []byte) models.MonitorConfig {
+	var config models.MonitorConfig
+	if len(raw) == 0 {
+		return config
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return models.MonitorConfig{}
+	}
+	return config
 }
 
 // SetActive pauses or resumes a monitor.

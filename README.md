@@ -39,6 +39,7 @@ cluster of nodes that vote on the real status.
 | **Certificates** | a `ssl` type plus certificate watching on any https or `wss://` monitor: validity badge on the dashboard/detail/admin list, free-form warn thresholds (default `30,14,7,1`) and daily `cert_expiring`/`cert_expired` reminders |
 | **Domain expiration** | registry watching for the monitor's domain: RDAP first, per-TLD WHOIS parsers (Admin > TLD/SSL expiration, pre-filled with a verified built-in table for the TLDs without RDAP) and a manual date for the TLDs that publish none (one date per registrable domain, applied the moment it is saved and independent of the watch switch); free-form warn thresholds (default `30,14,7,1`) and daily `domain_expiring`/`domain_expired` reminders |
 | **Expiry scheduling** | one daily, configurable-time check for certificates and domains, **deduplicated by target** (many monitors on the same host/domain = one lookup) with an admin rate limit per registry, a target list and a per-target *check now* |
+| **Web performance** | opt-in Google Lighthouse scoring (performance, accessibility, best practices, SEO plus the Core Web Vitals) for `http`/`keyword` monitors through the **PageSpeed Insights API** (no browser in the image, no new dependency): configurable cadences per monitor (**hourly, 6 h, 12 h, daily or weekly on a chosen weekday**), runs **deduplicated by url + strategy**, mobile or desktop per monitor (and per template), a 30-day run history with a chart on the *Web performance* admin page and a per-monitor *measure now*. The key is optional (`LIGHTHOUSE_API_KEY` or Admin > Settings) — see the *Web performance* section of [docs/monitors.md](docs/monitors.md) |
 | **Notifications** | SMTP, Webhook, Slack, Discord and Telegram through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, the tags and groups of the monitor in the payload and in the message bodies, delivery history, test button |
 | **Public status pages** | per-slug public pages with groups, theme, monitor selection, per-page toggles (uptime, charts, tags) and two independent **opt-in expiry badges** (certificate, domain), plus a shields.io style README badge |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
@@ -168,6 +169,10 @@ CLUSTER_PRIVATE_KEY=                   # generated on the first boot
 # retention
 # HEARTBEAT_RETENTION_DAYS=30          # fallback of a deployment that never opened Admin > Settings, where the live value defaults to 180 days (0 = never purge)
 # NOTIFICATION_LOG_RETENTION_DAYS=90   # prune the delivery history (environment only, disabled by default)
+# LIGHTHOUSE_RETENTION_DAYS=30         # fallback of the web performance history retention (Admin > Settings, defaults to 30 days, 0 = keep forever)
+
+# web performance (optional)
+# LIGHTHOUSE_API_KEY=                  # seeds the PageSpeed Insights key; the Admin > Settings field wins once it is filled
 ```
 
 `LOG_LEVEL` (`debug` | `info` | `warn` | `error`) drives Up's own logging. To
@@ -183,7 +188,7 @@ The expiry job talks to the registries directly, so the container needs:
 | Port | Used for |
 |---|---|
 | **TCP 43** | WHOIS: `whois.iana.org` and the per-TLD registry servers |
-| **TCP 443** | RDAP (`data.iana.org`, `rdap.org`, the registry bases) and your HTTPS monitors |
+| **TCP 443** | RDAP (`data.iana.org`, `rdap.org`, the registry bases), `www.googleapis.com` (the optional Lighthouse web performance job) and your HTTPS monitors |
 | **UDP/TCP 53** | DNS |
 
 Two things are worth knowing when a look-up fails:

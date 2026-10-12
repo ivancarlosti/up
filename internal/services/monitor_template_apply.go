@@ -141,6 +141,8 @@ func planApply(monitor *models.Monitor, template *models.MonitorTemplate, fields
 			addChange(&changes, field, strconv.FormatBool(monitor.DomainNotify), strconv.FormatBool(template.Defaults.DomainNotify))
 		case "domain_warn_days":
 			addChange(&changes, field, monitor.DomainWarnDays, template.Defaults.DomainWarnDays)
+		case "lighthouse_enabled":
+			addChange(&changes, field, strconv.FormatBool(monitor.LighthouseEnabled), strconv.FormatBool(template.Defaults.LighthouseEnabled))
 		}
 	}
 	return changes
@@ -181,6 +183,11 @@ func configChanges(monitor *models.Monitor, template *models.MonitorTemplate) []
 	addChange(&changes, "config.expected_value", from.ExpectedValue, to.ExpectedValue)
 	addChange(&changes, "config.invert_check", strconv.FormatBool(from.InvertCheck), strconv.FormatBool(to.InvertCheck))
 	addChange(&changes, "config.server_name", from.ServerName, to.ServerName)
+	// The web performance options travel with the HTTP(s) configuration, so a
+	// template that changes the strategy or the cadence must be reported by the
+	// dry run like every other option.
+	addChange(&changes, "config.lighthouse_strategy", from.LighthouseStrategy, to.LighthouseStrategy)
+	addChange(&changes, "config.lighthouse_interval", from.LighthouseInterval, to.LighthouseInterval)
 	if len(from.Headers) != len(to.Headers) {
 		addChange(&changes, "config.headers", strconv.Itoa(len(from.Headers)), strconv.Itoa(len(to.Headers)))
 	}
@@ -247,6 +254,14 @@ func applyTemplate(monitor *models.Monitor, template *models.MonitorTemplate, fi
 			updated.DomainNotify = template.Defaults.DomainNotify && updated.DomainWatch
 		case "domain_warn_days":
 			updated.DomainWarnDays = template.Defaults.DomainWarnDays
+		case "lighthouse_enabled":
+			updated.LighthouseEnabled = template.Defaults.LighthouseEnabled
+			if !updated.LighthouseEnabled {
+				// The strategy and the cadence describe the measurement: they do
+				// not outlive it.
+				updated.Config.LighthouseStrategy = ""
+				updated.Config.LighthouseInterval = ""
+			}
 		}
 	}
 	return &updated, notificationIDs

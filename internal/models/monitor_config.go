@@ -36,6 +36,19 @@ type MonitorConfig struct {
 	InvertKeyword bool   `json:"invert_keyword,omitempty"`
 	CaseSensitive bool   `json:"case_sensitive,omitempty"`
 
+	// --- Lighthouse web performance ---------------------------------------
+	// LighthouseStrategy selects how PageSpeed Insights renders the page when
+	// the monitor measures it (Monitor.LighthouseEnabled): "mobile" (default)
+	// or "desktop". The two strategies are two different targets, so the job
+	// performs one API call for each of them.
+	LighthouseStrategy string `json:"lighthouse_strategy,omitempty"`
+	// LighthouseInterval is how often the page is measured: hourly, 6h, 12h,
+	// daily (default) or weekly. It travels with the monitor (and with a
+	// template) like the strategy; an empty value means "the cadence of the job"
+	// and keeps a monitor written before the field existed on the documented
+	// default.
+	LighthouseInterval string `json:"lighthouse_interval,omitempty"`
+
 	// --- TCP and WebSocket ------------------------------------------------
 	// Host and Port are the TCP dial target; Send and Expect are shared with the
 	// WebSocket probe (the text frame written after the upgrade and the
@@ -103,6 +116,8 @@ func (c *MonitorConfig) Normalize(monitorType MonitorType) {
 		if strings.TrimSpace(c.AcceptedStatusCodes) == "" {
 			c.AcceptedStatusCodes = "200-299"
 		}
+		c.LighthouseStrategy = NormalizeLighthouseStrategy(c.LighthouseStrategy)
+		c.LighthouseInterval = NormalizeLighthouseInterval(c.LighthouseInterval)
 	case MonitorTypeDNS:
 		c.Hostname = strings.TrimSpace(c.Hostname)
 		c.RecordType = strings.ToUpper(strings.TrimSpace(c.RecordType))
@@ -146,6 +161,8 @@ func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
 			BasicPass: c.BasicPass, BearerToken: c.BearerToken, IgnoreTLS: c.IgnoreTLS,
 			MaxRedirects: c.MaxRedirects, CacheBuster: c.CacheBuster,
 			AcceptedStatusCodes: c.AcceptedStatusCodes,
+			LighthouseStrategy:  c.LighthouseStrategy,
+			LighthouseInterval:  c.LighthouseInterval,
 			IPFamily:            c.IPFamily,
 		}
 	case MonitorTypeKeyword:
@@ -156,7 +173,9 @@ func (c MonitorConfig) PruneToType(monitorType MonitorType) MonitorConfig {
 			MaxRedirects: c.MaxRedirects, CacheBuster: c.CacheBuster,
 			AcceptedStatusCodes: c.AcceptedStatusCodes,
 			Keyword:             c.Keyword, InvertKeyword: c.InvertKeyword, CaseSensitive: c.CaseSensitive,
-			IPFamily: c.IPFamily,
+			LighthouseStrategy: c.LighthouseStrategy,
+			LighthouseInterval: c.LighthouseInterval,
+			IPFamily:           c.IPFamily,
 		}
 	case MonitorTypeTCP:
 		return MonitorConfig{Host: c.Host, Port: c.Port, Send: c.Send, Expect: c.Expect, IPFamily: c.IPFamily}

@@ -53,6 +53,12 @@ const router = createRouter({
       meta: { auth: true, app: true },
     },
     {
+      path: '/admin/web-performance',
+      name: 'admin-web-performance',
+      component: () => import('@/views/admin/WebPerformanceView.vue'),
+      meta: { auth: true, app: true },
+    },
+    {
       path: '/admin/status-pages',
       name: 'admin-status-pages',
       component: () => import('@/views/admin/AdminStatusPagesView.vue'),

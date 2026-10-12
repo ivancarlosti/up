@@ -1,4 +1,13 @@
-import type { Monitor, MonitorConfig, MonitorPayload, MonitorType, TemplateDefaults } from './types'
+import type {
+  LighthouseInterval,
+  LighthouseStrategy,
+  LighthouseWeekday,
+  Monitor,
+  MonitorConfig,
+  MonitorPayload,
+  MonitorType,
+  TemplateDefaults,
+} from './types'
 
 /**
  * Type aware pruning of a monitor payload.
@@ -39,6 +48,11 @@ export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]
     'cache_buster',
     'accepted_status_codes',
     'ip_family',
+    // The strategy and the cadence of the Lighthouse run (see
+    // `supportsLighthouse`): they travel with the two HTTP(s) types, and the
+    // switch itself is a top level field.
+    'lighthouse_strategy',
+    'lighthouse_interval',
   ],
   keyword: [
     'url',
@@ -58,6 +72,8 @@ export const CONFIG_FIELDS: Record<MonitorType, readonly (keyof MonitorConfig)[]
     'invert_keyword',
     'case_sensitive',
     'ip_family',
+    'lighthouse_strategy',
+    'lighthouse_interval',
   ],
   tcp: ['host', 'port', 'send', 'expect', 'ip_family'],
   dns: ['hostname', 'resolver_server', 'record_type', 'expected_value', 'invert_check', 'ip_family'],
@@ -99,6 +115,103 @@ export function supportsDomainWatch(type: MonitorType): boolean {
       return true
   }
   return false
+}
+
+/**
+ * supportsLighthouse reports whether a type has a page Google Lighthouse can
+ * audit through the PageSpeed Insights API. Only the two HTTP(s) types do; the
+ * mirror of the Go helper `MonitorType.SupportsLighthouse`.
+ */
+export function supportsLighthouse(type: MonitorType): boolean {
+  return type === 'http' || type === 'keyword'
+}
+
+/** The two runs PageSpeed Insights accepts (mirror of `models.LighthouseStrategies`). */
+export const LIGHTHOUSE_STRATEGIES: readonly LighthouseStrategy[] = ['mobile', 'desktop']
+
+/** The strategy a monitor measures with when it does not pick one. */
+export const DEFAULT_LIGHTHOUSE_STRATEGY: LighthouseStrategy = 'mobile'
+
+/**
+ * lighthouseStrategy normalizes a stored strategy: anything but `desktop` reads
+ * as the default run, like `models.NormalizeLighthouseStrategy` on the Go side.
+ */
+export function lighthouseStrategy(value?: string | null): LighthouseStrategy {
+  return value === 'desktop' ? 'desktop' : DEFAULT_LIGHTHOUSE_STRATEGY
+}
+
+/** The cadences the settings page and the monitor form offer (mirror of `models.LighthouseIntervals`). */
+export const LIGHTHOUSE_INTERVALS: readonly LighthouseInterval[] = ['hourly', '6h', '12h', 'daily', 'weekly']
+
+/** The cadence a monitor measures with when it does not pick one. */
+export const DEFAULT_LIGHTHOUSE_INTERVAL: LighthouseInterval = 'daily'
+
+/** The weekdays the settings page offers (mirror of `models.LighthouseWeekdays`). */
+export const LIGHTHOUSE_WEEKDAYS: readonly LighthouseWeekday[] = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+]
+
+/** The weekday a weekly cadence is anchored to when the operator does not pick one. */
+export const DEFAULT_LIGHTHOUSE_WEEKDAY: LighthouseWeekday = 'monday'
+
+/**
+ * lighthouseInterval normalizes a stored cadence: anything unknown reads as the
+ * default one, like `models.NormalizeLighthouseInterval` on the Go side. An
+ * absent value is not the default though (a monitor without a cadence follows the
+ * job setting): use `effectiveLighthouseInterval` for that.
+ */
+export function lighthouseInterval(value?: string | null): LighthouseInterval {
+  const found = LIGHTHOUSE_INTERVALS.find((interval) => interval === value)
+  return found ?? DEFAULT_LIGHTHOUSE_INTERVAL
+}
+
+/**
+ * effectiveLighthouseInterval resolves the cadence a monitor really measures
+ * with: its own, or the job setting when it carries none (a monitor stored before
+ * the field existed). It is the twin of `lighthouse.IntervalFor` on the Go side.
+ */
+export function effectiveLighthouseInterval(
+  monitor: Pick<Monitor, 'config'>,
+  fallback?: string | null,
+): LighthouseInterval {
+  const own = monitor.config?.lighthouse_interval
+  if (own && LIGHTHOUSE_INTERVALS.includes(own)) return own
+  return lighthouseInterval(fallback)
+}
+
+/** lighthouseWeekday normalizes a stored weekday, defaulting to Monday. */
+export function lighthouseWeekday(value?: string | null): LighthouseWeekday {
+  const found = LIGHTHOUSE_WEEKDAYS.find((weekday) => weekday === value)
+  return found ?? DEFAULT_LIGHTHOUSE_WEEKDAY
+}
+
+/**
+ * The i18n key of each cadence: the options are translated, the stored value is
+ * never shown (it is a code like `6h`, not a label).
+ */
+export const LIGHTHOUSE_INTERVAL_KEYS: Record<LighthouseInterval, string> = {
+  hourly: 'lighthouse.intervalHourly',
+  '6h': 'lighthouse.intervalEvery6h',
+  '12h': 'lighthouse.intervalEvery12h',
+  daily: 'lighthouse.intervalDaily',
+  weekly: 'lighthouse.intervalWeekly',
+}
+
+/** The i18n key of each weekday. */
+export const LIGHTHOUSE_WEEKDAY_KEYS: Record<LighthouseWeekday, string> = {
+  sunday: 'lighthouse.weekdaySunday',
+  monday: 'lighthouse.weekdayMonday',
+  tuesday: 'lighthouse.weekdayTuesday',
+  wednesday: 'lighthouse.weekdayWednesday',
+  thursday: 'lighthouse.weekdayThursday',
+  friday: 'lighthouse.weekdayFriday',
+  saturday: 'lighthouse.weekdaySaturday',
 }
 
 /** pruneMonitorConfig keeps only the probe options the type actually reads. */
@@ -175,6 +288,16 @@ export function sanitizeMonitorPayload(payload: MonitorPayload, options: Sanitiz
     clean.domain_warn_days = ''
   }
 
+  // The web performance switch only exists where PageSpeed Insights can audit a
+  // page, and the strategy and the cadence do not outlive it.
+  if (!supportsLighthouse(type) || !clean.lighthouse_enabled) {
+    clean.lighthouse_enabled = false
+    if (clean.config) {
+      delete clean.config.lighthouse_strategy
+      delete clean.config.lighthouse_interval
+    }
+  }
+
   if (clean.template_uuid && options.templateType && options.templateType !== type) {
     clean.template_uuid = ''
   }
@@ -206,6 +329,10 @@ export function sanitizeTemplateDefaults(type: MonitorType, defaults: TemplateDe
     clean.domain_watch = false
     clean.domain_notify = false
     clean.domain_warn_days = ''
+  }
+
+  if (!supportsLighthouse(type) || !clean.lighthouse_enabled) {
+    clean.lighthouse_enabled = false
   }
 
   return clean

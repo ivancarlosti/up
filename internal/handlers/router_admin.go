@@ -105,6 +105,18 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	expiry.PUT("/whois-parsers/:id", h.updateWhoisParser)
 	expiry.DELETE("/whois-parsers/:id", h.deleteWhoisParser)
 
+	// Web performance (Google Lighthouse through PageSpeed Insights): the job
+	// configuration, the monitors that measure their page, the history of one
+	// monitor and the explicit purge.
+	lighthouse := admin.Group("/admin/lighthouse")
+	lighthouse.GET("", h.lighthouseSettings)
+	lighthouse.PUT("", h.updateLighthouseSettings)
+	lighthouse.POST("/run", h.runLighthouseNow)
+	lighthouse.GET("/monitors", h.lighthouseMonitors)
+	lighthouse.POST("/monitors/:id/run", h.runLighthouseMonitor)
+	lighthouse.GET("/monitors/:id/history", h.lighthouseMonitorHistory)
+	lighthouse.POST("/purge", h.purgeLighthouse)
+
 	tokens := admin.Group("/tokens")
 	tokens.GET("", h.listTokens)
 	tokens.POST("", h.createToken)

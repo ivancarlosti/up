@@ -152,6 +152,12 @@ type Monitor struct {
 	// operator still wants the same reminders.
 	DomainExpiresAt *time.Time `json:"domain_expires_at"`
 
+	// LighthouseEnabled turns on the web performance measurement of this
+	// monitor's page (http and keyword monitors): the daily job scores it
+	// through PageSpeed Insights and the result is shown next to the monitor.
+	// The strategy itself lives in Config.LighthouseStrategy.
+	LighthouseEnabled bool `gorm:"not null;default:false" json:"lighthouse_enabled"`
+
 	// TemplateUUID is the template this monitor follows (empty when it follows
 	// none). The uuid is used instead of the local id because the row is
 	// synchronised: an auto-increment id is only meaningful inside one database.
@@ -195,6 +201,9 @@ type Monitor struct {
 	// Domain is the last registry expiration read for the monitor's registrable
 	// domain (only when the monitor watches its domain).
 	Domain *DomainInfo `gorm:"-" json:"domain,omitempty"`
+	// Lighthouse is the last web performance observation of the monitor (only
+	// when it measures its page).
+	Lighthouse *LighthouseResult `gorm:"-" json:"lighthouse,omitempty"`
 	// TemplateName is the name of the template the monitor follows (filled by the
 	// decoration, never stored).
 	TemplateName string `gorm:"-" json:"template_name,omitempty"`

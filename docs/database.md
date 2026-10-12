@@ -64,6 +64,8 @@ FLUSH PRIVILEGES;
 | `monitor_templates` | reusable monitor blueprints (uuid + unique name) | tens |
 | `monitor_certificates` | TLS certificate read by the probe + notification memory | tens |
 | `monitor_domains` | registrable domain expiration (manual / RDAP / WHOIS) + notification memory | tens |
+| `monitor_lighthouses` | last Lighthouse web performance observation of a monitor | one per measuring monitor |
+| `lighthouse_runs` | the run history the *Web performance* page charts | pruned by `lighthouse_retention_days` |
 | `whois_parsers` | per-TLD rules that read an expiry date from a raw WHOIS response | few |
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
@@ -119,7 +121,28 @@ not its local id, because the row is synchronised) and `monitor_templates.propag
 says whether editing a template pushes its defaults to the monitors that follow it.
 The synchronisation payload carries the template link and the domain switches next
 to the certificate ones, so a monitor created on one node behaves the same on the
-others (see `internal/models/sync_payload.go`).
+others (see `internal/models/sync_payload.go`). The web performance switch
+(`monitors.lighthouse_enabled`, the strategy and the cadence are
+`config.lighthouse_strategy` and `config.lighthouse_interval`) rides along the same
+way.
+
+`monitor_lighthouses` and `lighthouse_runs` keep the Google Lighthouse
+measurements: the first is the **last** observation of each monitor (the
+`monitor_id` is the primary key, like `monitor_certificates`), the second is the
+**history** (`id`, `monitor_id`, `ran_at`, `strategy`, `status`, `message`,
+`ran_by_node` plus the four category scores and the five Core Web Vitals). Both
+carry the same measurement columns on purpose: what the list shows and what the
+chart plots can never disagree. Only the history grows, and only the history is
+pruned (default 30 days, `settings.lighthouse_retention_days`, `0` = never). The
+scores are observations, so they are **not** part of the synchronisation payload:
+each node measures locally, exactly like a heartbeat or a certificate.
+
+`monitor_lighthouses.ran_at` also **is** the schedule of the monitor: the web
+performance job derives the next measurement of each monitor from it (its
+`config.lighthouse_interval`, default `settings.lighthouse_interval`, anchored at
+`settings.lighthouse_check_time`), so no counter, no extra column and no lock row is
+needed to survive a restart or a cluster (`settings.lighthouse_last_run_day` is only
+reported by the admin page).
 
 `settings` keeps the clock preference of the UI under `time_format` (`auto`,
 `12h` or `24h`); it only affects rendering, never a stored timestamp (everything in
@@ -837,6 +860,18 @@ The two statements carry the same cut-off, and the rollups are deleted first: a
 rollup outliving the heartbeats it was computed from would keep reporting a
 period the retention policy already dropped. Deleting a monitor removes its
 rollups with everything else it owns.
+
+**Web performance retention** (`settings.lighthouse_retention_days`, executed by
+the same boot + every 6 h pass; `LIGHTHOUSE_RETENTION_DAYS` is the fallback and
+the live value defaults to 30 days, `0` = keep forever):
+
+```sql
+DELETE FROM lighthouse_runs WHERE ran_at < ?;
+```
+
+Only the run history is deleted: the current observation of a monitor
+(`monitor_lighthouses`) is a state, not a history, and it is removed with the
+monitor or when its switch is turned off.
 
 The retention defaults to **180 days** (`0` disables the purge and keeps every
 row). Admin > Settings shows the stored count, the age of the oldest heartbeat and

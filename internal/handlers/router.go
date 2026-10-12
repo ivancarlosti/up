@@ -32,6 +32,7 @@ type Container struct {
 	Domains          *services.DomainService
 	WhoisParsers     *services.WhoisParserService
 	Expiry           *services.ExpiryService
+	Lighthouse       *services.LighthouseService
 	Heartbeats       *services.HeartbeatService
 	Stats            *services.StatsService
 	Notifications    *services.NotificationService

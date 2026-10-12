@@ -298,6 +298,121 @@ func (s *SettingService) SetExpiryLastRunDay(ctx context.Context, day int64) err
 	return s.Set(ctx, models.SettingExpiryLastRunDay, strconv.FormatInt(day, 10))
 }
 
+// LighthouseSettings returns the admin managed configuration of the daily web
+// performance job (Admin > Settings, shown again on the Web performance page).
+func (s *SettingService) LighthouseSettings() models.LighthouseSettings {
+	out := models.DefaultLighthouseSettings()
+	if value, ok := s.Get(models.SettingLighthouseEnabled); ok {
+		if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+			out.Enabled = parsed
+		}
+	}
+	if value, ok := s.Get(models.SettingLighthouseCheckTime); ok && strings.TrimSpace(value) != "" {
+		out.CheckTime = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingLighthouseCheckTimezone); ok && strings.TrimSpace(value) != "" {
+		out.CheckTimezone = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingLighthouseStrategy); ok && strings.TrimSpace(value) != "" {
+		out.Strategy = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingLighthouseInterval); ok && strings.TrimSpace(value) != "" {
+		out.Interval = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingLighthouseWeekday); ok && strings.TrimSpace(value) != "" {
+		out.Weekday = strings.TrimSpace(value)
+	}
+	if value, ok := s.Get(models.SettingLighthouseRateLimitMS); ok {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			out.RateLimitMS = parsed
+		}
+	}
+	if value, ok := s.Get(models.SettingLighthouseTimeoutSeconds); ok {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			out.TimeoutSeconds = parsed
+		}
+	}
+	out.APIKey = s.LighthouseAPIKey()
+	out.Normalize()
+	return out
+}
+
+// LighthouseAPIKey resolves the PageSpeed Insights key: the shared setting wins,
+// LIGHTHOUSE_API_KEY is the fallback of a deployment that never opened Admin >
+// Settings, and an empty value means the anonymous quota.
+func (s *SettingService) LighthouseAPIKey() string {
+	if value, ok := s.Get(models.SettingLighthouseAPIKey); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	if s.cfg != nil {
+		return strings.TrimSpace(s.cfg.LighthouseAPIKey)
+	}
+	return ""
+}
+
+// SetLighthouseSettings stores the daily web performance job configuration.
+func (s *SettingService) SetLighthouseSettings(ctx context.Context, settings models.LighthouseSettings) error {
+	settings.Normalize()
+	stored := map[string]string{
+		models.SettingLighthouseEnabled:        strconv.FormatBool(settings.Enabled),
+		models.SettingLighthouseCheckTime:      settings.CheckTime,
+		models.SettingLighthouseCheckTimezone:  settings.CheckTimezone,
+		models.SettingLighthouseStrategy:       settings.Strategy,
+		models.SettingLighthouseInterval:       settings.Interval,
+		models.SettingLighthouseWeekday:        settings.Weekday,
+		models.SettingLighthouseRateLimitMS:    strconv.Itoa(settings.RateLimitMS),
+		models.SettingLighthouseTimeoutSeconds: strconv.Itoa(settings.TimeoutSeconds),
+		models.SettingLighthouseAPIKey:         settings.APIKey,
+	}
+	for key, value := range stored {
+		if err := s.Set(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LighthouseRetentionDays is how many days of web performance history are kept.
+//
+// Precedence: the shared setting wins, LIGHTHOUSE_RETENTION_DAYS is only a
+// fallback for a deployment that never opened Admin > Settings, and the
+// documented default applies when neither says anything. 0 means "never purge".
+func (s *SettingService) LighthouseRetentionDays() int {
+	if value, ok := s.Get(models.SettingLighthouseRetentionDays); ok && strings.TrimSpace(value) != "" {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			return models.NormalizeLighthouseRetentionDays(parsed)
+		}
+	}
+	if s.cfg != nil && s.cfg.LighthouseRetentionDays > 0 {
+		return s.cfg.LighthouseRetentionDays
+	}
+	return models.DefaultLighthouseRetentionDays
+}
+
+// SetLighthouseRetentionDays stores the web performance retention policy.
+func (s *SettingService) SetLighthouseRetentionDays(ctx context.Context, days int) error {
+	return s.Set(ctx, models.SettingLighthouseRetentionDays,
+		strconv.Itoa(models.NormalizeLighthouseRetentionDays(days)))
+}
+
+// LighthouseLastRunDay returns the day bucket of the last daily run (0 = never).
+func (s *SettingService) LighthouseLastRunDay() int64 {
+	value, ok := s.Get(models.SettingLighthouseLastRunDay)
+	if !ok {
+		return 0
+	}
+	day, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return day
+}
+
+// SetLighthouseLastRunDay records the day bucket of the last daily run.
+func (s *SettingService) SetLighthouseLastRunDay(ctx context.Context, day int64) error {
+	return s.Set(ctx, models.SettingLighthouseLastRunDay, strconv.FormatInt(day, 10))
+}
+
 // SessionSecret returns (generating it on the first boot) the secret used to
 // sign session cookies and OIDC state values. It is stored in the database so
 // every node of the cluster accepts the same cookie.

@@ -63,10 +63,87 @@ export interface MonitorConfig {
   // SNI of a ssl monitor (the certificate usually names a virtual host).
   server_name?: string
   /**
+   * Strategy of the Lighthouse web performance run of this monitor (see
+   * `lighthouse_enabled`): `mobile` (default) or `desktop`. Only the two HTTP(s)
+   * types carry it.
+   */
+  lighthouse_strategy?: LighthouseStrategy
+  /**
+   * How often the page is measured (see `lighthouse_enabled`): `hourly`, `6h`,
+   * `12h`, `daily` (default) or `weekly`. Absent means the cadence of the job
+   * (Admin > Web performance), which is what a monitor stored before the field
+   * existed follows.
+   */
+  lighthouse_interval?: LighthouseInterval
+  /**
    * Address family the probe prefers. Shared by every type, like `ignore_tls`:
    * see `IPFamily`. Absent means the backend default (`auto`).
    */
   ip_family?: IPFamily
+}
+
+/** The two strategies PageSpeed Insights accepts: a mobile or a desktop run. */
+export type LighthouseStrategy = 'mobile' | 'desktop'
+
+/**
+ * The cadences a monitor can measure its page with (mirror of
+ * `models.LighthouseIntervals`): a discrete set, so the API, the form and the
+ * stored configuration cannot disagree about what a cadence is.
+ */
+export type LighthouseInterval = 'hourly' | '6h' | '12h' | 'daily' | 'weekly'
+
+/** The weekday a weekly measurement is anchored to (mirror of `models.LighthouseWeekdays`). */
+export type LighthouseWeekday = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday'
+
+/** Outcome of the last Lighthouse run stored for a monitor. */
+export type LighthouseStatus = 'ok' | 'error'
+
+/**
+ * LighthouseMeasurements is what one run measured: the four category scores
+ * (0..100, null when the API could not measure one) and the Core Web Vitals.
+ */
+export interface LighthouseMeasurements {
+  performance: number | null
+  accessibility: number | null
+  best_practices: number | null
+  seo: number | null
+  /** Core Web Vitals: milliseconds, except the unitless layout shift. */
+  first_contentful_paint_ms: number
+  largest_contentful_paint_ms: number
+  total_blocking_time_ms: number
+  cumulative_layout_shift: number
+  speed_index_ms: number
+}
+
+/** LighthouseResult is the last observation stored for a monitor. */
+export interface LighthouseResult extends LighthouseMeasurements {
+  status: LighthouseStatus
+  /** Why the run failed (only when status is "error"). */
+  message?: string
+  strategy: LighthouseStrategy
+  /** The page Lighthouse actually audited, after the redirects. */
+  final_url?: string
+  ran_at: string
+  fetch_time?: string
+  ran_by_node?: string
+  /**
+   * The cadence this observation was measured with and when the next one is due.
+   * Both are computed by the backend for the listing: they are absent from a
+   * result that was not decorated (a manual "measure now", for instance).
+   */
+  interval?: LighthouseInterval
+  next_run?: string
+}
+
+/** LighthouseRun is one point of the history the performance page charts. */
+export interface LighthouseRun extends LighthouseMeasurements {
+  id: number
+  monitor_id: number
+  ran_at: string
+  strategy: LighthouseStrategy
+  status: LighthouseStatus
+  message?: string
+  ran_by_node?: string
 }
 
 /** CertificateInfo is the TLS certificate read by the probe of a monitor. */
@@ -184,6 +261,14 @@ export interface Monitor {
   domain_expires_at: string | null
   /** Last registry expiration read (only when domain_watch is on). */
   domain?: DomainInfo
+  // Web performance (Google Lighthouse through PageSpeed Insights).
+  /**
+   * Score the page of this monitor with the daily job. Only the two HTTP(s)
+   * types offer it; the strategy lives in `config.lighthouse_strategy`.
+   */
+  lighthouse_enabled: boolean
+  /** Last score read by the job (only when lighthouse_enabled is on). */
+  lighthouse?: LighthouseResult
   /**
    * The template this monitor follows (its uuid), empty when it follows none.
    * Editing the template pushes its defaults to every linked monitor.
@@ -259,6 +344,11 @@ export interface TemplateDefaults {
   domain_watch: boolean
   domain_notify: boolean
   domain_warn_days: string
+  /**
+   * Web performance applied to the monitors created from the template (the
+   * strategy is part of `config.lighthouse_strategy`).
+   */
+  lighthouse_enabled: boolean
 }
 
 /**

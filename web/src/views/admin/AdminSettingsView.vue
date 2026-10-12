@@ -9,13 +9,15 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
+import Switch from '@/components/ui/Switch.vue'
+import LighthouseJobCard from '@/components/lighthouse/LighthouseJobCard.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/format'
 import { uptimeWindowOptions } from '@/lib/uptime-window'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
-import type { AdminSettings, HeartbeatRetentionStats } from '@/lib/types'
+import type { AdminSettings, ExpirySettings, HeartbeatRetentionStats } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toast = useToastStore()
@@ -34,6 +36,62 @@ const form = ref({
 const saving = ref(false)
 const purgeOpen = ref(false)
 const purging = ref(false)
+
+// --- Certificate & domain expiration (moved here from the TLD/SSL page) -----
+// The job settings live with the other runtime settings; the TLD/SSL page keeps
+// the target list and the WHOIS rules. The field names are unchanged, so the API
+// payload is exactly the one the expiry endpoint always accepted.
+const expiryForm = ref<ExpirySettings>({
+  check_time: '03:00',
+  check_timezone: 'UTC',
+  rdap_enabled: true,
+  whois_enabled: true,
+  rate_limit_ms: 100,
+  timeout_seconds: 10,
+})
+const expirySaved = ref(false)
+
+/** Common IANA names offered as suggestions (the field accepts any name). */
+const timezoneSuggestions = [
+  'UTC',
+  'America/Sao_Paulo',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Lisbon',
+  'Europe/Madrid',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+]
+
+/**
+ * The time of day is picked with two explicit selects (00-23 and 00-59): a native
+ * <input type="time"> renders AM/PM or 24h depending on the browser locale, which
+ * cannot be overridden, and the operator wants a predictable clock here.
+ */
+const hourOptions = Array.from({ length: 24 }, (_, index) => {
+  const value = String(index).padStart(2, '0')
+  return { value, label: value }
+})
+const minuteOptions = Array.from({ length: 60 }, (_, index) => {
+  const value = String(index).padStart(2, '0')
+  return { value, label: value }
+})
+const checkHour = computed(() => expiryForm.value.check_time.split(':')[0] ?? '03')
+const checkMinute = computed(() => expiryForm.value.check_time.split(':')[1] ?? '00')
+function setCheckHour(value: string): void {
+  expiryForm.value.check_time = `${value}:${checkMinute.value}`
+}
+function setCheckMinute(value: string): void {
+  expiryForm.value.check_time = `${checkHour.value}:${value}`
+}
+
+/** toNumber converts what a native number input produces (a string). */
+function toNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
 
 const localeOptions = computed(() =>
   (settings.value?.supported_locales ?? []).map((value) => ({ value, label: value })),
@@ -74,9 +132,14 @@ const retentionDays = computed({
 
 async function load(): Promise<void> {
   try {
-    const [adminSettings, stats] = await Promise.all([api.adminSettings(), api.heartbeatRetention()])
+    const [adminSettings, stats, expiry] = await Promise.all([
+      api.adminSettings(),
+      api.heartbeatRetention(),
+      api.expirySettings(),
+    ])
     settings.value = adminSettings
     retention.value = stats
+    expiryForm.value = { ...expiry.settings }
     form.value = {
       default_locale: adminSettings.default_locale,
       default_theme: adminSettings.default_theme,
@@ -100,6 +163,24 @@ async function save(): Promise<void> {
     toast.error(t('common.error'), translateError(error))
   } finally {
     saving.value = false
+  }
+}
+
+/** saveExpiry stores the certificate/domain job configuration. */
+async function saveExpiry(): Promise<void> {
+  expirySaved.value = true
+  try {
+    const saved = await api.updateExpirySettings({
+      ...expiryForm.value,
+      rate_limit_ms: toNumber(expiryForm.value.rate_limit_ms, 100),
+      timeout_seconds: toNumber(expiryForm.value.timeout_seconds, 10),
+    })
+    expiryForm.value = { ...saved }
+    toast.success(t('common.saved'))
+  } catch (error) {
+    toast.error(t('common.error'), translateError(error))
+  } finally {
+    expirySaved.value = false
   }
 }
 
@@ -213,6 +294,59 @@ onMounted(load)
         </Button>
       </template>
     </Card>
+
+    <Card :title="t('settings.certificateCard')" :description="t('settings.certificateCardHelp')">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="grid gap-1">
+          <Label :help="t('expiry.checkTimeHelp')">{{ t('expiry.checkTime') }}</Label>
+          <div class="flex items-center gap-2">
+            <Select v-model="checkHour" :options="hourOptions" class="w-20" @update:model-value="setCheckHour" />
+            <span class="text-sm text-muted-foreground">:</span>
+            <Select v-model="checkMinute" :options="minuteOptions" class="w-20" @update:model-value="setCheckMinute" />
+            <span class="font-mono text-xs text-muted-foreground">{{ expiryForm.check_time }}</span>
+          </div>
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-expiry-zone" :help="t('expiry.timezoneHelp')">{{ t('expiry.timezone') }}</Label>
+          <Input
+            id="settings-expiry-zone"
+            v-model="expiryForm.check_timezone"
+            list="expiry-timezones"
+            placeholder="UTC"
+          />
+          <datalist id="expiry-timezones">
+            <option v-for="zone in timezoneSuggestions" :key="zone" :value="zone" />
+          </datalist>
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-expiry-rate" :help="t('expiry.rateLimitHelp')">{{ t('expiry.rateLimit') }}</Label>
+          <Input id="settings-expiry-rate" v-model.number="expiryForm.rate_limit_ms" type="number" min="0" max="60000" />
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-expiry-timeout" :help="t('expiry.timeoutHelp')">{{ t('expiry.timeout') }}</Label>
+          <Input
+            id="settings-expiry-timeout"
+            v-model.number="expiryForm.timeout_seconds"
+            type="number"
+            min="1"
+            max="60"
+          />
+        </div>
+        <div class="flex flex-col gap-2 sm:col-span-2">
+          <Switch v-model="expiryForm.rdap_enabled as boolean">{{ t('expiry.rdapEnabled') }}</Switch>
+          <Switch v-model="expiryForm.whois_enabled as boolean">{{ t('expiry.whoisEnabled') }}</Switch>
+        </div>
+      </div>
+
+      <template #footer>
+        <Button size="sm" :loading="expirySaved" @click="saveExpiry">
+          <Save class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('common.save') }}
+        </Button>
+      </template>
+    </Card>
+
+    <LighthouseJobCard />
 
     <Card :title="t('settings.instanceInfo')">
       <dl class="grid gap-3 text-xs sm:grid-cols-2">
