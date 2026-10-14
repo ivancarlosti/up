@@ -43,6 +43,18 @@ export const coreApi = {
    */
   boot: () => get<BootStatus>('/api/boot'),
   /**
+   * retryBoot asks the backend to retry the boot step that is failing right now
+   * instead of waiting for its next attempt: the "try now" button of the boot
+   * screen.
+   *
+   * Re-reading boot() would not do it - the backend waits between attempts on
+   * its own schedule, so a read can only report the same failure. This endpoint
+   * is what skips that wait. It exists only on the engine that answers while the
+   * API is not ready, and its answer carries the same payload as boot(), so the
+   * caller repaints from it.
+   */
+  retryBoot: () => post<BootStatus>('/api/boot/retry'),
+  /**
    * health is the liveness probe of an instance that is already serving: it
    * pings the database and answers 503 with a classified code when it stopped
    * answering. It carries the same fields as boot().

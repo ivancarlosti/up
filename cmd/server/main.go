@@ -41,6 +41,30 @@ func main() {
 	}
 }
 
+// The boot steps after the connection are retried with a capped exponential
+// backoff: fast enough that a momentary failure (a 502 from the identity
+// provider, a lock timeout on a migration) costs seconds, slow enough that a
+// cause needing a human - a wrong issuer, a revoked grant - is not hammered
+// every second. The connection itself keeps its own, faster schedule (see
+// database.Connect), because connecting is cheap and the steps above are not.
+//
+// Every step is idempotent by construction (see the doc of each database.*
+// function), which is what makes retrying them safe: a run that fails halfway
+// leaves the schema and the data in a state the next run completes.
+const (
+	bootRetryInitial = 15 * time.Second
+	bootRetryMax     = 5 * time.Minute
+)
+
+// nextBackoff doubles the wait, up to bootRetryMax, and stays there.
+func nextBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next > bootRetryMax {
+		next = bootRetryMax
+	}
+	return next
+}
+
 func run() error {
 	// --- configuration ----------------------------------------------------
 	cfg, err := config.Load()
@@ -64,7 +88,11 @@ func run() error {
 	// a loop that hid the reason). The bootstrap engine answers with the phase
 	// below until the wired engine replaces it.
 	state := boot.New(cfg.NodeID)
-	switcher := newHandlerSwitcher(handlers.NewBootstrapEngine(cfg, log, state))
+	// The retry signal is shared by every wait loop of the boot - the connection
+	// and the steps below. It is what the "try now" button of the boot screen
+	// pulls (see handlers.bootRetry).
+	retry := boot.NewRetry()
+	switcher := newHandlerSwitcher(handlers.NewBootstrapEngine(cfg, log, state, retry))
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.AppPort),
 		Handler:           switcher,
@@ -78,7 +106,7 @@ func run() error {
 
 	// --- database (always external) ---------------------------------------
 	state.SetPhase(boot.PhaseConnecting)
-	db, err := database.Connect(ctx, cfg, log, state)
+	db, err := database.Connect(ctx, cfg, log, state, retry)
 	if err != nil {
 		if ctx.Err() != nil {
 			// Stopped while waiting for the database: not a failure.
@@ -87,24 +115,71 @@ func run() error {
 		return err
 	}
 
-	// --- schema and data --------------------------------------------------
+	// --- schema, data and application -------------------------------------
 	// Every step publishes the phase it is in, so a browser that is already
 	// open says what the process is doing, and every duration lands in the
 	// "boot completed" line below (the numbers this order was chosen from).
+	//
+	// Both stages run inside a retry loop, for as long as the process runs: a
+	// step that fails on a transient cause (a lock timeout, a replica that is
+	// briefly read only, an issuer that answers 502) recovers on its own instead
+	// of parking the process in an error only a restart could clear. It stays up
+	// and keeps answering /api/boot with the classified failure while it waits,
+	// and "try now" on the boot screen skips the rest of the backoff.
 	timings := []any{}
-	deferred, err := prepareDatabase(ctx, cfg, log, db, state, &timings)
-	if err != nil {
-		return serveFailure(ctx, log, state, serverErrors, err)
-	}
+	var (
+		app      *application
+		deferred *database.RollupPlan
+		attempt  int
+		backoff  = bootRetryInitial
+		prepped  bool
+	)
+	for {
+		// Stage one: the schema and the data. Skipped once it has succeeded, so
+		// a wiring failure does not re-run the migrations every attempt.
+		if !prepped {
+			// The numbers of a failed attempt are not what the "boot completed"
+			// line is for: keep only the attempt that worked.
+			timings = timings[:0]
+			deferred, err = prepareDatabase(ctx, cfg, log, db, state, &timings)
+			if err == nil {
+				// Progress: the counters describe the stage that is failing, so
+				// they restart from a clean slate.
+				prepped, attempt, backoff = true, 0, bootRetryInitial
+			}
+		}
 
-	// --- application ------------------------------------------------------
-	state.SetPhase(boot.PhaseWiring)
-	began := time.Now()
-	app, err := newApplication(ctx, cfg, log, db, state)
-	timings = append(timings, "wiring_ms", time.Since(began).Milliseconds())
-	if err != nil {
-		return serveFailure(ctx, log, state, serverErrors,
-			fail(state, i18n.CodeBootFailed, err, "wiring the services"))
+		// Stage two: the application, on a schema that is ready.
+		if prepped {
+			state.SetPhase(boot.PhaseWiring)
+			began := time.Now()
+			app, err = newApplication(ctx, cfg, log, db, state)
+			if err == nil {
+				timings = append(timings, "wiring_ms", time.Since(began).Milliseconds())
+				break
+			}
+			err = fail(i18n.CodeBootFailed, err, "wiring the services")
+		}
+
+		// A stage failed: report it, then wait before trying again.
+		attempt++
+		code := recordRetry(state, attempt, err, backoff)
+		log.Warn("a boot step failed, retrying",
+			"attempt", attempt, "in", backoff.String(), "code", code, "error", err)
+
+		select {
+		case <-ctx.Done():
+			// The process was asked to stop. The failure is already on
+			// /api/boot for whoever looks at it; retrying would only delay the
+			// drain.
+			return nil
+		case <-retry.Chan():
+			log.Info("boot retry requested by the web interface", "attempt", attempt)
+		case serverErr := <-serverErrors:
+			return fmt.Errorf("http server failed: %w", serverErr)
+		case <-time.After(backoff):
+		}
+		backoff = nextBackoff(backoff)
 	}
 	defer app.stop()
 
@@ -127,6 +202,13 @@ func run() error {
 // It returns the rollup plan when the full rebuild was deferred to the
 // background (nil when there was nothing left to do), so the caller knows that
 // the statistics still complete a few seconds after the API starts answering.
+//
+// Every step it runs is idempotent by construction, which is what lets the
+// caller retry the whole sequence when one of them fails (see run): a run that
+// stops halfway is completed by the next one, and a step that has nothing left
+// to do is a no-op. It records the phase of each step as it goes, so the
+// browser watching /api/boot sees the retry make progress rather than a frozen
+// failure.
 func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gorm.DB, state *boot.State, timings *[]any) (*database.RollupPlan, error) {
 	step := func(name string, phase boot.Phase, fallback string, run func() error) error {
 		state.SetPhase(phase)
@@ -136,7 +218,7 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 		if err == nil {
 			return nil
 		}
-		return fail(state, fallback, err, name)
+		return fail(fallback, err, name)
 	}
 
 	if err := step("migrate", boot.PhaseMigrating, i18n.CodeDatabaseMigration, func() error {
@@ -186,7 +268,7 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	began := time.Now()
 	plan, err := database.PlanRollups(ctx, db)
 	if err != nil {
-		return nil, fail(state, i18n.CodeDatabaseMigration, err, "planning the heartbeat rollups")
+		return nil, fail(i18n.CodeDatabaseMigration, err, "planning the heartbeat rollups")
 	}
 	deferred := plan.Full
 	if deferred {
@@ -194,7 +276,7 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 		log.Info("heartbeat rollup rebuild deferred until the API is serving",
 			"from", plan.Start, "to", plan.End)
 	} else if err := database.RebuildRollups(ctx, db, log, plan); err != nil {
-		return nil, fail(state, i18n.CodeDatabaseMigration, err, "rebuilding the heartbeat rollups")
+		return nil, fail(i18n.CodeDatabaseMigration, err, "rebuilding the heartbeat rollups")
 	}
 	*timings = append(*timings, "rollups_ms", time.Since(began).Milliseconds())
 
@@ -232,28 +314,66 @@ func startDeferredRollups(ctx context.Context, db *gorm.DB, log *slog.Logger, st
 	}()
 }
 
-// fail records a boot failure with its classified code and returns it wrapped
-// with the step that produced it.
-func fail(state *boot.State, fallback string, err error, step string) error {
+// bootFailure is a boot step error carrying the stable code and the developer
+// detail the web interface reads.
+//
+// A step that knows its own fallback code (a migration, a backfill) classifies
+// its error through fail, and the boot loop - which records the failure now
+// that a step is retried instead of parked - reads the code back with
+// errors.As.
+type bootFailure struct {
+	code   string
+	detail string
+	err    error
+}
+
+// Error is the wrapped step error ("migrate: running automatic migrations: ...").
+func (e *bootFailure) Error() string { return e.err.Error() }
+
+// Unwrap exposes the original error to errors.Is and errors.As.
+func (e *bootFailure) Unwrap() error { return e.err }
+
+// fail classifies a boot step error and returns it wrapped with the step that
+// produced it.
+//
+// It deliberately records nothing: the boot loop owns the state and the retry
+// counters (see recordRetry), so a step that fails can be attempted again
+// without the state ever claiming a final failure. That is what keeps the
+// "try now" button meaningful - a frozen ERR_BOOT_FAILED was the whole problem.
+func fail(fallback string, err error, step string) error {
 	code, detail := boot.Classify(err)
 	if code == "" {
 		code = fallback
 	}
-	state.Fail(code, detail)
-	return fmt.Errorf("%s: %w", step, err)
+	return &bootFailure{
+		code:   code,
+		detail: detail,
+		err:    fmt.Errorf("%s: %w", step, err),
+	}
 }
 
-// serveFailure keeps the process up when a boot step failed.
+// recordRetry publishes a failed attempt and the wait that follows it, and
+// returns the code the operator will read.
 //
-// The bootstrap engine is still installed, so the SPA explains the failure in
-// the language of the visitor and the health check stays unhealthy. Exiting
-// would only restart the same failure and hide the reason behind a container
-// restart counter, which is exactly what this design set out to fix.
-func serveFailure(ctx context.Context, log *slog.Logger, state *boot.State, serverErrors <-chan error, err error) error {
-	snap := state.Snapshot()
-	log.Error("Up could not finish starting: the failure is reported by the web interface and by /api/health",
-		"code", snap.Code, "database", snap.Database, "phase", snap.Phase, "error", err)
-	return waitForShutdown(ctx, log, serverErrors)
+// Publishing the failure instead of waiting for it to be final is what the boot
+// screen needs: the SPA explains it in the language of the visitor (see
+// internal/handlers and web/src/views/BootView.vue) while the loop keeps
+// waiting, and /api/health stays unhealthy so a container health check does not
+// declare a process healthy while it cannot serve.
+func recordRetry(state *boot.State, attempt int, err error, next time.Duration) string {
+	var failure *bootFailure
+	if errors.As(err, &failure) {
+		state.Retry(attempt, failure.code, failure.detail, next)
+		return failure.code
+	}
+	// An error raised outside a step: classify it here so the state never
+	// degrades without a code.
+	code, detail := boot.Classify(err)
+	if code == "" {
+		code = i18n.CodeBootFailed
+	}
+	state.Retry(attempt, code, detail, next)
+	return code
 }
 
 // waitForShutdown blocks until the process is asked to stop or the listener

@@ -91,7 +91,8 @@ sequenceDiagram
     M->>C: Load() reads .env + environment
     C-->>M: Config or ValidationError (all problems at once)
     M->>B: listen on APP_PORT, answer /api/boot, /api/health, SPA, 503 elsewhere
-    M->>D: Connect() with exponential backoff, retrying until it works
+    M->>D: Connect() with exponential backoff (1s -> 8s), retrying until it works
+    Note over M,S: every fallible step runs in a retry loop (15s -> 5m)<br/>POST /api/boot/retry skips the wait
     D->>D: Migrate() AutoMigrate(29 tables), heal legacy indexes
     D->>D: Backfill() sync identity (uuid, origin_node_id, revision)
     D->>D: BackfillTemplateAuth() removes credentials stored in templates
@@ -99,11 +100,12 @@ sequenceDiagram
     D->>D: Seed() settings, session secret, cluster key, node row
     M->>A: build services (settings, stats, monitors, heartbeats, ...)
     A->>A: EnsureSelf() registers this node
+    M->>A: OIDC discovery + JWKS (only when AUTH_METHOD=keycloak)
     M->>S: Start() loads active monitors and starts one worker each
     S->>S: StartMaintenance() node ping 30s, peer ping 30s, sweep 30s, retention 6h
-    M->>H: Register() routes + embedded SPA
+    M->>H: Register() routes + embedded SPA + start the WebSocket hub
     M->>B: swap the wired engine in (state.Ready(), "boot completed")
-    M->>M: SIGTERM -> graceful shutdown (20s) -> scheduler.Stop()
+    M->>M: SIGINT/SIGTERM -> graceful shutdown (20s) -> scheduler.Stop()
 ```
 
 Every step publishes the phase it is in through `internal/boot.State`, which
@@ -112,12 +114,23 @@ Every step publishes the phase it is in through `internal/boot.State`, which
 `boot completed` line (`connect_ms`, `migrate_ms`, `backfill_ms`,
 `template_auth_ms`, `rollups_ms`, `seed_ms`, `wiring_ms`, `total_ms`).
 
-Two deliberate changes keep the start short and self-explaining:
+Three deliberate changes keep the start short and self-explaining:
 
 - `database.Connect` **retries forever** (1s → 8s backoff) instead of exiting
   after 90 seconds. A process that cannot reach its database is still the only
   thing that can tell an operator why (the classified code, the driver message,
   the attempt counter), and exiting only replaced that page with a restart loop.
+- **Every step after the connection is retried as well**, with a capped backoff
+  (15s, 30s, 1m, 2m, 4m, then 5m for good). A migration that hit a lock timeout, a
+  replica that was briefly read only, or an OIDC discovery that answered `502`
+  recovers on its own: the process stays up, `/api/health` stays unhealthy, the
+  boot screen keeps naming the failure with its `attempts` / `next_retry_ms`, and
+  `POST /api/boot/retry` (the "try now" button) runs the next attempt at once
+  instead of waiting for the timer. Retrying is safe by construction: every step
+  is idempotent, and the single `*gorm.DB` pool is reused, so no attempt
+  reconnects. Progress resets the counters, and once the schema and the data are
+  in place a failure in the wiring retries only the wiring - the migrations do
+  not run again every five minutes.
 - The **full horizon rollup rebuild** (the first start after an upgrade, 30 days
   of raw heartbeats) runs in the background once the API serves, and reports
   `maintenance: "rollups"` meanwhile. It needs no lock: its range ends at the
@@ -128,9 +141,17 @@ Everything that can fail before the API is wired is classified
 (`internal/boot/classify.go`) and answered by the bootstrap engine as `503` with
 a stable code (`ERR_DB_UNREACHABLE`, `ERR_DB_CREDENTIALS`, `ERR_DB_MISSING`,
 `ERR_DB_MIGRATION_FAILED`, `ERR_BOOT_FAILED`): the browser shows the sentence
-that goes with it, in the visitor's language, instead of a blank page. Missing
+that goes with it, in the visitor's language, instead of a blank page. A code
+that is being retried travels with the attempt counter and the remaining backoff,
+so the page reads as a failure being worked on rather than a frozen one. Missing
 variables, an invalid locale or an invalid port still abort with a readable
 message before anything is started.
+
+The one goroutine a retry must not leave behind is the WebSocket hub: it is built
+with the services but `hub.Run` starts only after the last fallible step of the
+wiring (see `cmd/server/app.go`), so an attempt that returns an error starts
+nothing. `Hub.Publish` never blocks, so the services may hold the hub before its
+loop is running.
 
 ## 4. Runtime topology (single node)
 

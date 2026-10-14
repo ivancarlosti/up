@@ -63,13 +63,14 @@ func bootPayload(state *boot.State) gin.H {
 //
 // The process listens from the first millisecond (see cmd/server/main.go), so
 // this engine is what a browser finds during the first seconds of a start, or
-// for as long as a database stays broken. It serves the embedded SPA - the page
-// has to exist for the user to read anything at all - plus the three endpoints
-// that need no dependency, and answers every other /api/* route with a 503
-// carrying the boot state: /api/settings and /api/auth/session are what the SPA
-// asks for first, and that 503 is what turns "the page is stuck on a spinner"
-// into "Up is starting, reading the schema".
-func NewBootstrapEngine(cfg *config.Config, log *slog.Logger, state *boot.State) *gin.Engine {
+// for as long as a database stays broken or a boot step keeps failing. It serves
+// the embedded SPA - the page has to exist for the user to read anything at all
+// - plus the endpoints that need no dependency (/api/health, /api/boot,
+// /api/version and POST /api/boot/retry, the "try now" button), and answers
+// every other /api/* route with a 503 carrying the boot state: /api/settings and
+// /api/auth/session are what the SPA asks for first, and that 503 is what turns
+// "the page is stuck on a spinner" into "Up is starting, reading the schema".
+func NewBootstrapEngine(cfg *config.Config, log *slog.Logger, state *boot.State, retry *boot.Retry) *gin.Engine {
 	engine := gin.New()
 	engine.Use(
 		middleware.RequestID(),
@@ -85,6 +86,7 @@ func NewBootstrapEngine(cfg *config.Config, log *slog.Logger, state *boot.State)
 
 	engine.GET("/api/health", bootHealth(state))
 	engine.GET("/api/boot", bootStatus(state))
+	engine.POST("/api/boot/retry", middleware.RateLimit(bootRetryRateLimit, time.Minute), bootRetry(state, retry))
 	engine.GET("/api/version", func(c *gin.Context) {
 		api.OK(c, gin.H{
 			"version":  version.Version,
@@ -129,6 +131,31 @@ func bootHealth(state *boot.State) gin.HandlerFunc {
 // The "status" and "ready" fields carry the truth.
 func bootStatus(state *boot.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, bootPayload(state))
+	}
+}
+
+// bootRetryRateLimit is how many "try now" clicks a minute one client may make.
+// Low on purpose: each request skips a backoff, so the endpoint is a way to
+// force attempts, not a way to poll. The SPA already polls GET /api/boot.
+const bootRetryRateLimit = 6
+
+// bootRetry answers POST /api/boot/retry: the "try now" button of the boot
+// screen.
+//
+// It runs nothing itself. The boot sequence retries a failed step on its own
+// schedule (see cmd/server/main.go), and this endpoint only asks it to skip the
+// rest of the backoff and try again at once - the click an operator makes after
+// fixing the DSN or the identity provider. The answer carries the same payload
+// as GET /api/boot, so the SPA repaints from this response and needs no second
+// request.
+//
+// It is deliberately unauthenticated: the engine that serves it is the one that
+// answers while the API is not ready, and every route that could authenticate a
+// caller is a 503 until then.
+func bootRetry(state *boot.State, retry *boot.Retry) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		retry.Now()
 		c.JSON(http.StatusOK, bootPayload(state))
 	}
 }

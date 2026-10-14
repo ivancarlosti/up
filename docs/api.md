@@ -9,7 +9,7 @@
 
 | Surface | Credential |
 |---|---|
-| `/api/auth/*`, `/api/health`, `/api/boot`, `/api/version`, `/api/settings` | none |
+| `/api/auth/*`, `/api/health`, `/api/boot`, `POST /api/boot/retry`, `/api/version`, `/api/settings` | none |
 | admin API (`/api/monitors`, ...) | session cookie (`up_session`) or fully open with `AUTH_METHOD=none` |
 | `/api/public/*` | none (IP rules scope `public` + rate limit) |
 | `/api/v1/*` | `Authorization: Bearer up_<prefix>_<secret>` (scope `read`/`write`) |
@@ -27,6 +27,12 @@ while the process is still booting (or cannot reach its database at all): the
 body carries the boot code of section 11 (`ERR_BOOT_STARTING`,
 `ERR_DB_UNREACHABLE`, ...) and `GET /api/boot` reports the phase and the progress
 the interface is showing. See "Starting up" in `docs/architecture.md`.
+
+A step that fails is retried by the process itself - the connection every second
+up to eight, the later steps with a capped backoff up to five minutes - and
+`POST /api/boot/retry` is what makes the next attempt happen immediately. It is
+the "try now" button of the boot screen, and it needs no session because the
+routes that could authenticate a caller answer `503` until the boot is done.
 
 ## 2. Bootstrap and authentication
 
@@ -46,7 +52,7 @@ the interface is showing. See "Starting up" in `docs/architecture.md`.
 | `database` | `pending`, `ok`, `unreachable`, `unauthorized`, `missing` or `error` |
 | `code` | boot error code of the last failure (section 11), absent while all is well |
 | `detail` / `message` | the driver message behind `code` |
-| `attempts`, `next_retry_ms` | failed connection attempts and the backoff before the next one |
+| `attempts`, `next_retry_ms` | failed attempts of the step that is retrying (the connection, or a later boot step) and the backoff before the next one |
 | `maintenance` | background job still running after the boot (`rollups`) |
 | `elapsed_ms`, `phase_ms`, `since` | how long the process has been booting |
 
@@ -67,6 +73,24 @@ clean. The `status`, `ready`, `phase` and `code` fields carry the truth.
  "detail":"dial tcp 10.0.0.9:3306: connect: connection refused",
  "since":"2026-09-22T18:00:00Z","elapsed_ms":15230,"phase_ms":15230,"time":"2026-09-22T18:00:15Z"}
 ```
+
+### `POST /api/boot/retry`
+
+Asks the process to retry the boot step that is failing **now**, instead of
+waiting for its next scheduled attempt. This is the "try now" button of the boot
+screen. No body; the answer is `200` with the very same payload as
+`GET /api/boot`, so the caller repaints from it without a second request.
+
+| Case | Answer |
+|---|---|
+| the boot is retrying a step | `200`, the body of `GET /api/boot` |
+| more than 6 calls per minute from one client | `429 ERR_RATE_LIMITED` |
+| the boot already finished | `404 ERR_ROUTE_NOT_FOUND` - the route belongs to the engine that answers before the swap, and a finished boot has nothing to nudge |
+
+Nothing runs inside the request: the boot loop wakes up, applies the same
+backoff rules as its timer (a click only skips the wait), and reports through
+`/api/boot` as usual. No session is needed - no route that could authenticate a
+caller answers before the boot is done.
 
 ### `GET /api/version`
 

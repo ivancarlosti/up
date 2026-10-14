@@ -210,10 +210,27 @@ export const useAppStore = defineStore('app', () => {
     void pollStatus()
   }
 
-  /** retryBoot asks again right now (the "try now" button of the boot screen). */
-  function retryBoot(): void {
+  /**
+   * retryBoot asks the backend to retry the failing boot step right now, then
+   * resumes the poll (the "try now" button of the boot screen).
+   *
+   * Re-reading /api/boot was not enough: the backend waits between attempts on
+   * its own schedule, so a read could only return the same failure and the
+   * button did nothing the timer would not have done. The POST is what skips
+   * that wait. A POST that never reaches the API (a proxy that is down, an
+   * instance that is restarting, or the wired engine answering after a boot that
+   * finished in the meantime) is not an error to report: the screen keeps the
+   * state it had and the poll carries on, which is what the button used to do.
+   */
+  async function retryBoot(): Promise<void> {
     if (!bootPending.value) return
     stopPolling()
+    try {
+      boot.value = await api.retryBoot()
+    } catch {
+      // A nudge that did not land is not worth a message: the poll below reports
+      // the truth.
+    }
     void pollStatus()
   }
 

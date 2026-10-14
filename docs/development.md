@@ -633,11 +633,13 @@ PY
 | Symptom | Check |
 |---|---|
 | `Up cannot start: invalid configuration` | the printed list; `docker/.env.example` is the reference |
-| The page shows the boot screen for a long time | `curl localhost:8080/api/boot` names the phase and the elapsed time; the `boot completed` log line gives the duration of every step. The screen disappears on its own (a 2s → 5s poll), no reload needed |
+| The page shows the boot screen for a long time | `curl localhost:8080/api/boot` names the phase, the elapsed time and - when a step is failing - the `attempts` / `next_retry_ms` of the backoff; the `boot completed` log line gives the duration of every step. The screen clears on its own (a 2s → 5s poll), no reload needed. After fixing the cause, the **Try now** button (`POST /api/boot/retry`) skips the wait: the process retries on its own, restarting the container just replays the same sequence |
 | `ERR_DB_UNREACHABLE` in the boot screen | the server never answered: `DB_HOST`, `DB_PORT`, the server itself or a firewall. Up retries every 8s and starts serving as soon as it works (`host.docker.internal` for `docker-compose.yml`, `mariadb` for the bundle, `127.0.0.1` for the host-network files) |
 | `ERR_DB_CREDENTIALS` in the boot screen | `DB_USERNAME`/`DB_PASSWORD`, and whether the account may connect from the container address (`'up'@'172.17.%'`) |
 | `ERR_DB_MISSING` in the boot screen | `DB_DATABASE`: the schema must exist, Up only creates its tables **inside** it (`CREATE DATABASE up`) |
-| `ERR_DB_MIGRATION_FAILED` in the boot screen | the account needs `CREATE`/`ALTER`/`INDEX` on the schema; the server log names the failing statement |
+| `ERR_DB_MIGRATION_FAILED` in the boot screen | the account needs `CREATE`/`ALTER`/`INDEX` on the schema; the server log names the failing statement. The step is retried (15s → 5m): a lock timeout clears by itself, a missing grant does not - the code and the statement stay on screen until it does |
+| `ERR_BOOT_FAILED` in the boot screen | a step **after** the migration failed and is being retried: the log line `a boot step failed, retrying` names the attempt, the wait and the error, and `detail` carries the raw driver message. Every step is idempotent, so letting the timer run is safe; **Try now** runs the next attempt at once |
+| A `502` from the SSO/issuer on every attempt | the step that fetches the OIDC discovery is retried like the others: fix `KEYCLOAK_BASE_URL` or bring the provider up, then use **Try now** (`POST /api/boot/retry`) instead of restarting the container. `/api/health` reports `ERR_BOOT_FAILED` with the provider message until it works |
 | The banner says the database connection is broken | an instance that was serving lost its database: `/api/health` is `503` and names the cause; the banner clears by itself when the connection is back |
 | Monitor stays `pending` | the worker log line `monitor worker started`; then `GET /api/monitors/:id/heartbeats` |
 | No notification | `GET /api/notifications/logs`, then `POST /api/notifications/:id/test` |

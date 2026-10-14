@@ -57,9 +57,14 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	sessions := services.NewSessionService(cfg, settings, log)
 
 	// --- real time hub ----------------------------------------------------
+	// The hub is built here because every service below is wired to it, but its
+	// goroutine starts only on the way out (see the end of this function): the
+	// caller retries a failed newApplication, and a hub already running would be
+	// left behind by every attempt that does not get this far. Publishing to a
+	// hub whose Run has not started is safe either way - Hub.Publish never
+	// blocks - so the services can hold it from this point on.
 	hub := ws.NewHub(log, []string{cfg.AppURL})
 	hubDone := make(chan struct{})
-	go hub.Run(hubDone)
 
 	// --- wiring -----------------------------------------------------------
 	monitors.SetPublisher(hub)
@@ -186,6 +191,13 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	if err := sched.Start(ctx); err != nil {
 		return nil, err
 	}
+	// Every fallible step is behind us, so this is the one attempt that will
+	// become the running application: start the hub now and no earlier. The
+	// caller retries a newApplication that returns an error (see cmd/server),
+	// and a goroutine started above would survive every attempt that failed
+	// after it.
+	go hub.Run(hubDone)
+
 	sched.StartMaintenance(ctx)
 
 	return &application{

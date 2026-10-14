@@ -113,6 +113,14 @@ APP_URL=https://up.example.com
 
 - Discovery: `KEYCLOAK_BASE_URL` + `/realms/` + `KEYCLOAK_REALM` +
   `/.well-known/openid-configuration` (`coreos/go-oidc`).
+- That discovery document is fetched **during the boot**, in the step that builds
+  the HTTP layer, and that step is retried with the capped backoff of the boot
+  sequence (see "Starting up" in `docs/architecture.md`). A provider that is not
+  up yet, or that answers `502` behind a proxy, no longer fails the boot for
+  good: the process keeps explaining the failure on the boot screen, `/api/health`
+  stays unhealthy, and the next attempt - the timer, or the "try now" button
+  (`POST /api/boot/retry`) - comes by itself. It also never serves half an
+  authentication: until the discovery succeeds the API is not wired at all.
 - `KEYCLOAK_REDIRECT_URI` may be left empty: it is derived as
   `APP_URL + /api/auth/callback`. Register **exactly** that URL on the client.
 - `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` may be left empty too: it is derived as

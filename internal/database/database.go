@@ -34,7 +34,12 @@ import (
 // internal/boot), so exiting after a fixed window would only replace a readable
 // page with a crash loop that restarts the 90 seconds over and over. It returns
 // only when the context is cancelled (the process was asked to stop).
-func Connect(ctx context.Context, cfg *config.Config, log *slog.Logger, state *boot.State) (*gorm.DB, error) {
+//
+// retry is the "try now" signal of the boot screen (see boot.Retry): a click
+// skips the rest of the backoff and reconnects at once, which is what an
+// operator who has just fixed the DSN expects. A nil signal is tolerated and
+// leaves the plain timer.
+func Connect(ctx context.Context, cfg *config.Config, log *slog.Logger, state *boot.State, retry *boot.Retry) (*gorm.DB, error) {
 	logLevel := gormlogger.Warn
 	if cfg.LogLevel == "debug" {
 		logLevel = gormlogger.Info
@@ -104,6 +109,10 @@ func Connect(ctx context.Context, cfg *config.Config, log *slog.Logger, state *b
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		case <-retry.Chan():
+			// The boot screen asked to try now: skip the rest of the backoff.
+			log.Info("database connection retry requested by the web interface",
+				"attempt", attempt)
 		case <-time.After(backoff):
 		}
 		if backoff < 8*time.Second {

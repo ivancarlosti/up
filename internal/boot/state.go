@@ -66,7 +66,9 @@ type State struct {
 	code   string
 	detail string
 
-	// attempts counts the failed connection attempts of database.Connect.
+	// attempts counts the failed attempts of the step that is being retried:
+	// the connection (database.Connect), or any later boot step (see the retry
+	// loop of cmd/server/main.go).
 	attempts  int
 	nextRetry time.Duration
 
@@ -111,8 +113,8 @@ func (s *State) SetPhase(phase Phase) {
 }
 
 // Retry records a failed attempt of a step that is going to be retried
-// (database.Connect). The phase is left alone so the UI keeps saying what the
-// process is working on.
+// (database.Connect, and every boot step the retry loop of cmd/server drives).
+// The phase is left alone so the UI keeps saying what the process is working on.
 func (s *State) Retry(attempts int, code, detail string, next time.Duration) {
 	if s == nil {
 		return
