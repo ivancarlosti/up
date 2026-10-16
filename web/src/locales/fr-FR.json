@@ -371,7 +371,14 @@
     "linkEmptyScope": "Aucun moniteur n'est dans le périmètre : les {unlinked} suiveurs cesseraient de suivre ce modèle. Vérifiez la sélection.",
     "linkReapply": "Relancer la liaison avec le périmètre mémorisé",
     "linkScopePick": "Sélectionnez au moins un groupe ou une étiquette pour prévisualiser la liaison.",
-    "lighthouseHelp": "Performance web appliquée aux moniteurs créés depuis ce modèle."
+    "lighthouseHelp": "Performance web appliquée aux moniteurs créés depuis ce modèle.",
+    "cloneTitle": "Dupliquer le modèle",
+    "cloneHelp": "La copie part d'une identité neuve : aucun moniteur ne la suit encore et les moniteurs liés restent intacts.",
+    "cloneName": "Nom de la copie (vide = \"nom (copie)\")",
+    "copyChannels": "Copier les canaux de notification",
+    "cloneChannelsHelp": "Les canaux que reçoivent les moniteurs créés depuis le modèle.",
+    "copyScope": "Copier le périmètre de liaison mémorisé",
+    "copyScopeHelp": "Le périmètre de la dernière exécution de liaison. Laissez-le désactivé pour que la copie parte sur tous les moniteurs de son type ; lancez la liaison explicitement pour l'appliquer."
   },
   "domain": {
     "column": "Domaine",

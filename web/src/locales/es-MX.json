@@ -371,7 +371,14 @@
     "linkEmptyScope": "Ningún monitor entra en el alcance: los {unlinked} seguidores dejarían de seguir esta plantilla. Revisa la selección.",
     "linkReapply": "Repetir la vinculación con el alcance recordado",
     "linkScopePick": "Selecciona al menos un grupo o una etiqueta para previsualizar la vinculación.",
-    "lighthouseHelp": "Rendimiento web aplicado a los monitores creados desde esta plantilla."
+    "lighthouseHelp": "Rendimiento web aplicado a los monitores creados desde esta plantilla.",
+    "cloneTitle": "Clonar plantilla",
+    "cloneHelp": "La copia empieza con una identidad nueva: ningún monitor la sigue todavía y los monitores vinculados quedan intactos.",
+    "cloneName": "Nombre de la copia (vacío = \"nombre (copy)\")",
+    "copyChannels": "Copiar los canales de notificación",
+    "cloneChannelsHelp": "Los canales que reciben los monitores creados desde la plantilla.",
+    "copyScope": "Copiar el alcance de vínculo recordado",
+    "copyScopeHelp": "El alcance de la última ejecución de vínculo. Déjalo desactivado para que la copia empiece en todos los monitores de su tipo; ejecuta el vínculo explícitamente para aplicarlo."
   },
   "domain": {
     "column": "Dominio",

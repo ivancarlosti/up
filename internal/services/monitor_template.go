@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -13,6 +14,19 @@ import (
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/models"
 )
+
+// MonitorTemplateCloneOptions controls a template clone.
+type MonitorTemplateCloneOptions struct {
+	// Name of the copy (empty means "<source> (copy)").
+	Name string
+	// CopyChannels keeps the notification channels of the source in the
+	// defaults of the copy (the monitor clone owns the same switch).
+	CopyChannels bool
+	// CopyScope keeps the remembered link scope of the source. It is off for a
+	// fresh copy: the clone has no follower yet, so a scope it never ran would
+	// only advertise a decision nobody made.
+	CopyScope bool
+}
 
 // MonitorTemplateService owns the reusable monitor blueprints.
 type MonitorTemplateService struct {
@@ -291,6 +305,81 @@ func (s *MonitorTemplateService) Delete(ctx context.Context, id uint) error {
 	s.log.Info("monitor template deleted", "id", id)
 	s.publish("monitor.template.deleted", map[string]any{"id": id})
 	return nil
+}
+
+// Clone duplicates a template: the probe definition and the defaults, and
+// optionally the notification channels and the remembered link scope.
+//
+// The identity is deliberately NOT copied (the row gets a fresh uuid and
+// revision) and neither are the followers: the link lives on the monitor side
+// (`template_uuid`) and is never repointed, so a copy starts with no monitor
+// following it — exactly like a cloned monitor starts with a clean history.
+func (s *MonitorTemplateService) Clone(ctx context.Context, id uint, opts MonitorTemplateCloneOptions) (*models.MonitorTemplate, error) {
+	source, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
+		name = source.Name + " (copy)"
+	}
+	unique, err := s.uniqueName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	clone := templateClone(source, unique, opts)
+	if err := s.Create(ctx, clone); err != nil {
+		return nil, err
+	}
+	s.log.Info("monitor template cloned", "source", id, "clone", clone.ID, "name", clone.Name,
+		"channels", opts.CopyChannels, "scope", opts.CopyScope)
+	return s.Get(ctx, clone.ID)
+}
+
+// templateClone renders the row of a copy. It is a pure function so the one
+// decision that matters (what travels and what does not) can be tested without a
+// database: the definition is copied, the identity is left blank for
+// BeforeCreate, and the two optional attachments follow the options.
+func templateClone(source *models.MonitorTemplate, name string, opts MonitorTemplateCloneOptions) *models.MonitorTemplate {
+	clone := &models.MonitorTemplate{
+		Name:        name,
+		Description: source.Description,
+		Type:        source.Type,
+		Config:      source.Config,
+		Defaults:    source.Defaults,
+		Propagate:   source.Propagate,
+	}
+	if opts.CopyChannels {
+		// A fresh slice, never the backing array of the source: the two rows are
+		// edited independently.
+		clone.Defaults.NotificationIDs = append([]uint(nil), source.Defaults.NotificationIDs...)
+	} else {
+		clone.Defaults.NotificationIDs = nil
+	}
+	if opts.CopyScope {
+		clone.LinkScope = source.LinkScope
+	}
+	return clone
+}
+
+// uniqueName appends a counter until the name is free (used by the clone).
+// Template names are compared case insensitively, exactly like validateName.
+func (s *MonitorTemplateService) uniqueName(ctx context.Context, base string) (string, error) {
+	name := base
+	for attempt := 2; attempt < 100; attempt++ {
+		var count int64
+		if err := s.db.WithContext(ctx).Model(&models.MonitorTemplate{}).
+			Where("LOWER(name) = LOWER(?)", name).Count(&count).Error; err != nil {
+			return "", ErrInternal(fmt.Errorf("checking the template name %q: %w", name, err))
+		}
+		if count == 0 {
+			return name, nil
+		}
+		name = fmt.Sprintf("%s (%d)", base, attempt)
+	}
+	return "", ErrConflict(i18n.CodeMonitorTemplateInvalid, fmt.Sprintf("could not find a free name for %q", base))
 }
 
 // validateName enforces the unique name.

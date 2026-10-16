@@ -105,6 +105,42 @@ func (h *Container) deleteMonitorTemplate(c *gin.Context) {
 	api.NoContent(c)
 }
 
+// cloneMonitorTemplate duplicates a template (optionally its channels and its
+// link scope). The copy follows no monitor: the link is never repointed.
+func (h *Container) cloneMonitorTemplate(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		Name string `json:"name"`
+		// The two switches are pointers so an omitted field keeps the default
+		// (both copied), exactly like the monitor clone body.
+		CopyChannels *bool `json:"copy_channels"`
+		CopyScope    *bool `json:"copy_scope"`
+	}
+	// An empty body is valid: the copy gets "<name> (copy)" and keeps the
+	// channels and the link scope of the source.
+	if c.Request.ContentLength > 0 {
+		if !bindJSON(c, &payload) {
+			return
+		}
+	}
+	opts := services.MonitorTemplateCloneOptions{Name: payload.Name, CopyChannels: true, CopyScope: true}
+	if payload.CopyChannels != nil {
+		opts.CopyChannels = *payload.CopyChannels
+	}
+	if payload.CopyScope != nil {
+		opts.CopyScope = *payload.CopyScope
+	}
+	clone, err := h.MonitorTemplates.Clone(c.Request.Context(), id, opts)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.Created(c, clone)
+}
+
 // applyMonitorTemplate applies a template to a set of monitors (bulk edit).
 func (h *Container) applyMonitorTemplate(c *gin.Context) {
 	id, ok := pathID(c)

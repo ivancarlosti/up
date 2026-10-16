@@ -371,7 +371,14 @@
     "linkEmptyScope": "Nenhum monitor entra no escopo: os {unlinked} seguidores deixariam de seguir este template. Revise a seleção.",
     "linkReapply": "Repetir a vinculação com o escopo lembrado",
     "linkScopePick": "Selecione pelo menos um grupo ou uma etiqueta para pré-visualizar a vinculação.",
-    "lighthouseHelp": "Desempenho web aplicado aos monitores criados a partir deste modelo."
+    "lighthouseHelp": "Desempenho web aplicado aos monitores criados a partir deste modelo.",
+    "cloneTitle": "Clonar modelo",
+    "cloneHelp": "A cópia começa com uma identidade nova: nenhum monitor a segue ainda e os monitores vinculados ficam intactos.",
+    "cloneName": "Nome da cópia (vazio = \"nome (copy)\")",
+    "copyChannels": "Copiar os canais de notificação",
+    "cloneChannelsHelp": "Os canais que os monitores criados a partir do modelo recebem.",
+    "copyScope": "Copiar o escopo de vínculo lembrado",
+    "copyScopeHelp": "O escopo da última execução de vínculo. Deixe desligado para a cópia começar em todos os monitores do seu tipo; execute o vínculo explicitamente para aplicá-lo."
   },
   "domain": {
     "column": "Domínio",

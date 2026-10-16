@@ -328,6 +328,7 @@ starts empty on purpose, so two groups cannot silently share the same monitors.
 | GET | `/api/monitor-templates/:id` | single template |
 | PUT | `/api/monitor-templates/:id` | update (`{name, description, type, config, defaults, propagate}`) |
 | DELETE | `/api/monitor-templates/:id` | delete (the monitors stay) |
+| POST | `/api/monitor-templates/:id/clone` | duplicate a template: `{name?, copy_channels?, copy_scope?}` (both switches default to `true`; the copy follows no monitor) |
 | POST | `/api/monitor-templates/:id/apply` | bulk edit: `{monitor_ids, fields, dry_run}` |
 | POST | `/api/monitor-templates/:id/link-all` | attach the monitors in scope: `{scope?, dry_run?}` -> `{monitors, linked, updated, unlinked, dry_run, scope}` |
 | POST | `/api/monitors/bulk` | create from a paste: `{text, template_id, group_id?, active?, dry_run?}` |

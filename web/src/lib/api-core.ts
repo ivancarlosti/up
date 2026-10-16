@@ -18,6 +18,7 @@ import type {
   MonitorGroupPayload,
   MonitorPayload,
   MonitorTemplate,
+  MonitorTemplateCloneOptions,
   MonitorTemplatePayload,
   MonitorType,
   TagUsage,
@@ -109,6 +110,8 @@ export const coreApi = {
   updateMonitorTemplate: (id: number, payload: MonitorTemplatePayload) =>
     put<MonitorTemplate>(`/api/monitor-templates/${id}`, payload),
   deleteMonitorTemplate: (id: number) => del<void>(`/api/monitor-templates/${id}`),
+  cloneMonitorTemplate: (id: number, options: MonitorTemplateCloneOptions) =>
+    post<MonitorTemplate>(`/api/monitor-templates/${id}/clone`, options),
   applyMonitorTemplate: (id: number, options: ApplyTemplateOptions) =>
     post<{ dry_run: boolean; results: ApplyResult[] }>(`/api/monitor-templates/${id}/apply`, options),
   /**

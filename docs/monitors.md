@@ -364,6 +364,24 @@ template never resets them. A template stored by an older release had its
 credentials removed at boot (`database.BackfillTemplateAuth`, idempotent, run by
 every node on its own copy).
 
+### Clone
+
+`POST /api/monitor-templates/:id/clone` with an optional
+`{"name": "...", "copy_channels": true, "copy_scope": true}` body. Without a name
+the copy is `<name> (copy)` (and `(2)`, `(3)`… when that one is taken).
+
+What is copied: the probe type, every configuration field, the defaults
+(interval, timeout, retries, re-notification, `run_on`/`run_on_nodes`, the
+certificate and domain watches) and the *propagate* switch, plus the notification
+channels (`copy_channels`, on by default) and the remembered link scope
+(`copy_scope`, on by default). What is **not** copied: the identity (the row gets
+a fresh `uuid`, `revision` and origin, exactly like a monitor clone) and the
+**followers** — the link lives on the monitor side (`template_uuid`) and is never
+repointed, so the copy starts with no monitor following it. Turn `copy_scope` off
+to start from "every monitor of this type" instead of the scope the source last
+ran, or run *link monitors to this template* explicitly to gather the followers
+you want under the copy.
+
 ### Following a template
 
 A monitor can be **linked** to a template (`template_uuid`): the monitor form has a

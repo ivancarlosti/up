@@ -371,7 +371,14 @@
     "linkEmptyScope": "No monitor is in scope: the {unlinked} followers would stop following this template. Check the selection.",
     "linkReapply": "Run the link again with the remembered scope",
     "linkScopePick": "Select at least one group or one tag to preview the link.",
-    "lighthouseHelp": "Web performance applied to the monitors created from this template."
+    "lighthouseHelp": "Web performance applied to the monitors created from this template.",
+    "cloneTitle": "Clone template",
+    "cloneHelp": "The copy starts with a fresh identity: no monitor follows it yet and the linked monitors are untouched.",
+    "cloneName": "Name of the copy (empty = \"name (copy)\")",
+    "copyChannels": "Copy the notification channels",
+    "cloneChannelsHelp": "The channels the monitors created from the template receive.",
+    "copyScope": "Copy the remembered link scope",
+    "copyScopeHelp": "The scope of the last link run. Leave it off so the copy starts on every monitor of its type; run the link explicitly to apply it."
   },
   "domain": {
     "column": "Domain",

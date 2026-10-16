@@ -407,6 +407,15 @@ export interface MonitorTemplate {
 
 export type MonitorTemplatePayload = Partial<MonitorTemplate>
 
+/** Options of a template clone (POST /api/monitor-templates/:id/clone). */
+export interface MonitorTemplateCloneOptions {
+  name?: string
+  /** Keeps the notification channels of the source in the copy's defaults. */
+  copy_channels?: boolean
+  /** Keeps the remembered link scope of the source (the copy has no follower). */
+  copy_scope?: boolean
+}
+
 /** The three ways a link run can select "the monitors of a template". */
 export type TemplateLinkScopeKind = 'type' | 'groups' | 'tags'
 

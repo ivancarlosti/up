@@ -762,6 +762,96 @@ try {
   check('the bulk tag dialog closes', await clickButton(page, /^(close|fechar|cerrar)$/i))
   await sleep(400)
 
+  // --- clone a template through the UI --------------------------------------
+  // The dialog mirrors the monitor clone: an empty name lets the API build
+  // "<name> (copy)" and the two switches decide whether the copy keeps the
+  // channels and the remembered link scope. The copy gets a **fresh identity**
+  // and follows no monitor: the link lives on the monitor side (`template_uuid`)
+  // and is never repointed, so the followers of the source stay with the source.
+  await page.goto(`${url}/admin/monitor-templates`, { settle: 1500 })
+  const cloneCopyName = `${editedName} (copy)`
+  check('the clone dialog opens', await clickInRow(page, editedName, /^(clone|clonar)$/i))
+  await sleep(600)
+  const cloneDialog = await api(`(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    const switches = [...(dialog?.querySelectorAll('button[role="switch"]') ?? [])]
+    return {
+      name: Boolean(dialog?.querySelector('#template-clone-name')),
+      switches: switches.length,
+      on: switches.filter((control) => control.getAttribute('aria-checked') === 'true').length,
+    }
+  })()`)
+  check(
+    'the clone dialog offers the name and the two switches, both on',
+    cloneDialog.name && cloneDialog.switches === 2 && cloneDialog.on === 2,
+    JSON.stringify(cloneDialog),
+  )
+  check('the clone is saved', await clickButton(page, /^(clone|clonar)$/i))
+  await sleep(1500)
+  const copy = await api(`fetch('/api/monitor-templates')
+    .then((r) => r.json())
+    .then((list) => list.find((t) => t.name === ${JSON.stringify(cloneCopyName)}) ?? null)`)
+  check('the copy is named after the source', Boolean(copy), String(copy?.id))
+  if (copy) {
+    created.templates.push(copy.id)
+    check(
+      'the copy has a fresh identity',
+      copy.uuid !== template?.uuid && copy.id !== template?.id && copy.uuid.length > 0,
+      `${copy.uuid} vs ${template?.uuid}`,
+    )
+    check(
+      'the copy keeps the definition of the source',
+      copy.type === template?.type &&
+        copy.config.method === template?.config.method &&
+        copy.defaults.interval_seconds === template?.defaults.interval_seconds,
+      `${copy.type} ${copy.config.method} ${copy.defaults.interval_seconds}`,
+    )
+    check(
+      'the copy keeps the remembered link scope',
+      copy.link_scope?.kind === 'tags' && copy.link_scope?.tags?.[0] === tagName,
+      JSON.stringify(copy.link_scope),
+    )
+    check('the copy follows no monitor', copy.monitor_count === 0, String(copy.monitor_count))
+    const followersOfCopy = await api(`fetch('/api/monitors?decorate=false')
+      .then((r) => r.json())
+      .then((list) => list.filter((m) => m.template_uuid === ${JSON.stringify(copy.uuid)}).length)`)
+    check('the copy left the followers of the source alone', followersOfCopy === 0, String(followersOfCopy))
+  }
+
+  // A second copy collides on the same name: the API appends a counter until the
+  // name is free, exactly like the monitor clone.
+  const secondCopy = await api(`fetch('/api/monitor-templates/${template.id}/clone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }).then((r) => r.json())`)
+  check('the counter keeps the clone names unique', secondCopy?.name === `${cloneCopyName} (2)`, String(secondCopy?.name))
+  if (secondCopy?.id) created.templates.push(secondCopy.id)
+
+  // copy_scope=false starts the copy on "every monitor of its type" instead of
+  // the tag scope the source last ran, and it must also stay untouched by the
+  // channels of the source (none in this run, so the copy carries none).
+  const bareCopy = await api(`fetch('/api/monitor-templates/${template.id}/clone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: ${JSON.stringify(`${tagName} copy without scope`)},
+      copy_scope: false,
+      copy_channels: false,
+    }),
+  }).then((r) => r.json())`)
+  check(
+    'copy_scope=false leaves the scope of the copy at the type default',
+    bareCopy?.link_scope?.kind === 'type',
+    JSON.stringify(bareCopy?.link_scope),
+  )
+  check(
+    'copy_channels=false leaves the copy without channels',
+    (bareCopy?.defaults?.notification_ids ?? []).length === 0,
+    JSON.stringify(bareCopy?.defaults?.notification_ids),
+  )
+  if (bareCopy?.id) created.templates.push(bareCopy.id)
+
 
   const consoleErrors = [...page.consoleMessages, ...page.exceptions].filter((line) =>
     /\[up\] unexpected error|ReferenceError|SyntaxError|TypeError|Uncaught/.test(line),

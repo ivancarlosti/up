@@ -8,7 +8,57 @@ import (
 	"github.com/ivancarlosti/up/internal/models"
 )
 
-// TestTemplateUpdateColumns is the regression guard of a 500 on every template
+// TestTemplateClone is the guard of the template clone: the definition (probe
+// config, defaults, switch) travels with the copy, the identity does not, and the
+// two optional attachments follow their options.
+func TestTemplateClone(t *testing.T) {
+	source := &models.MonitorTemplate{
+		ID:          7,
+		UUID:        "source-uuid",
+		Name:        "website | address",
+		Description: "the usual probe",
+		Type:        models.MonitorTypeHTTP,
+		Propagate:   false,
+		Config:      models.MonitorConfig{Method: "HEAD", AcceptedStatusCodes: "200-299"},
+		Defaults: models.TemplateDefaults{
+			IntervalSeconds: 120,
+			NotificationIDs: []uint{3, 4},
+		},
+		LinkScope: models.TemplateLinkScope{Kind: models.TemplateScopeTags, Tags: []string{"prod"}},
+	}
+
+	// The full copy keeps everything but the identity.
+	full := templateClone(source, "website | address (copy)", MonitorTemplateCloneOptions{CopyChannels: true, CopyScope: true})
+	if full.Name != "website | address (copy)" || full.Description != source.Description ||
+		full.Type != source.Type || full.Propagate != false || full.Config.Method != "HEAD" {
+		t.Fatalf("the definition did not travel: %+v", full)
+	}
+	if len(full.Defaults.NotificationIDs) != 2 {
+		t.Fatalf("the channels must travel with copy_channels: %+v", full.Defaults.NotificationIDs)
+	}
+	if full.LinkScope.Kind != models.TemplateScopeTags || len(full.LinkScope.Tags) != 1 {
+		t.Fatalf("the scope must travel with copy_scope: %+v", full.LinkScope)
+	}
+	if full.ID != 0 || full.UUID != "" || full.Revision != 0 || full.OriginNodeID != "" {
+		t.Fatalf("the identity must be left to BeforeCreate: %+v", full)
+	}
+
+	// Dropping the two switches drops the two attachments (the scope falls back
+	// to the neutral default on Normalize, never to the source decision).
+	bare := templateClone(source, "copy", MonitorTemplateCloneOptions{})
+	if bare.Defaults.NotificationIDs != nil {
+		t.Fatalf("copy_channels=false must clear the channels: %+v", bare.Defaults.NotificationIDs)
+	}
+	if !bare.LinkScope.IsZero() {
+		t.Fatalf("copy_scope=false must leave the scope unset: %+v", bare.LinkScope)
+	}
+	// The copy must not share the channel slice with the source: a later edit of
+	// either row must never reach the other through the backing array.
+	if &full.Defaults.NotificationIDs[0] == &source.Defaults.NotificationIDs[0] {
+		t.Fatal("the channels must be copied, not aliased")
+	}
+}
+
 // edit: the JSON columns must be written as marshalled strings, because GORM
 // applies "serializer:json" to model fields and never to raw map values (a
 // struct value reaches the driver and fails with

@@ -371,7 +371,14 @@
     "linkEmptyScope": "没有监控项在范围内：{unlinked} 个跟随者将停止跟随此模板。请检查选择。",
     "linkReapply": "使用已记住的范围重新运行关联",
     "linkScopePick": "请至少选择一个分组或一个标签以预览关联结果。",
-    "lighthouseHelp": "应用于从此模板创建的监控项的网页性能设置。"
+    "lighthouseHelp": "应用于从此模板创建的监控项的网页性能设置。",
+    "cloneTitle": "克隆模板",
+    "cloneHelp": "副本以全新的身份开始：尚无监控项跟随它，已关联的监控项不受影响。",
+    "cloneName": "副本名称（留空 = \"名称 (副本)\"）",
+    "copyChannels": "复制通知渠道",
+    "cloneChannelsHelp": "从此模板创建的监控项所接收的渠道。",
+    "copyScope": "复制已记住的关联范围",
+    "copyScopeHelp": "上次关联运行的范围。保持关闭可让副本从该类型的全部监控项开始；如需应用请显式运行关联。"
   },
   "domain": {
     "column": "域名",

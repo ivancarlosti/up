@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FileCog, Link2, Pencil, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-vue-next'
+import { Copy, FileCog, Link2, Pencil, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -39,6 +39,7 @@ import type {
   MonitorConfig,
   MonitorGroup,
   MonitorTemplate,
+  MonitorTemplateCloneOptions,
   MonitorTemplatePayload,
   MonitorType,
   Notification,
@@ -110,6 +111,14 @@ const dialogOpen = ref(false)
 const editing = ref<MonitorTemplate | null>(null)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<MonitorTemplate | null>(null)
+
+// Clone dialog state, the exact counterpart of the monitor and group clones: an
+// empty name lets the API build "<name> (copy)", and the two switches decide
+// whether the copy keeps the channels and the remembered link scope.
+const cloneOpen = ref(false)
+const cloning = ref(false)
+const cloneSource = ref<MonitorTemplate | null>(null)
+const cloneForm = reactive<MonitorTemplateCloneOptions>({ name: '', copy_channels: true, copy_scope: true })
 
 // "Link monitors to this template": a dry run fills the preview the
 // confirmation dialog shows, the real run writes the link and the defaults.
@@ -555,6 +564,34 @@ async function confirmRemove(): Promise<void> {
   }
 }
 
+/** openClone prepares the clone dialog; an empty name lets the API decide. */
+function openClone(template: MonitorTemplate): void {
+  cloneSource.value = template
+  cloneForm.name = ''
+  cloneForm.copy_channels = true
+  cloneForm.copy_scope = true
+  cloneOpen.value = true
+}
+
+async function submitClone(): Promise<void> {
+  if (!cloneSource.value) return
+  cloning.value = true
+  try {
+    await api.cloneMonitorTemplate(cloneSource.value.id, {
+      name: cloneForm.name?.trim() || undefined,
+      copy_channels: cloneForm.copy_channels,
+      copy_scope: cloneForm.copy_scope,
+    })
+    cloneOpen.value = false
+    toasts.success(t('common.saved'))
+    await load()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    cloning.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -698,6 +735,15 @@ onMounted(load)
                     @click="openLink(template)"
                   >
                     <Link2 class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('common.clone')"
+                    :aria-label="t('common.clone')"
+                    @click="openClone(template)"
+                  >
+                    <Copy class="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -972,6 +1018,33 @@ onMounted(load)
         <Button :loading="linking" :disabled="linkScopeNeedsSelection" @click="confirmLink">
           {{ t('templates.linkAllConfirm') }}
         </Button>
+      </template>
+    </Dialog>
+
+    <Dialog v-model="cloneOpen" :title="t('templates.cloneTitle')" :description="t('templates.cloneHelp')">
+      <div class="grid gap-4">
+        <div class="grid gap-1">
+          <Label for="template-clone-name">{{ t('templates.cloneName') }}</Label>
+          <Input
+            id="template-clone-name"
+            v-model="cloneForm.name"
+            :placeholder="cloneSource ? `${cloneSource.name} (copy)` : ''"
+          />
+        </div>
+        <div class="grid gap-2">
+          <div>
+            <Switch v-model="cloneForm.copy_channels as boolean">{{ t('templates.copyChannels') }}</Switch>
+            <p class="text-[11px] text-muted-foreground">{{ t('templates.cloneChannelsHelp') }}</p>
+          </div>
+          <div>
+            <Switch v-model="cloneForm.copy_scope as boolean">{{ t('templates.copyScope') }}</Switch>
+            <p class="text-[11px] text-muted-foreground">{{ t('templates.copyScopeHelp') }}</p>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="cloneOpen = false">{{ t('common.cancel') }}</Button>
+        <Button :loading="cloning" @click="submitClone">{{ t('common.clone') }}</Button>
       </template>
     </Dialog>
 
