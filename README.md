@@ -115,7 +115,7 @@ because a host-network container does not resolve the `mariadb` service name.
 ## Quick start (from source)
 
 ```bash
-# Go 1.27.1 and Node 24 are required (see docs/development.md for installs)
+# Go 1.27.3 and Node 24 are required (see docs/development.md for installs)
 export PATH="$HOME/.local/go/bin:$HOME/.local/node-v24.21.0-linux-x64/bin:$PATH"
 
 cp docker/.env.example .env

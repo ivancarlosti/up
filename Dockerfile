@@ -27,7 +27,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2 - Backend (embeds the frontend build through web/embed.go)
 # ---------------------------------------------------------------------------
-FROM golang:1.27.1-alpine3.24 AS build
+FROM golang:1.27.3-alpine3.24 AS build
 RUN apk add --no-cache git ca-certificates
 WORKDIR /src
 

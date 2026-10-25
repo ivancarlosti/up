@@ -183,20 +183,22 @@ What an operator should know:
   carries the non-secret whitelist (app name, default locale, default theme);
   API tokens, IP rules and the per-node rate limits never synchronise.
 
-## 10. Dependency posture (audited on 2026-09-22)
+## 10. Dependency posture (full audit on 2026-09-22, patch round on 2026-10-24)
 
 Vulnerability audit of the shipped artifact, performed with the official
 databases (OSV/Google, `govulncheck` and Trivy), separating what is compiled
-into the binary from test-only dependencies.
+into the binary from test-only dependencies. The 2026-10-24 patch round re-ran
+`govulncheck` with the patched `go1.27.3` toolchain, `npm audit`, and a Trivy
+scan of a freshly built image.
 
 | Check | Tool | Result |
 |---|---|---|
-| Go modules reachable from `cmd/server` | `govulncheck ./...` | **0 vulnerabilities** affecting the code; 0 in imported packages |
+| Go modules reachable from `cmd/server` | `govulncheck ./...` (go1.27.3) | **0 vulnerabilities** affecting the code; 0 in imported packages |
 | Go modules required but not called | `govulncheck` / OSV | 1 informational: `GO-2026-5932` (`golang.org/x/crypto/openpgp`, unmaintained **by design**, `Fixed version: N/A`, package not imported - confirmed with `go mod why`) |
-| Frontend packages (`web/package-lock.json`, 136 packages) | OSV + `npm audit` | **0 advisories** |
-| Container image (`alpine` packages + Go binary) | `trivy image` | **0** HIGH/CRITICAL; 0 MEDIUM; 1 UNKNOWN (the same `openpgp` advisory above, no fix exists) |
+| Frontend packages (`web/package-lock.json`, 106 packages) | OSV + `npm audit` | **0 advisories**; `vite` and `source-map-js` are dev-only and never embedded in the binary |
+| Container image (`alpine` packages + Go binary) | `trivy image` (2026-10-24) | **0** HIGH/CRITICAL; 0 MEDIUM; 1 UNKNOWN (the same `openpgp` advisory above, no fix exists) |
 
-Remediations applied in that audit:
+Remediations applied in the 2026-09-22 audit:
 
 | Item | From | To | Reason |
 |---|---|---|---|
@@ -206,6 +208,15 @@ Remediations applied in that audit:
 | `github.com/nicholas-fedor/shoutrrr` | v0.21.0 | v0.21.1 | notification engine patch |
 | `github.com/go-jose/go-jose/v4`, `go-playground/validator/v10`, `goccy/go-json`, `leodido/go-urn`, `ugorji/go/codec`, `mongo-driver/v2` … | - | latest patch | routine patch bumps |
 | Base images | `alpine:3.22`, `golang:1.27-alpine`, `node:24-alpine` | `alpine:3.24`, `golang:1.27.1-alpine3.24`, `node:24-alpine3.24` | newer busybox/musl/openssl/wget patch levels |
+
+Patch round applied on 2026-10-24:
+
+| Item | From | To | Reason |
+|---|---|---|---|
+| `golang.org/x/net` | v0.59.0 | v0.60.0 | five reachable HTTP/2 advisories: `GO-2026-6603` (Trailer memory exhaustion), `GO-2026-6610` (malformed framing headers), `GO-2026-6611` (CPU from repeated window changes), `GO-2026-6612` (double flow-control refund), `GO-2026-6617` (HPACK encoder race) |
+| `vite` (dev only) | 8.3.0 | 8.3.5 | six advisories fixed in 8.3.3 (`GHSA-698v-4r3x-3vcv`, `GHSA-r825-w8mm-5pxw`, `GHSA-587h-7wmj-h5pm`, `GHSA-9jrq-w75r-8gcw`, `GHSA-rq7h-c2jc-7f22`, `GHSA-vfpm-58rq-9qcg`); 8.3.5 is the latest patch |
+| `source-map-js` (dev only, transitive) | 1.2.1 | 1.2.2 | `GHSA-68fv-2mgg-jv7q` (HIGH, event-loop DoS through indexed source-map section offsets) |
+| Build toolchain / base image | `go1.27.1`, `golang:1.27.1-alpine3.24` | `go1.27.3`, `golang:1.27.3-alpine3.24` | 11 standard-library advisories reported by `govulncheck` against go1.27.1; 10 are fixed in 1.27.2 and `GO-2026-6809` in 1.27.3. `go.mod` now pins `toolchain go1.27.3` |
 
 How to reproduce the audit:
 

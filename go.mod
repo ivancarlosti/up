@@ -7,6 +7,8 @@ module github.com/ivancarlosti/up
 // engine used for SMTP and webhook delivery).
 go 1.27
 
+toolchain go1.27.3
+
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/gin-gonic/gin v1.12.0
@@ -16,7 +18,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/miekg/dns v1.1.73
 	github.com/nicholas-fedor/shoutrrr v0.21.1
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.23.0
 	gorm.io/driver/mysql v1.6.0

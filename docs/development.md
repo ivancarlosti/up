@@ -8,7 +8,7 @@
 
 | Tool | Version used | Why |
 |---|---|---|
-| Go | **1.27.1** | `github.com/nicholas-fedor/shoutrrr` requires `go 1.27` |
+| Go | **1.27.3** | `github.com/nicholas-fedor/shoutrrr` requires `go 1.27`; `go.mod` pins the patched toolchain (GO-2026-6809 is fixed in 1.27.3) |
 | Node.js | **24.21.0 LTS (Krypton)** | Vite 8 / vue-i18n 11 require Node >= 22.12 |
 | Docker | 29.x + Compose v2 | image build and end-to-end testing |
 | MariaDB | 11.8 (container) | the database is always external |
@@ -18,12 +18,12 @@ Installation without `sudo` (everything under `~/.local`, the pattern already
 used on this machine):
 
 ```bash
-# Go 1.27.1
+# Go 1.27.3
 cd /tmp
-curl -fsSLO https://dl.google.com/go/go1.27.1.linux-amd64.tar.gz
-echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  go1.27.1.linux-amd64.tar.gz" | sha256sum -c -
-mkdir -p ~/.local && tar -C ~/.local -xzf go1.27.1.linux-amd64.tar.gz
-grep -q 'local/go/bin' ~/.bashrc || printf '\n# Go 1.27.1\nexport PATH="$HOME/.local/go/bin:$PATH"\n' >> ~/.bashrc
+curl -fsSLO https://dl.google.com/go/go1.27.3.linux-amd64.tar.gz
+echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  go1.27.3.linux-amd64.tar.gz" | sha256sum -c -
+mkdir -p ~/.local && tar -C ~/.local -xzf go1.27.3.linux-amd64.tar.gz
+grep -q 'local/go/bin' ~/.bashrc || printf '\n# Go 1.27.3\nexport PATH="$HOME/.local/go/bin:$PATH"\n' >> ~/.bashrc
 
 # Node 24.21.0 LTS
 curl -fsSLO https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz
