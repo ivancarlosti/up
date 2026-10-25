@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: ${{ inputs.version != '' && '1' || '0' }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -58,6 +58,21 @@ jobs:
             echo "No deploy workflow found (looked for wordpress-deploy.yml, yourls-deploy.yml) — deploy dispatch will be skipped."
           fi
           echo "deploy_workflow=${DEPLOY_WORKFLOW}" >> "$GITHUB_OUTPUT"
+
+      - name: 🧭 Record newest reachable tag
+        if: inputs.version == ''
+        id: baseline
+        run: |
+          # `git describe --tags --abbrev=0` answers "the nearest tag", which is
+          # *some old tag* when semantic-release decides there is nothing to
+          # release. Snapshot the newest tag before the release run so the steps
+          # below can tell a real release from "nothing to release": without this
+          # every non-release push re-dispatched build.yml (and the deploy
+          # workflow) for the previous tag.
+          git fetch --tags --force
+          PRIOR_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          echo "tag=${PRIOR_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Newest tag reachable from HEAD before this run: ${PRIOR_TAG:-<none>}"
 
       - name: 🏷️ Manual release — create tag & GitHub Release
         if: inputs.version != ''
@@ -178,9 +193,12 @@ jobs:
 
       - name: 🟢 Setup Node.js
         if: inputs.version == ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # Node.js 20 reached end-of-life on 2026-04-30. This is CI tooling
+          # (semantic-release), not the shipped runtime, but it must not run on
+          # an unsupported line either.
+          node-version: '24'
 
       - name: 🔍 Detect default branch
         if: inputs.version == ''
@@ -288,9 +306,13 @@ jobs:
         run: |
           # Fetch tags to ensure the newly created tag is visible locally
           git fetch --tags
-          # Find the most recent tag reachable from HEAD (the one semantic-release just created)
+          # Find the most recent tag reachable from HEAD (the one semantic-release
+          # would have just created)
+          PRIOR_TAG="${{ steps.baseline.outputs.tag }}"
           NEW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
-          if [ -n "$NEW_TAG" ]; then
+          # A tag that was already there before this run is not a new release:
+          # semantic-release found nothing releasable in the pushed commits.
+          if [ -n "$NEW_TAG" ] && [ "$NEW_TAG" != "$PRIOR_TAG" ]; then
             # A tag without a GitHub Release is a half published release: a run that
             # died between the tag push and the publish step (e.g. the transient
             # 5xx on refs/notes/*). Heal it here so the release page always matches
@@ -306,7 +328,8 @@ jobs:
             echo "Detected release version: ${VERSION} (tag: ${NEW_TAG})"
           else
             echo "new_release_published=false" >> "$GITHUB_OUTPUT"
-            echo "No tags reachable from HEAD — no release was published."
+            echo "No release was published: the newest tag reachable from HEAD is still ${NEW_TAG:-<none>} (unchanged since ${PRIOR_TAG:-<none>}). Nothing to build."
+            echo "::notice title=No release::semantic-release found no feat/fix/perf/BREAKING commit since ${PRIOR_TAG:-the previous release}, so build.yml was not dispatched. Run this workflow manually with a version to publish pipeline-only changes."
           fi
 
       - name: 🔔 Trigger package build workflow

@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout at release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name || inputs.version }}
           fetch-depth: 0
@@ -35,14 +35,42 @@ jobs:
           ZIP_NAME="${REPO_NAME}-${VERSION}.zip"
           # Docker registries reject path segments starting with "." or "-"
           DOCKER_REPO="${REPO_NAME#.}"
+          # The commit that was actually checked out. On a release event that is
+          # the tag commit; on a manual run the checkout also uses the version
+          # input as its ref, so this never picks up the branch head that was
+          # current when the workflow was dispatched.
+          COMMIT="$(git rev-parse HEAD)"
+
+          # Highest tag in the repository (the checkout above uses fetch-depth: 0).
+          # A manual dispatch may target an older tag to rebuild it, and publishing
+          # that build as :latest would roll every `:latest` deployment back to an
+          # older tree. So :latest only moves when the requested version is the
+          # newest tag.
+          LATEST_TAG="$(git tag --sort=-v:refname | head -n 1)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${DOCKER_REPO}"
+          if [ "${LATEST_TAG#v}" = "${VERSION}" ]; then
+            TAGS="$(printf '%s:latest\n%s:%s' "${IMAGE}" "${IMAGE}" "${VERSION}")"
+          else
+            TAGS="${IMAGE}:${VERSION}"
+            echo "::notice title=Older release::${VERSION} is older than ${LATEST_TAG}: only :${VERSION} is published, :latest stays on ${LATEST_TAG}."
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
           echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
           echo "docker_repo=$DOCKER_REPO" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<TAGS_EOF"
+            echo "${TAGS}"
+            echo "TAGS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: 📦 Create ZIP package
         run: |
+          # docs/, plans/ and node_modules/ are intentionally kept: the zip
+          # doubles as a backup.
           zip -r "${{ steps.version.outputs.zip_name }}" . \
             -x ".git/*" ".github/*" "docker/*" ".dockerignore" \
                "CNAME" "Dockerfile" "README.md" "LICENSE"
@@ -66,7 +94,9 @@ jobs:
           SECTION+=$'\n\n'
 
           if [ -n "${PREV_TAG}" ]; then
-            # List changed files
+            # List changed files. node_modules (when a repository tracks it) is not
+            # part of what a user consumes from a release, so it is filtered out
+            # of the notes.
             SECTION+="### Changed Files"
             SECTION+=$'\n\n'
             while IFS= read -r file; do
@@ -74,7 +104,7 @@ jobs:
                 SECTION+="- $file"
                 SECTION+=$'\n'
               fi
-            done < <(git diff --name-only "${PREV_TAG}".."${TAG}" 2>/dev/null)
+            done < <(git diff --name-only "${PREV_TAG}".."${TAG}" 2>/dev/null | grep -v '^node_modules/' || true)
 
             SECTION+=$'\n'
             # List commits with messages
@@ -95,7 +125,7 @@ jobs:
                 SECTION+="- $file"
                 SECTION+=$'\n'
               fi
-            done < <(git diff --name-only HEAD~1..HEAD 2>/dev/null)
+            done < <(git diff --name-only HEAD~1..HEAD 2>/dev/null | grep -v '^node_modules/' || true)
 
             SECTION+=$'\n'
             SECTION+="### Commits"
@@ -126,15 +156,15 @@ jobs:
 
       - name: 🐧 Set up QEMU
         if: steps.dockerfile_check.outputs.exists == 'true'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: 🛠 Set up Docker Buildx
         if: steps.dockerfile_check.outputs.exists == 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: 🔐 Login to GitHub Container Registry
         if: steps.dockerfile_check.outputs.exists == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -142,17 +172,16 @@ jobs:
 
       - name: 🐳 Build and Push Docker image
         if: steps.dockerfile_check.outputs.exists == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          # Stamp the release into the binary: without these arguments the
-          # Dockerfile defaults (ARG VERSION=dev / COMMIT=unknown) end up in
-          # /api/version, in Admin > About and in the startup log.
+          # Stamp the release into the image: without these arguments the
+          # Dockerfile defaults (e.g. ARG VERSION=dev / COMMIT=unknown) are used.
+          # COMMIT is the commit the tag points at (not the branch head at
+          # dispatch time), so `docker inspect` always resolves to the built tree.
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
-            COMMIT=${{ github.sha }}
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:latest
-            ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:${{ steps.version.outputs.version }}
+            COMMIT=${{ steps.version.outputs.commit }}
+          tags: ${{ steps.version.outputs.tags }}
