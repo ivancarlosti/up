@@ -9,6 +9,11 @@ on:
         description: 'Version tag to build (e.g., v1.2.3)'
         required: true
         type: string
+  schedule:
+    # Mondays 04:00 UTC. Rebuild the newest vX.Y.Z release so published
+    # images pick up base-image security fixes without cutting a new release.
+    # Scheduled runs have no inputs; release packaging is skipped below.
+    - cron: "0 4 * * 1"
 
 permissions:
   contents: write
@@ -21,15 +26,70 @@ jobs:
 
     steps:
       - name: 📥 Checkout at release tag
+        if: github.event_name != 'schedule'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name || inputs.version }}
           fetch-depth: 0
 
+      # Schedule triggers on the default branch. Full history (same fetch-depth
+      # as above) brings every tag so the next step can detach at the newest
+      # vX.Y.Z commit; commit metadata and the :latest decision then see that tree.
+      - name: 📥 Checkout default branch
+        if: github.event_name == 'schedule'
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 🗓️ Check out newest release on schedule
+        id: rebuild
+        run: |
+          # Release and workflow_dispatch already checked out the requested tag.
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then
+            {
+              echo "proceed=true"
+              echo "refresh_base=false"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Newest tag matching vX.Y.Z, using the same version sort as the
+          # :latest decision below (v1.10.0 beats v1.9.0). Pre-releases
+          # (v1.2.3-rc.1) and other names are ignored.
+          candidates="$(git tag --sort=-v:refname)"
+          TAG=""
+          semver_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          while IFS= read -r candidate; do
+            if [[ "$candidate" =~ $semver_re ]]; then
+              TAG="$candidate"
+              break
+            fi
+          done <<< "$candidates"
+
+          if [ -z "$TAG" ]; then
+            echo "::notice title=No semver tag::No tag matching vX.Y.Z; scheduled rebuild skipped."
+            {
+              echo "proceed=false"
+              echo "refresh_base=false"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git -c advice.detachedHead=false checkout --detach "$TAG"
+          {
+            echo "proceed=true"
+            echo "refresh_base=true"
+            echo "tag=${TAG}"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice title=Scheduled rebuild::Rebuilding ${TAG} with a fresh base image."
+
       - name: 🏷️ Resolve version
         id: version
+        if: steps.rebuild.outputs.proceed == 'true'
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.version }}"
+          # release: event tag. workflow_dispatch: version input.
+          # schedule: newest vX.Y.Z tag checked out above.
+          TAG="${{ github.event.release.tag_name || inputs.version || steps.rebuild.outputs.tag }}"
           VERSION="${TAG#v}"
           REPO_NAME="$(basename "$GITHUB_REPOSITORY")"
           ZIP_NAME="${REPO_NAME}-${VERSION}.zip"
@@ -38,7 +98,8 @@ jobs:
           # The commit that was actually checked out. On a release event that is
           # the tag commit; on a manual run the checkout also uses the version
           # input as its ref, so this never picks up the branch head that was
-          # current when the workflow was dispatched.
+          # current when the workflow was dispatched. On a schedule, HEAD is the
+          # newest vX.Y.Z tag detached above, not the default branch tip.
           COMMIT="$(git rev-parse HEAD)"
 
           # Highest tag in the repository (the checkout above uses fetch-depth: 0).
@@ -55,19 +116,20 @@ jobs:
             echo "::notice title=Older release::${VERSION} is older than ${LATEST_TAG}: only :${VERSION} is published, :latest stays on ${LATEST_TAG}."
           fi
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
-          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
-          echo "docker_repo=$DOCKER_REPO" >> "$GITHUB_OUTPUT"
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "zip_name=$ZIP_NAME"
+            echo "repo_name=$REPO_NAME"
+            echo "docker_repo=$DOCKER_REPO"
+            echo "commit=$COMMIT"
             echo "tags<<TAGS_EOF"
             echo "${TAGS}"
             echo "TAGS_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: 📦 Create ZIP package
+        if: steps.rebuild.outputs.proceed == 'true' && github.event_name != 'schedule'
         run: |
           # docs/, plans/ and node_modules/ are intentionally kept: the zip
           # doubles as a backup.
@@ -76,6 +138,7 @@ jobs:
                "CNAME" "Dockerfile" "README.md" "LICENSE"
 
       - name: 📤 Upload ZIP to GitHub Release
+        if: steps.rebuild.outputs.proceed == 'true' && github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -83,6 +146,7 @@ jobs:
             "${{ steps.version.outputs.zip_name }}" --clobber
 
       - name: 📝 Update release with changed files
+        if: steps.rebuild.outputs.proceed == 'true' && github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -147,6 +211,7 @@ jobs:
       # ---- Docker ----
       - name: 🔍 Check if Dockerfile exists
         id: dockerfile_check
+        if: steps.rebuild.outputs.proceed == 'true'
         run: |
           if [ -f Dockerfile ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -177,6 +242,11 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          # Weekly schedule only. "false" is the action default, so release and
+          # workflow_dispatch keep their current cache behavior. "true" pulls a
+          # fresh base image and disables layer cache so base CVE fixes land.
+          pull: ${{ steps.rebuild.outputs.refresh_base }}
+          no-cache: ${{ steps.rebuild.outputs.refresh_base }}
           # Stamp the release into the image: without these arguments the
           # Dockerfile defaults (e.g. ARG VERSION=dev / COMMIT=unknown) are used.
           # COMMIT is the commit the tag points at (not the branch head at
