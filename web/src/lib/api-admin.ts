@@ -24,6 +24,7 @@ import type {
   StatusPage,
   StatusPageMonitorItem,
   StatusPageGroupLink,
+  StatusPageSubscriberList,
   WhoisParser,
   WhoisParserPayload,
   WhoisParsersResetResult,
@@ -47,6 +48,11 @@ export const adminApi = {
     put<StatusPageGroupLink[]>(`/api/status-pages/${id}/groups`, {
       groups: groupIds.map((group_id) => ({ group_id })),
     }).then((data) => data ?? []),
+  /** The opt-in subscribers of a page, newest first (admin only). */
+  statusPageSubscribers: (id: number, query?: { page?: number; size?: number; q?: string }) =>
+    get<StatusPageSubscriberList>(`/api/status-pages/${id}/subscribers`, query),
+  deleteStatusPageSubscriber: (id: number, subscriberId: number) =>
+    del<void>(`/api/status-pages/${id}/subscribers/${subscriberId}`),
   publicStatusPage: (slug: string) => get<StatusPage>(`/api/public/status/${slug}`),
 
   clusterStatus: () => get<ClusterStatus>('/api/cluster/status'),

@@ -60,7 +60,9 @@
     "timeout": "Délai d'attente",
     "seconds": "secondes",
     "hours": "heures",
-    "days": "jours"
+    "days": "jours",
+    "previous": "Précédent",
+    "next": "Suivant"
   },
   "nav": {
     "dashboard": "Tableau de bord",
@@ -661,7 +663,29 @@
     "deleteWarning": "La page publique cesse de répondre immédiatement.",
     "uptimeWindow": "Période de disponibilité",
     "uptimeWindowHelp": "La période affichée par cette page pour la disponibilité et les barres de battements.",
-    "uptimeWindowInherit": "Utiliser la période globale"
+    "uptimeWindowInherit": "Utiliser la période globale",
+    "subscriptionTitle": "Abonnements par e-mail",
+    "subscriptionHelp": "E-mails d’incident pour les visiteurs de cette page.",
+    "subscriptionEnabled": "Activer les abonnements",
+    "subscriptionChannel": "Canal SMTP",
+    "subscriptionChannelNone": "Choisir un canal",
+    "subscriptionChannelHelp": "Seuls les canaux SMTP peuvent envoyer les e-mails d’abonnement. Le canal doit exister sur chaque nœud du cluster.",
+    "subscriptionNoChannels": "Créez d’abord un canal SMTP actif dans Notifications.",
+    "subscriptionDelay": "Délai d’indisponibilité (minutes)",
+    "subscriptionDelayHelp": "Durée pendant laquelle un moniteur doit rester indisponible avant le premier e-mail. De 5 à 1440 minutes, par pas de 5.",
+    "subscribers": "Abonnés",
+    "subscribersTitle": "Abonnés de {page}",
+    "subscribersHelp": "Les adresses qui ont accepté les e-mails d’incident de cette page. Les lignes désabonnées sont conservées pour ne pas perdre l’historique.",
+    "subscriberSearch": "Filtrer par e-mail",
+    "subscriberCount": "{total} abonné(s)",
+    "subscriberEmpty": "Aucun abonné pour le moment.",
+    "subscriberState": "État",
+    "subscriberLocale": "Langue",
+    "subscriberCreated": "Abonné le",
+    "subscriberConfirmed": "Confirmé",
+    "subscriberPending": "En attente de confirmation",
+    "subscriberUnsubscribed": "Désabonné",
+    "subscriberPage": "Page {page} sur {pages}"
   },
   "security": {
     "title": "Sécurité",
@@ -831,7 +855,8 @@
     "withKeycloak": "Se connecter avec Keycloak",
     "captchaHint": "Confirmez le captcha pour continuer",
     "noneHint": "Ce tableau de bord est ouvert, aucune connexion requise.",
-    "goToDashboard": "Aller au tableau de bord"
+    "goToDashboard": "Aller au tableau de bord",
+    "captchaUnavailable": "Le captcha n’a pas pu être chargé. Actualisez la page et réessayez."
   },
   "publicStatus": {
     "overallUp": "Tous les systèmes sont opérationnels",
@@ -844,7 +869,17 @@
     "noMonitors": "Aucun moniteur publié sur cette page.",
     "notFound": "Page de statut introuvable",
     "private": "Cette page de statut n'est pas publique.",
-    "updatedAt": "Mis à jour à {time}"
+    "updatedAt": "Mis à jour à {time}",
+    "subscribeTitle": "Recevez les mises à jour d’état",
+    "subscribeHelp": "Nous vous écrivons lorsqu’un moniteur de cette page reste indisponible pendant {minutes} minutes, puis une fois lors du rétablissement.",
+    "subscribeEmailPlaceholder": "vous{'@'}exemple.com",
+    "subscribeSubmit": "S’abonner",
+    "subscribeSent": "Consultez votre boîte de réception : nous avons envoyé un lien pour confirmer votre abonnement.",
+    "subscribePrivacy": "Double opt-in. Vous pouvez vous désabonner depuis chaque e-mail.",
+    "subscribeCaptchaRequired": "Confirmez le captcha pour vous abonner.",
+    "subscribeConfirmed": "Votre abonnement est confirmé.",
+    "subscribeUnsubscribed": "Vous ne recevrez plus ces e-mails.",
+    "subscribeLinkInvalid": "Ce lien d’abonnement est invalide ou a expiré."
   },
   "boot": {
     "title": "Up démarre",
@@ -934,7 +969,11 @@
     "ERR_MONITOR_BULK_INVALID": "Requête en masse invalide",
     "ERR_MONITOR_CERT_INVALID": "Configuration de certificat invalide",
     "ERR_MONITOR_DOMAIN_INVALID": "Configuration d'expiration de domaine invalide",
-    "ERR_MONITOR_LIGHTHOUSE_INVALID": "Configuration de performance web invalide"
+    "ERR_MONITOR_LIGHTHOUSE_INVALID": "Configuration de performance web invalide",
+    "ERR_SUBSCRIPTION_DISABLED": "Les abonnements ne sont pas disponibles sur cette page d’état",
+    "ERR_SUBSCRIPTION_TOKEN_INVALID": "Ce lien d’abonnement est invalide ou a expiré",
+    "ERR_SUBSCRIPTION_EMAIL_INVALID": "Saisissez une adresse e-mail valide",
+    "ERR_SUBSCRIPTION_SEND_FAILED": "L’e-mail de confirmation n’a pas pu être envoyé, réessayez plus tard"
   },
   "lighthouse": {
     "title": "Performance web",

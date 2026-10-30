@@ -27,6 +27,9 @@ type ClusterService struct {
 	stats         *StatsService
 	monitors      *MonitorService
 	notifications *NotificationService
+	// subscriptions observes the same transitions for the public status pages
+	// (optional: nil when the feature is not wired).
+	subscriptions *StatusPageSubscriptionService
 	hub           EventPublisher
 	// peerAuth verifies the signature of inbound node to node requests
 	// (docs/clustering-modes.md, section 11).
@@ -52,6 +55,12 @@ func (s *ClusterService) SetMonitorService(m *MonitorService) { s.monitors = m }
 
 // SetNotificationService injects the notification service (used to dispatch).
 func (s *ClusterService) SetNotificationService(n *NotificationService) { s.notifications = n }
+
+// SetStatusPageSubscriptionService injects the status page subscription service,
+// so a monitor transition also opens or closes the page incidents.
+func (s *ClusterService) SetStatusPageSubscriptionService(subscriptions *StatusPageSubscriptionService) {
+	s.subscriptions = subscriptions
+}
 
 // SetPublisher injects the real time publisher.
 func (s *ClusterService) SetPublisher(p EventPublisher) { s.hub = p }

@@ -47,6 +47,12 @@ type Scheduler struct {
 	// settings is where the heartbeat retention policy lives (Admin > Settings).
 	// It is optional: a nil value falls back to the environment variable.
 	settings *services.SettingService
+	// statusSubscriptions delivers the opt-in mails of the public status pages
+	// (optional: nil disables the loop).
+	statusSubscriptions *services.StatusPageSubscriptionService
+	// subscriptionRunMu keeps two delivery passes from overlapping: a pass can
+	// outlast the 30 second tick when the SMTP server is slow.
+	subscriptionRunMu sync.Mutex
 	// sync drives the federated pull loop (nil unless it is wired).
 	sync *services.SyncService
 }
@@ -122,6 +128,12 @@ func (s *Scheduler) SetNotificationService(n *services.NotificationService) {
 // SetSyncService injects the federated synchronisation service, which the
 // maintenance loop drives on its own ticker.
 func (s *Scheduler) SetSyncService(sync *services.SyncService) { s.sync = sync }
+
+// SetStatusPageSubscriptionService injects the opt-in mailer of the public status
+// pages, driven by its own 30 second ticker.
+func (s *Scheduler) SetStatusPageSubscriptionService(subscriptions *services.StatusPageSubscriptionService) {
+	s.statusSubscriptions = subscriptions
+}
 
 // SetSettingService injects the shared settings service, which owns the
 // heartbeat retention policy applied by the housekeeping loop.

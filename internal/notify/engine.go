@@ -58,7 +58,22 @@ func (e *Engine) SendSMTP(notification *models.Notification, msg Message) error 
 		return errors.New("smtp configuration is missing")
 	}
 	cfg := notification.Config.SMTP
-	serviceURL := buildSMTPURL(cfg, msg)
+	return e.SendSMTPTo(notification, msg, cfg.To, subjectFor(cfg, msg))
+}
+
+// SendSMTPTo delivers an e-mail to one explicit recipient with an explicit
+// subject, keeping the transport settings of the channel. It is what the status
+// page subscription mails use: each subscriber is its own recipient, while the
+// channel still owns the server, credentials and sender.
+func (e *Engine) SendSMTPTo(notification *models.Notification, msg Message, recipient, subject string) error {
+	if notification.Config.SMTP == nil {
+		return errors.New("smtp configuration is missing")
+	}
+	cfg := notification.Config.SMTP
+	if strings.TrimSpace(recipient) == "" {
+		return errors.New("the e-mail recipient is missing")
+	}
+	serviceURL := buildSMTPURLTo(cfg, subject, recipient)
 
 	serviceRouter, err := e.newRouter(serviceURL)
 	if err != nil {
@@ -69,7 +84,7 @@ func (e *Engine) SendSMTP(notification *models.Notification, msg Message) error 
 	// Only the parameters the smtp service knows about are forwarded: the body
 	// itself travels in the message argument, and an unknown key (for example
 	// "message") makes shoutrrr reject the whole send.
-	params := types.Params{"title": subjectFor(cfg, msg)}
+	params := types.Params{"title": subject}
 	return joinSendErrors(serviceRouter.Send(body, &params))
 }
 

@@ -146,10 +146,16 @@ marked `Secure` automatically.
 | `session_secret` | `settings.session_secret` | delete the row and restart (invalidates sessions); propagated between nodes only when `CLUSTER_SYNC_SESSION_SECRET=true` |
 | API tokens | `api_tokens.token_hash` | revoke/delete in Admin > Security |
 | notification channel credentials (SMTP password, webhook/Slack/Discord/Telegram tokens) | `notifications.config` (JSON) | edit the channel in Admin > Notifications |
+| status page subscriber addresses | `status_page_subscribers.email` | delete the subscriber in Admin > Status pages; the address is retained after an unsubscribe on purpose |
+| confirmation token hashes | `status_page_subscribers.confirm_token_hash` | single-use, 7 days; a new confirmation replaces the hash |
+| unsubscribe tokens | derived from the cluster private key, only the SHA-256 is stored | rotating `CLUSTER_PRIVATE_KEY` invalidates every existing unsubscribe link |
 
 The database therefore contains credentials (SMTP passwords, chat tokens, the
 cluster key): protect the database accordingly and remember that the MySQL
-connection is plaintext unless `DB_SSL=true`.
+connection is plaintext unless `DB_SSL=true`. In federated mode the
+`status_page_subscribers` rows (e-mail addresses) also replicate to every peer, so
+the peer transport carries PII as well as configuration; run it over TLS
+(`APP_URL=https://`).
 
 ## 9. Peer API trust model
 

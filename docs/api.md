@@ -476,6 +476,11 @@ shows that detail next to the translated sentence.
 | PUT | `/api/status-pages/:id/monitors` | `{"monitor_ids":[6,7,8]}` (order = display order) |
 | GET | `/api/status-pages/:id/groups` | groups included, in page order |
 | PUT | `/api/status-pages/:id/groups` | `{"groups":[{"group_id":1,"display_name":"Edge"}]}` |
+| GET | `/api/status-pages/:id/subscribers` | paginated opt-in subscribers (`page`, `size`, `q`) |
+| DELETE | `/api/status-pages/:id/subscribers/:subscriber_id` | remove one subscriber (tombstoned on the peers) |
+| POST | `/api/public/status/:slug/subscribe` | **public** double opt-in (`email`, `locale`, optional `recaptcha_token`) |
+| GET | `/api/public/status/:slug/confirm?token=…` | **public** confirmation link (302 to `/status/<slug>?subscription=confirmed｜invalid`) |
+| GET | `/api/public/status/:slug/unsubscribe?token=…` | **public** unsubscribe link (302 to `/status/<slug>?subscription=unsubscribed｜invalid`) |
 | GET | `/api/public/status/:slug` | **public** payload rendered by the page |
 | GET | `/api/public/status/:slug/badge.svg` | **public** shields.io style badge |
 
@@ -485,6 +490,16 @@ includes the group, without editing the page. The public payload carries
 `monitors` (the ordered union) and `groups` (the same list split into sections:
 one per group plus the monitors that are in no group), so a monitor is never
 rendered twice. An unknown `group_id` answers `400 ERR_MONITOR_GROUP_INVALID`.
+
+The subscription fields of a page are `subscription_enabled`,
+`subscription_smtp_uuid` (the **uuid** of an SMTP channel) and
+`subscription_delay_minutes` (5–1440, multiple of 5, default 10). The public
+payload adds the runtime `subscription_available`, which is true only when the
+switch is on and the channel exists and is active. The subscribe endpoint is
+anti-enumerating (same answer for a new, pending or existing address) and rate
+limited to 5 requests/minute per IP. The subscriber listing answers
+`{"subscribers":[…],"total":N,"page":1,"size":25}` and includes unsubscribed
+rows; the tokens are never part of any API response.
 
 ## 7. Cluster
 

@@ -52,6 +52,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	notifications := services.NewNotificationService(db, cfg, log, notificationEngine)
 	cluster := services.NewClusterService(db, cfg, log, settings, stats)
 	statusPages := services.NewStatusPageService(db, cfg, log)
+	statusPageSubscriptions := services.NewStatusPageSubscriptionService(db, cfg, log)
 	tokens := services.NewTokenService(db, log)
 	ipRules := services.NewIPRuleService(db, cfg, log)
 	sessions := services.NewSessionService(cfg, settings, log)
@@ -92,6 +93,11 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	cluster.SetMonitorService(monitors)
 	cluster.SetNotificationService(notifications)
 	statusPages.SetMonitorService(monitors)
+	statusPages.SetSubscriptionService(statusPageSubscriptions)
+	statusPageSubscriptions.SetSettingService(settings)
+	statusPageSubscriptions.SetNotificationService(notifications)
+	statusPageSubscriptions.SetClusterService(cluster)
+	cluster.SetStatusPageSubscriptionService(statusPageSubscriptions)
 
 	// --- federated synchronisation ----------------------------------------
 	// The emitter publishes local writes; the sync service pulls the peers. In
@@ -102,6 +108,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	monitorGroups.SetSyncEmitter(syncEmitter)
 	monitorTemplates.SetSyncEmitter(syncEmitter)
 	statusPages.SetSyncEmitter(syncEmitter)
+	statusPageSubscriptions.SetSyncEmitter(syncEmitter)
 	notifications.SetSyncEmitter(syncEmitter)
 	syncService := services.NewSyncService(db, cfg, log, cluster, syncEmitter)
 	syncService.SetPublisher(hub)
@@ -147,32 +154,33 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// nothing, so it needs no database handle of its own.
 	analysis := services.NewAnalysisService(cfg, log, lighthouses, domains)
 	container := &handlers.Container{
-		Cfg:              cfg,
-		Log:              log,
-		DB:               db,
-		State:            state,
-		Settings:         settings,
-		Monitors:         monitors,
-		MonitorGroups:    monitorGroups,
-		MonitorTemplates: monitorTemplates,
-		Certificates:     certificates,
-		Domains:          domains,
-		WhoisParsers:     whoisParsers,
-		Expiry:           expiries,
-		Lighthouse:       lighthouses,
-		Analysis:         analysis,
-		Heartbeats:       heartbeats,
-		Stats:            stats,
-		Notifications:    notifications,
-		Cluster:          cluster,
-		Sync:             syncService,
-		StatusPages:      statusPages,
-		Tokens:           tokens,
-		IPRules:          ipRules,
-		Sessions:         sessions,
-		Hub:              hub,
-		OIDC:             oidc,
-		SPA:              handlers.NewSPAHandler(log),
+		Cfg:                     cfg,
+		Log:                     log,
+		DB:                      db,
+		State:                   state,
+		Settings:                settings,
+		Monitors:                monitors,
+		MonitorGroups:           monitorGroups,
+		MonitorTemplates:        monitorTemplates,
+		Certificates:            certificates,
+		Domains:                 domains,
+		WhoisParsers:            whoisParsers,
+		Expiry:                  expiries,
+		Lighthouse:              lighthouses,
+		Analysis:                analysis,
+		Heartbeats:              heartbeats,
+		Stats:                   stats,
+		Notifications:           notifications,
+		Cluster:                 cluster,
+		Sync:                    syncService,
+		StatusPages:             statusPages,
+		StatusPageSubscriptions: statusPageSubscriptions,
+		Tokens:                  tokens,
+		IPRules:                 ipRules,
+		Sessions:                sessions,
+		Hub:                     hub,
+		OIDC:                    oidc,
+		SPA:                     handlers.NewSPAHandler(log),
 	}
 	container.Register(engine)
 
@@ -186,6 +194,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	sched.SetLighthouseService(lighthouses)
 	sched.SetNotificationService(notifications)
 	sched.SetSyncService(syncService)
+	sched.SetStatusPageSubscriptionService(statusPageSubscriptions)
 	sched.SetSettingService(settings)
 	state.SetPhase(boot.PhaseScheduler)
 	if err := sched.Start(ctx); err != nil {

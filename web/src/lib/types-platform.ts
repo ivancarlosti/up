@@ -70,6 +70,8 @@ export type NotificationType = 'smtp' | 'webhook' | 'slack' | 'discord' | 'teleg
 
 export interface Notification {
   id: number
+  /** Global identity (the status page stores this, not the local id). */
+  uuid: string
   name: string
   type: NotificationType
   active: boolean
@@ -204,6 +206,17 @@ export interface StatusPage {
    */
   uptime_window_hours: number
   custom_css: string
+  /** Opt-in incident e-mails for the page. */
+  subscription_enabled: boolean
+  /** UUID of the SMTP channel that sends the subscription mails. */
+  subscription_smtp_uuid: string
+  /** Minutes a monitor must stay down before the first mail leaves. */
+  subscription_delay_minutes: number
+  /**
+   * Runtime flag of the public payload: the page can accept a subscription
+   * right now (switch on + active SMTP channel). Absent on admin responses.
+   */
+  subscription_available?: boolean
   created_at: string
   updated_at: string
   monitors?: Monitor[]
@@ -238,6 +251,27 @@ export interface StatusPageMonitorItem {
   sort_order: number
   show_uptime: boolean
   show_chart: boolean
+}
+
+/** One opt-in subscription of a status page (admin listing). */
+export interface StatusPageSubscriber {
+  id: number
+  uuid: string
+  status_page_id: number
+  email: string
+  locale: string
+  confirmed_at: string | null
+  unsubscribed_at: string | null
+  confirmation_sent_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StatusPageSubscriberList {
+  subscribers: StatusPageSubscriber[]
+  total: number
+  page: number
+  size: number
 }
 
 export type TokenScope = 'read' | 'write'

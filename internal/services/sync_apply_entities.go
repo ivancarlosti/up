@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -477,6 +478,136 @@ func (s *SyncService) writeNotification(ctx context.Context, tx *gorm.DB, payloa
 	return row.ID, true, nil
 }
 
+// applyStatusPageSubscriber merges one opt-in subscription.
+//
+// The page is referenced by uuid and may not have arrived yet: the marker then
+// keeps the subscription pending and the healing pass writes it once the page is
+// there, exactly like the other container references.
+func (s *SyncService) applyStatusPageSubscriber(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (models.ApplyDecision, error) {
+	decision, current, err := s.mergeDecision(ctx, tx, change)
+	if err != nil {
+		return models.ApplySkip, err
+	}
+	if decision == models.ApplySkip {
+		return decision, nil
+	}
+	if decision == models.ApplyDelete {
+		if current != nil && current.LocalID != 0 {
+			if err := tx.WithContext(ctx).Where("subscriber_id = ?", current.LocalID).
+				Delete(&models.SubscriptionNotice{}).Error; err != nil {
+				return decision, err
+			}
+			if err := tx.WithContext(ctx).Delete(&models.StatusPageSubscriber{}, current.LocalID).Error; err != nil {
+				return decision, fmt.Errorf("removing subscriber %d: %w", current.LocalID, err)
+			}
+		}
+		return decision, s.trackApplied(ctx, tx, change, 0, true)
+	}
+
+	var payload models.StatusPageSubscriberPayload
+	if err := json.Unmarshal(change.Payload, &payload); err != nil {
+		return models.ApplySkip, fmt.Errorf("unreadable subscriber payload for %s: %w", change.UUID, err)
+	}
+	pageID, ok, err := s.localID(ctx, tx, models.EntityStatusPage, payload.StatusPageUUID)
+	if err != nil {
+		return models.ApplySkip, err
+	}
+	if !ok {
+		if err := s.recordPendingLink(ctx, tx,
+			models.EntityStatusPageSubscriber, payload.UUID, "status_page_uuid", payload.StatusPageUUID); err != nil {
+			return models.ApplySkip, err
+		}
+		// The payload is kept beside the identity even though there is no local
+		// row yet: the healing pass needs it to write the subscription as soon as
+		// the page exists.
+		if err := s.trackApplied(ctx, tx, change, 0, false); err != nil {
+			return models.ApplySkip, err
+		}
+		return decision, nil
+	}
+	localID, _, err := s.writeStatusPageSubscriber(ctx, tx, payload, pageID, current)
+	if err != nil {
+		return models.ApplySkip, err
+	}
+	if err := s.trackApplied(ctx, tx, change, localID, false); err != nil {
+		return decision, err
+	}
+	return decision, s.clearResolvedPendingLinks(ctx, tx, change.Entity, change.UUID)
+}
+
+// writeStatusPageSubscriber inserts or refreshes a subscription row.
+func (s *SyncService) writeStatusPageSubscriber(ctx context.Context, tx *gorm.DB, payload models.StatusPageSubscriberPayload, pageID uint, current *models.SyncObject) (uint, bool, error) {
+	var localID uint
+	if current != nil {
+		localID = current.LocalID
+	}
+	if localID == 0 {
+		// A local subscription of the same address may exist under another
+		// identity (it was created before the peer's row arrived). Adopting it is
+		// better than failing on the unique (page, e-mail) index.
+		var existing models.StatusPageSubscriber
+		err := tx.WithContext(ctx).Where("status_page_id = ? AND email = ?", pageID, payload.Email).
+			First(&existing).Error
+		switch {
+		case err == nil:
+			localID = existing.ID
+		case err != nil && err != gorm.ErrRecordNotFound:
+			return 0, false, err
+		}
+	}
+	now := time.Now().UTC()
+	createdAt := payload.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	updatedAt := payload.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = now
+	}
+	if localID != 0 {
+		columns := map[string]any{
+			"uuid":                     payload.UUID,
+			"origin_node_id":           payload.OriginNodeID,
+			"revision":                 payload.Revision,
+			"status_page_id":           pageID,
+			"email":                    payload.Email,
+			"locale":                   payload.Locale,
+			"confirmed_at":             payload.ConfirmedAt,
+			"unsubscribed_at":          payload.UnsubscribedAt,
+			"confirmation_sent_at":     payload.ConfirmationSentAt,
+			"confirm_token_hash":       payload.ConfirmTokenHash,
+			"confirm_token_expires_at": payload.ConfirmTokenExpiresAt,
+			"unsubscribe_token_hash":   payload.UnsubscribeTokenHash,
+			"updated_at":               updatedAt,
+		}
+		if err := tx.WithContext(ctx).Model(&models.StatusPageSubscriber{}).
+			Where("id = ?", localID).Updates(columns).Error; err != nil {
+			return 0, false, fmt.Errorf("storing subscriber %s: %w", payload.UUID, err)
+		}
+		return localID, false, nil
+	}
+	row := models.StatusPageSubscriber{
+		UUID:                  payload.UUID,
+		OriginNodeID:          payload.OriginNodeID,
+		Revision:              payload.Revision,
+		StatusPageID:          pageID,
+		Email:                 payload.Email,
+		Locale:                payload.Locale,
+		ConfirmedAt:           payload.ConfirmedAt,
+		UnsubscribedAt:        payload.UnsubscribedAt,
+		ConfirmationSentAt:    payload.ConfirmationSentAt,
+		ConfirmTokenHash:      payload.ConfirmTokenHash,
+		ConfirmTokenExpiresAt: payload.ConfirmTokenExpiresAt,
+		UnsubscribeTokenHash:  payload.UnsubscribeTokenHash,
+		CreatedAt:             createdAt,
+		UpdatedAt:             updatedAt,
+	}
+	if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+		return 0, false, fmt.Errorf("creating subscriber %s: %w", payload.UUID, err)
+	}
+	return row.ID, true, nil
+}
+
 // applyStatusPage merges one status page change, its selection included.
 //
 // The selection is part of the payload rather than a separate entity (unlike a
@@ -494,6 +625,9 @@ func (s *SyncService) applyStatusPage(ctx context.Context, tx *gorm.DB, change m
 	if decision == models.ApplyDelete {
 		if current != nil && current.LocalID != 0 {
 			if err := deleteStatusPageSelection(tx, current.LocalID); err != nil {
+				return decision, err
+			}
+			if err := deleteStatusPageSubscriptionData(tx, current.LocalID); err != nil {
 				return decision, err
 			}
 			if err := tx.WithContext(ctx).Delete(&models.StatusPage{}, current.LocalID).Error; err != nil {
@@ -562,10 +696,13 @@ func (s *SyncService) writeStatusPage(ctx context.Context, tx *gorm.DB, payload 
 		"show_charts":    payload.ShowCharts,
 		"show_tags":      payload.ShowTags,
 
-		"show_cert_expiry":   payload.ShowCertExpiry,
-		"show_domain_expiry": payload.ShowDomainExpiry,
-		"custom_css":         payload.CustomCSS,
-		"updated_at":         payload.UpdatedAt,
+		"show_cert_expiry":           payload.ShowCertExpiry,
+		"show_domain_expiry":         payload.ShowDomainExpiry,
+		"custom_css":                 payload.CustomCSS,
+		"subscription_enabled":       payload.SubscriptionEnabled,
+		"subscription_smtp_uuid":     payload.SubscriptionSMTPUUID,
+		"subscription_delay_minutes": models.NormalizeSubscriptionDelayMinutes(payload.SubscriptionDelayMinutes),
+		"updated_at":                 payload.UpdatedAt,
 	}
 	if err := tx.WithContext(ctx).Model(&models.StatusPage{}).
 		Where("id = ?", localID).Updates(columns).Error; err != nil {
@@ -699,14 +836,43 @@ func (s *SyncService) resolveContainerReferences(ctx context.Context, tx *gorm.D
 	if err != nil {
 		return err
 	}
-	if container == nil || container.Payload == "" || container.LocalID == 0 {
+	if container == nil || container.Payload == "" {
 		// The container itself is not here (or is a tombstone): there is nothing to
 		// resolve against, so the marker stays until the attempt cap.
 		return nil
 	}
 
 	switch marker.Entity {
+	case models.EntityStatusPageSubscriber:
+		var payload models.StatusPageSubscriberPayload
+		if err := json.Unmarshal([]byte(container.Payload), &payload); err != nil {
+			return fmt.Errorf("unreadable stored subscriber payload for %s: %w", marker.UUID, err)
+		}
+		pageID, ok, err := s.localID(ctx, tx, models.EntityStatusPage, payload.StatusPageUUID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		localID, _, err := s.writeStatusPageSubscriber(ctx, tx, payload, pageID, container)
+		if err != nil {
+			return err
+		}
+		change := models.SyncChangePayload{
+			Entity:       container.Entity,
+			UUID:         container.UUID,
+			Action:       models.ActionUpsert,
+			OriginNodeID: container.OriginNodeID,
+			Revision:     container.Revision,
+			Payload:      json.RawMessage(container.Payload),
+			UpdatedAt:    container.UpdatedAt,
+		}
+		return s.trackApplied(ctx, tx, change, localID, false)
 	case models.EntityStatusPage:
+		if container.LocalID == 0 {
+			return nil
+		}
 		var payload models.StatusPagePayload
 		if err := json.Unmarshal([]byte(container.Payload), &payload); err != nil {
 			return fmt.Errorf("unreadable stored status page payload for %s: %w", marker.UUID, err)
@@ -715,6 +881,9 @@ func (s *SyncService) resolveContainerReferences(ctx context.Context, tx *gorm.D
 			return err
 		}
 	case models.EntityMonitorTemplate:
+		if container.LocalID == 0 {
+			return nil
+		}
 		var payload models.MonitorTemplatePayload
 		if err := json.Unmarshal([]byte(container.Payload), &payload); err != nil {
 			return fmt.Errorf("unreadable stored template payload for %s: %w", marker.UUID, err)

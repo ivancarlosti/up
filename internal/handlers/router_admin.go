@@ -73,6 +73,8 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	pages.PUT("/:id/monitors", h.setStatusPageMonitors)
 	pages.GET("/:id/groups", h.statusPageGroups)
 	pages.PUT("/:id/groups", h.setStatusPageGroups)
+	pages.GET("/:id/subscribers", h.listStatusPageSubscribers)
+	pages.DELETE("/:id/subscribers/:subscriber_id", h.deleteStatusPageSubscriber)
 
 	cluster := admin.Group("/cluster")
 	cluster.GET("/status", h.clusterStatus)

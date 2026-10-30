@@ -20,10 +20,17 @@ import (
 //
 // The URL is documented at https://github.com/nicholas-fedor/shoutrrr
 func buildSMTPURL(cfg *models.SMTPConfig, msg Message) string {
+	return buildSMTPURLTo(cfg, subjectFor(cfg, msg), cfg.To)
+}
+
+// buildSMTPURLTo is buildSMTPURL with an explicit subject and recipient list. The
+// status page subscription mails use it to address one subscriber while keeping
+// the channel transport settings untouched.
+func buildSMTPURLTo(cfg *models.SMTPConfig, subject, recipients string) string {
 	query := url.Values{}
 	query.Set("fromaddress", cfg.From)
-	query.Set("toaddresses", strings.Join(models.SplitList(cfg.To), ","))
-	query.Set("subject", subjectFor(cfg, msg))
+	query.Set("toaddresses", strings.Join(models.SplitList(recipients), ","))
+	query.Set("subject", subject)
 	query.Set("usehtml", yesNo(cfg.UseHTML))
 
 	if cfg.Secure {

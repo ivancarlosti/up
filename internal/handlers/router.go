@@ -41,11 +41,13 @@ type Container struct {
 	Notifications *services.NotificationService
 	Cluster       *services.ClusterService
 	StatusPages   *services.StatusPageService
-	Tokens        *services.TokenService
-	IPRules       *services.IPRuleService
-	Sessions      *services.SessionService
-	Scheduler     *scheduler.Scheduler
-	Hub           *ws.Hub
+	// StatusPageSubscriptions owns the opt-in incident mails of the public pages.
+	StatusPageSubscriptions *services.StatusPageSubscriptionService
+	Tokens                  *services.TokenService
+	IPRules                 *services.IPRuleService
+	Sessions                *services.SessionService
+	Scheduler               *scheduler.Scheduler
+	Hub                     *ws.Hub
 	// Sync is the federated synchronisation service (nil when it is not wired).
 	Sync *services.SyncService
 	// SPA serves the embedded frontend (assets and index.html fallback).
@@ -94,6 +96,14 @@ func (h *Container) Register(engine *gin.Engine) {
 	)
 	public.GET("/status/:slug", h.publicStatusPage)
 	public.GET("/status/:slug/badge.svg", h.publicStatusBadge)
+	// The subscription handshake is deliberately tighter than the page itself:
+	// the form is the only anonymous endpoint of Up that sends a message on
+	// behalf of the visitor, so it gets its own 5 request/minute budget per
+	// address instead of sharing the generous page budget.
+	public.POST("/status/:slug/subscribe",
+		middleware.RateLimit(5, time.Minute), h.subscribeStatusPage)
+	public.GET("/status/:slug/confirm", h.confirmStatusPageSubscription)
+	public.GET("/status/:slug/unsubscribe", h.unsubscribeStatusPageSubscription)
 
 	// --- Public REST API (bearer token) ---------------------------------
 	v1 := engine.Group("/api/v1",

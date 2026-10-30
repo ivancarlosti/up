@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink, Pencil, Plus, Tag, Trash2 } from 'lucide-vue-next'
+import { ExternalLink, Pencil, Plus, Tag, Trash2, Users } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -17,13 +17,14 @@ import Switch from '@/components/ui/Switch.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { formatDateTime } from '@/lib/format'
 import { sortStatusPages, statusPageSortKeys } from '@/lib/sort'
 import type { StatusPageSortKey } from '@/lib/sort'
 import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { uptimeWindowOptionsWithInherit } from '@/lib/uptime-window'
 import { copyToClipboard } from '@/lib/utils'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorGroup, StatusPage } from '@/lib/types'
+import type { Monitor, MonitorGroup, Notification, StatusPage, StatusPageSubscriber } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -31,6 +32,7 @@ const toasts = useToastStore()
 const pages = ref<StatusPage[]>([])
 const monitors = ref<Monitor[]>([])
 const groups = ref<MonitorGroup[]>([])
+const notifications = ref<Notification[]>([])
 const dialogOpen = ref(false)
 const saving = ref(false)
 const confirmOpen = ref(false)
@@ -81,6 +83,41 @@ const themeOptions = computed(() => [
 /** The uptime periods a page may show; 0 keeps the global one. */
 const windowOptions = computed(() => uptimeWindowOptionsWithInherit(t('statusPages.uptimeWindowInherit')))
 
+/** Only SMTP channels can carry the subscription mails. */
+const smtpChannels = computed(() =>
+  notifications.value.filter((channel) => channel.type === 'smtp' && channel.active),
+)
+const smtpChannelOptions = computed(() => [
+  { value: '', label: t('statusPages.subscriptionChannelNone') },
+  ...smtpChannels.value.map((channel) => ({
+    value: channel.uuid,
+    label: channel.active ? channel.name : `${channel.name} (${t('common.disabled')})`,
+  })),
+])
+
+// --- subscriber listing ---------------------------------------------------
+const subscriberDialogOpen = ref(false)
+const subscriberPage = ref<StatusPage | null>(null)
+const subscribers = ref<StatusPageSubscriber[]>([])
+const subscriberTotal = ref(0)
+const subscriberNumber = ref(1)
+const subscriberSearch = ref('')
+const subscriberLoading = ref(false)
+const subscriberSize = 25
+
+const subscriberTotalPages = computed(() =>
+  Math.max(1, Math.ceil(subscriberTotal.value / subscriberSize)),
+)
+
+/** subscriptionDelay adapts the numeric delay to the string Input. */
+const subscriptionDelay = computed({
+  get: () => String(form.value.subscription_delay_minutes ?? 10),
+  set: (value: string) => {
+    const parsed = Number(value)
+    form.value.subscription_delay_minutes = Number.isFinite(parsed) ? parsed : 10
+  },
+})
+
 /** uptimeWindow adapts the numeric window to the string Select. */
 const uptimeWindow = computed({
   get: () => String(form.value.uptime_window_hours ?? 0),
@@ -104,6 +141,9 @@ function blank(): Partial<StatusPage> {
     show_domain_expiry: false,
     uptime_window_hours: 0,
     custom_css: '',
+    subscription_enabled: false,
+    subscription_smtp_uuid: '',
+    subscription_delay_minutes: 10,
   }
 }
 
@@ -118,14 +158,16 @@ function badgeURL(slug: string): string {
 
 async function load(): Promise<void> {
   try {
-    const [pageList, monitorList, groupList] = await Promise.all([
+    const [pageList, monitorList, groupList, channelList] = await Promise.all([
       api.statusPages(),
       api.monitors({ decorate: 'false' }),
       api.monitorGroups(),
+      api.notifications(),
     ])
     pages.value = pageList
     monitors.value = monitorList
     groups.value = groupList
+    notifications.value = channelList ?? []
   } catch (error) {
     toasts.error(t('common.error'), translateError(error))
   }
@@ -148,6 +190,70 @@ function openCreate(): void {
   selectedGroups.value = []
   dialogOpen.value = true
 }
+
+async function openSubscribers(page: StatusPage): Promise<void> {
+  subscriberPage.value = page
+  subscriberSearch.value = ''
+  subscriberNumber.value = 1
+  subscriberDialogOpen.value = true
+  await loadSubscribers()
+}
+
+async function loadSubscribers(): Promise<void> {
+  if (!subscriberPage.value) return
+  subscriberLoading.value = true
+  try {
+    const result = await api.statusPageSubscribers(subscriberPage.value.id, {
+      page: subscriberNumber.value,
+      size: subscriberSize,
+      q: subscriberSearch.value.trim() || undefined,
+    })
+    subscribers.value = result.subscribers ?? []
+    subscriberTotal.value = result.total ?? 0
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    subscriberLoading.value = false
+  }
+}
+
+async function changeSubscriberPage(delta: number): Promise<void> {
+  const next = subscriberNumber.value + delta
+  if (next < 1 || next > subscriberTotalPages.value) return
+  subscriberNumber.value = next
+  await loadSubscribers()
+}
+
+async function searchSubscribers(): Promise<void> {
+  subscriberNumber.value = 1
+  await loadSubscribers()
+}
+
+async function removeSubscriber(subscriber: StatusPageSubscriber): Promise<void> {
+  if (!subscriberPage.value) return
+  try {
+    await api.deleteStatusPageSubscriber(subscriberPage.value.id, subscriber.id)
+    toasts.success(t('common.deleted'))
+    await loadSubscribers()
+    await load()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  }
+}
+
+/** subscriberState is the label of the three states a subscriber can be in. */
+function subscriberState(subscriber: StatusPageSubscriber): string {
+  if (subscriber.unsubscribed_at) return t('statusPages.subscriberUnsubscribed')
+  if (subscriber.confirmed_at) return t('statusPages.subscriberConfirmed')
+  return t('statusPages.subscriberPending')
+}
+
+function subscriberStateClass(subscriber: StatusPageSubscriber): 'secondary' | 'success' | 'warning' {
+  if (subscriber.unsubscribed_at) return 'secondary'
+  if (subscriber.confirmed_at) return 'success'
+  return 'warning'
+}
+
 
 function toggleMonitor(id: number, value: boolean): void {
   const set = new Set(selectedMonitors.value)
@@ -310,6 +416,15 @@ onMounted(load)
                   <Button
                     variant="ghost"
                     size="sm"
+                    :title="t('statusPages.subscribers')"
+                    :aria-label="t('statusPages.subscribers')"
+                    @click="openSubscribers(page)"
+                  >
+                    <Users class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     :title="t('common.edit')"
                     :aria-label="t('common.edit')"
                     @click="openEdit(page)"
@@ -374,6 +489,43 @@ onMounted(load)
           <Label for="page-css">{{ t('statusPages.customCss') }}</Label>
           <Textarea id="page-css" v-model="form.custom_css" :rows="3" />
         </div>
+        <div class="grid gap-3 rounded-lg border border-border p-3 sm:col-span-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-sm font-medium">{{ t('statusPages.subscriptionTitle') }}</p>
+              <p class="text-[11px] text-muted-foreground">{{ t('statusPages.subscriptionHelp') }}</p>
+            </div>
+            <Switch v-model="form.subscription_enabled as boolean">{{ t('statusPages.subscriptionEnabled') }}</Switch>
+          </div>
+          <div v-if="form.subscription_enabled" class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-1">
+              <Label for="page-subscription-channel" :help="t('statusPages.subscriptionChannelHelp')">
+                {{ t('statusPages.subscriptionChannel') }}
+              </Label>
+              <Select
+                id="page-subscription-channel"
+                v-model="form.subscription_smtp_uuid"
+                :options="smtpChannelOptions"
+              />
+              <p v-if="!smtpChannels.length" class="text-[11px] text-status-degraded">
+                {{ t('statusPages.subscriptionNoChannels') }}
+              </p>
+            </div>
+            <div class="grid gap-1">
+              <Label for="page-subscription-delay" :help="t('statusPages.subscriptionDelayHelp')">
+                {{ t('statusPages.subscriptionDelay') }}
+              </Label>
+              <Input
+                id="page-subscription-delay"
+                v-model="subscriptionDelay"
+                type="number"
+                min="5"
+                max="1440"
+                step="5"
+              />
+            </div>
+          </div>
+        </div>
         <div class="grid gap-2 sm:col-span-2">
           <Label :help="t('statusPages.selectMonitorsHelp')">{{ t('statusPages.selectMonitors') }}</Label>
           <div class="flex flex-wrap gap-4">
@@ -405,6 +557,92 @@ onMounted(load)
       <template #footer>
         <Button variant="outline" @click="dialogOpen = false">{{ t('common.cancel') }}</Button>
         <Button :loading="saving" @click="save">{{ t('common.save') }}</Button>
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model="subscriberDialogOpen"
+      :title="t('statusPages.subscribersTitle', { page: subscriberPage?.title ?? '' })"
+      :description="t('statusPages.subscribersHelp')"
+      wide
+    >
+      <div class="flex flex-wrap items-center gap-2">
+        <Input
+          v-model="subscriberSearch"
+          class="max-w-xs"
+          :placeholder="t('statusPages.subscriberSearch')"
+          @keyup.enter="searchSubscribers"
+        />
+        <Button variant="outline" size="sm" :loading="subscriberLoading" @click="searchSubscribers">
+          {{ t('common.search') }}
+        </Button>
+        <span class="text-[11px] text-muted-foreground">
+          {{ t('statusPages.subscriberCount', { total: subscriberTotal }) }}
+        </span>
+      </div>
+
+      <p v-if="!subscriberLoading && !subscribers.length" class="mt-4 text-xs text-muted-foreground">
+        {{ t('statusPages.subscriberEmpty') }}
+      </p>
+
+      <div v-else class="mt-4 overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ t('login.email') }}</th>
+              <th>{{ t('statusPages.subscriberState') }}</th>
+              <th>{{ t('statusPages.subscriberLocale') }}</th>
+              <th>{{ t('statusPages.subscriberCreated') }}</th>
+              <th class="text-end">{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="subscriber in subscribers" :key="subscriber.id">
+              <td class="text-sm">{{ subscriber.email }}</td>
+              <td>
+                <Badge :variant="subscriberStateClass(subscriber)">{{ subscriberState(subscriber) }}</Badge>
+              </td>
+              <td class="text-xs text-muted-foreground">{{ subscriber.locale }}</td>
+              <td class="whitespace-nowrap text-xs text-muted-foreground">
+                {{ formatDateTime(subscriber.created_at, locale) }}
+              </td>
+              <td class="text-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="text-status-down"
+                  :title="t('common.delete')"
+                  :aria-label="t('common.delete')"
+                  @click="removeSubscriber(subscriber)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <template #footer>
+        <span class="me-auto text-[11px] text-muted-foreground">
+          {{ t('statusPages.subscriberPage', { page: subscriberNumber, pages: subscriberTotalPages }) }}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="subscriberNumber <= 1 || subscriberLoading"
+          @click="changeSubscriberPage(-1)"
+        >
+          {{ t('common.previous') }}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="subscriberNumber >= subscriberTotalPages || subscriberLoading"
+          @click="changeSubscriberPage(1)"
+        >
+          {{ t('common.next') }}
+        </Button>
       </template>
     </Dialog>
 

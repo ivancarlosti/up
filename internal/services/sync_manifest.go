@@ -199,7 +199,13 @@ func (s *SyncService) reconcilePeer(ctx context.Context, peer models.Node) error
 			return err
 		}
 		theirs, present := remote[entity]
-		if present && theirs.Checksum == local.Checksum {
+		if !present {
+			// A peer older than this entity (an additive change) or one that does
+			// not serve it: there is nothing to compare and nothing to pull. Doing
+			// otherwise would resynchronise an empty entity on every manifest pass.
+			continue
+		}
+		if theirs.Checksum == local.Checksum {
 			continue
 		}
 		s.log.Warn("an entity disagrees with a peer: resynchronising it from the snapshot",

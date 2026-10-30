@@ -60,7 +60,9 @@
     "timeout": "Timeout",
     "seconds": "seconds",
     "hours": "hours",
-    "days": "days"
+    "days": "days",
+    "previous": "Previous",
+    "next": "Next"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -661,7 +663,29 @@
     "deleteWarning": "The public page stops responding immediately.",
     "uptimeWindow": "Uptime period",
     "uptimeWindowHelp": "The period this page shows the uptime and the heartbeat bars for.",
-    "uptimeWindowInherit": "Use the global period"
+    "uptimeWindowInherit": "Use the global period",
+    "subscriptionTitle": "E-mail subscriptions",
+    "subscriptionHelp": "Opt-in incident mails for the visitors of this page.",
+    "subscriptionEnabled": "Enable subscriptions",
+    "subscriptionChannel": "SMTP channel",
+    "subscriptionChannelNone": "Select a channel",
+    "subscriptionChannelHelp": "Only SMTP channels can send the subscription mails. The channel must exist on every node of the cluster.",
+    "subscriptionNoChannels": "Create an active SMTP channel in Notifications first.",
+    "subscriptionDelay": "Downtime delay (minutes)",
+    "subscriptionDelayHelp": "How long a monitor must stay down before the first e-mail leaves. 5 to 1440 minutes, in steps of 5.",
+    "subscribers": "Subscribers",
+    "subscribersTitle": "Subscribers of {page}",
+    "subscribersHelp": "The addresses that opted in to the incident mails of this page. Unsubscribed rows are kept so the history is not lost.",
+    "subscriberSearch": "Filter by e-mail",
+    "subscriberCount": "{total} subscriber(s)",
+    "subscriberEmpty": "No subscriber yet.",
+    "subscriberState": "State",
+    "subscriberLocale": "Language",
+    "subscriberCreated": "Subscribed",
+    "subscriberConfirmed": "Confirmed",
+    "subscriberPending": "Pending confirmation",
+    "subscriberUnsubscribed": "Unsubscribed",
+    "subscriberPage": "Page {page} of {pages}"
   },
   "security": {
     "title": "Security",
@@ -831,7 +855,8 @@
     "withKeycloak": "Sign in with Keycloak",
     "captchaHint": "Confirm the captcha to continue",
     "noneHint": "This dashboard is open, no login required.",
-    "goToDashboard": "Go to the dashboard"
+    "goToDashboard": "Go to the dashboard",
+    "captchaUnavailable": "The captcha could not be loaded. Refresh the page and try again."
   },
   "publicStatus": {
     "overallUp": "All systems operational",
@@ -844,7 +869,17 @@
     "noMonitors": "No monitor published on this page.",
     "notFound": "Status page not found",
     "private": "This status page is not public.",
-    "updatedAt": "Updated at {time}"
+    "updatedAt": "Updated at {time}",
+    "subscribeTitle": "Get status updates",
+    "subscribeHelp": "We e-mail you when a monitor on this page stays down for {minutes} minutes, and once when it recovers.",
+    "subscribeEmailPlaceholder": "you{'@'}example.com",
+    "subscribeSubmit": "Subscribe",
+    "subscribeSent": "Check your inbox: we sent a link to confirm your subscription.",
+    "subscribePrivacy": "Double opt-in. You can unsubscribe from any e-mail.",
+    "subscribeCaptchaRequired": "Confirm the captcha to subscribe.",
+    "subscribeConfirmed": "Your subscription is confirmed.",
+    "subscribeUnsubscribed": "You will no longer receive these e-mails.",
+    "subscribeLinkInvalid": "This subscription link is invalid or has expired."
   },
   "boot": {
     "title": "Up is starting",
@@ -934,7 +969,11 @@
     "ERR_MONITOR_BULK_INVALID": "Invalid bulk request",
     "ERR_MONITOR_CERT_INVALID": "Invalid certificate configuration",
     "ERR_MONITOR_DOMAIN_INVALID": "Invalid domain expiration configuration",
-    "ERR_MONITOR_LIGHTHOUSE_INVALID": "Invalid web performance configuration"
+    "ERR_MONITOR_LIGHTHOUSE_INVALID": "Invalid web performance configuration",
+    "ERR_SUBSCRIPTION_DISABLED": "Subscriptions are not available on this status page",
+    "ERR_SUBSCRIPTION_TOKEN_INVALID": "This subscription link is invalid or has expired",
+    "ERR_SUBSCRIPTION_EMAIL_INVALID": "Enter a valid e-mail address",
+    "ERR_SUBSCRIPTION_SEND_FAILED": "The confirmation e-mail could not be sent, please try again later"
   },
   "lighthouse": {
     "title": "Web performance",

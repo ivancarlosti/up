@@ -69,6 +69,16 @@ export const coreApi = {
       recaptcha_token: recaptchaToken ?? '',
     }),
   logout: () => post<void>('/api/auth/logout'),
+  /**
+   * subscribeStatusPage starts the double opt-in of an address. The server
+   * answers the same way for a new, a pending and an existing subscription;
+   * the confirmation link decides whether the address becomes active.
+   */
+  subscribeStatusPage: (slug: string, payload: { email: string; locale: string; recaptcha_token?: string }) =>
+    post<{ ok: boolean }>(`/api/public/status/${encodeURIComponent(slug)}/subscribe`, {
+      ...payload,
+      recaptcha_token: payload.recaptcha_token ?? '',
+    }),
   oidcLoginURL: (redirect = '/') => buildURL('/api/auth/oidc/login', { redirect }),
   /**
    * oidcLogoutURL clears the local session and then hands the browser over to

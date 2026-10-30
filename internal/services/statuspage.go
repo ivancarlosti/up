@@ -27,6 +27,9 @@ type StatusPageService struct {
 	monitors *MonitorService
 	// emit publishes the local writes to the peers (nil outside federated mode).
 	emit *SyncEmitter
+	// subscriptions reports whether a page can offer the opt-in form. It is
+	// optional so a status page service can be built without the mail feature.
+	subscriptions *StatusPageSubscriptionService
 }
 
 // NewStatusPageService builds the status page service.
@@ -40,6 +43,12 @@ func (s *StatusPageService) SetMonitorService(m *MonitorService) { s.monitors = 
 
 // SetSyncEmitter injects the publisher of the synchronisation outbox.
 func (s *StatusPageService) SetSyncEmitter(emitter *SyncEmitter) { s.emit = emitter }
+
+// SetSubscriptionService injects the subscription service, which knows whether
+// the public form can actually work (switched on + active SMTP channel).
+func (s *StatusPageService) SetSubscriptionService(subscriptions *StatusPageSubscriptionService) {
+	s.subscriptions = subscriptions
+}
 
 // publishStatusPage records the page in the outbox, inside the caller's
 // transaction. The payload carries the whole selection, order and overrides
@@ -178,6 +187,9 @@ func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage,
 	if err := s.normalize(page); err != nil {
 		return err
 	}
+	if err := s.validateSubscription(ctx, page); err != nil {
+		return err
+	}
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&models.StatusPage{}).Where("slug = ?", page.Slug).Count(&count).Error; err != nil {
 		return ErrInternal(err)
@@ -210,6 +222,9 @@ func (s *StatusPageService) Update(ctx context.Context, page *models.StatusPage)
 	if err := s.normalize(page); err != nil {
 		return err
 	}
+	if err := s.validateSubscription(ctx, page); err != nil {
+		return err
+	}
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&models.StatusPage{}).
 		Where("slug = ? AND id <> ?", page.Slug, page.ID).Count(&count).Error; err != nil {
@@ -233,6 +248,10 @@ func (s *StatusPageService) Update(ctx context.Context, page *models.StatusPage)
 			"show_cert_expiry":   page.ShowCertExpiry,
 			"show_domain_expiry": page.ShowDomainExpiry,
 			"custom_css":         page.CustomCSS,
+
+			"subscription_enabled":       page.SubscriptionEnabled,
+			"subscription_smtp_uuid":     page.SubscriptionSMTPUUID,
+			"subscription_delay_minutes": page.SubscriptionDelayMinutes,
 			// Every edit advances the revision: it is the primary component of the
 			// merge order (see the group update).
 			"revision":   gorm.Expr("revision + 1"),
@@ -256,6 +275,43 @@ func (s *StatusPageService) Update(ctx context.Context, page *models.StatusPage)
 	return nil
 }
 
+// tombstoneStatusPageSubscribers publishes the removal of every subscription of a
+// page and removes the local rows. The uuids are read first: once the rows are
+// gone the tombstones cannot name them.
+func (s *StatusPageService) tombstoneStatusPageSubscribers(ctx context.Context, tx *gorm.DB, pageID uint) error {
+	if s.emit != nil {
+		var subscribers []models.StatusPageSubscriber
+		if err := tx.WithContext(ctx).Select("uuid").Where("status_page_id = ?", pageID).Find(&subscribers).Error; err != nil {
+			return fmt.Errorf("reading the subscribers of status page %d: %w", pageID, err)
+		}
+		for _, subscriber := range subscribers {
+			if subscriber.UUID == "" {
+				continue
+			}
+			if err := s.emit.EmitDelete(ctx, tx, models.EntityStatusPageSubscriber, subscriber.UUID); err != nil {
+				return err
+			}
+		}
+	}
+	return deleteStatusPageSubscriptionData(tx, pageID)
+}
+
+// deleteStatusPageSubscriptionData removes the local subscription rows of a page.
+// The subscribers themselves are tombstoned by the caller on the local path; the
+// apply path calls this directly because a receiver must never re-publish.
+func deleteStatusPageSubscriptionData(tx *gorm.DB, pageID uint) error {
+	for _, model := range []any{
+		&models.SubscriptionNotice{},
+		&models.SubscriptionIncident{},
+		&models.StatusPageSubscriber{},
+	} {
+		if err := tx.Where("status_page_id = ?", pageID).Delete(model).Error; err != nil {
+			return fmt.Errorf("removing the subscription data of status page %d: %w", pageID, err)
+		}
+	}
+	return nil
+}
+
 // Delete removes a status page and its monitor selection.
 func (s *StatusPageService) Delete(ctx context.Context, id uint) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -263,6 +319,9 @@ func (s *StatusPageService) Delete(ctx context.Context, id uint) error {
 		// cannot be read any more, and the tombstone has to name it.
 		uuid, err := s.statusPageUUID(ctx, tx, id)
 		if err != nil {
+			return err
+		}
+		if err := s.tombstoneStatusPageSubscribers(ctx, tx, id); err != nil {
 			return err
 		}
 		if err := tx.Where("status_page_id = ?", id).Delete(&models.StatusPageMonitor{}).Error; err != nil {
@@ -301,6 +360,34 @@ func (s *StatusPageService) normalize(page *models.StatusPage) error {
 	// a period the UI can label.
 	if page.UptimeWindowHours != 0 {
 		page.UptimeWindowHours = models.NormalizeUptimeWindowHours(page.UptimeWindowHours)
+	}
+	page.SubscriptionSMTPUUID = strings.TrimSpace(page.SubscriptionSMTPUUID)
+	page.SubscriptionDelayMinutes = models.NormalizeSubscriptionDelayMinutes(page.SubscriptionDelayMinutes)
+	return nil
+}
+
+// validateSubscription checks that an enabled page names a real SMTP channel.
+//
+// It runs on the admin write path only. A page received from a peer is written
+// as it is: the channel may still be on its way, and the public form stays
+// hidden until it exists (see SubscriptionService.PublicAvailability).
+func (s *StatusPageService) validateSubscription(ctx context.Context, page *models.StatusPage) error {
+	if !page.SubscriptionEnabled {
+		return nil
+	}
+	if page.SubscriptionSMTPUUID == "" {
+		return ErrBadRequest(i18n.CodeValidation, "an smtp channel is required to enable subscriptions")
+	}
+	var notification models.Notification
+	err := s.db.WithContext(ctx).Where("uuid = ?", page.SubscriptionSMTPUUID).First(&notification).Error
+	if err == gorm.ErrRecordNotFound {
+		return ErrBadRequest(i18n.CodeValidation, "the configured smtp channel does not exist")
+	}
+	if err != nil {
+		return ErrInternal(err)
+	}
+	if notification.Type != models.NotificationSMTP {
+		return ErrBadRequest(i18n.CodeValidation, "the configured subscription channel is not an smtp channel")
 	}
 	return nil
 }

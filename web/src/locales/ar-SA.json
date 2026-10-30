@@ -60,7 +60,9 @@
     "timeout": "المهلة",
     "seconds": "ثوانٍ",
     "hours": "ساعات",
-    "days": "أيام"
+    "days": "أيام",
+    "previous": "السابق",
+    "next": "التالي"
   },
   "nav": {
     "dashboard": "لوحة التحكم",
@@ -661,7 +663,29 @@
     "deleteWarning": "تتوقف الصفحة العامة عن الاستجابة فورًا.",
     "uptimeWindow": "فترة التشغيل",
     "uptimeWindowHelp": "الفترة التي تعرضها هذه الصفحة لنسبة التشغيل وأشرطة النبضات.",
-    "uptimeWindowInherit": "استخدام الفترة العامة"
+    "uptimeWindowInherit": "استخدام الفترة العامة",
+    "subscriptionTitle": "اشتراكات البريد",
+    "subscriptionHelp": "رسائل الحوادث لزوار هذه الصفحة.",
+    "subscriptionEnabled": "تمكين الاشتراكات",
+    "subscriptionChannel": "قناة SMTP",
+    "subscriptionChannelNone": "اختر قناة",
+    "subscriptionChannelHelp": "قنوات SMTP فقط يمكنها إرسال رسائل الاشتراك. يجب أن تكون القناة موجودة على كل عقدة في العنقود.",
+    "subscriptionNoChannels": "أنشئ قناة SMTP نشطة في الإشعارات أولًا.",
+    "subscriptionDelay": "تأخير التوقف (دقائق)",
+    "subscriptionDelayHelp": "مدة بقاء المراقب متوقفًا قبل إرسال أول بريد. من 5 إلى 1440 دقيقة بخطوات 5.",
+    "subscribers": "المشتركون",
+    "subscribersTitle": "مشتركو {page}",
+    "subscribersHelp": "العناوين التي وافقت على رسائل الحوادث لهذه الصفحة. تُحفظ السجلات الملغاة للحفاظ على السجل.",
+    "subscriberSearch": "تصفية بالبريد",
+    "subscriberCount": "{total} مشترك",
+    "subscriberEmpty": "لا يوجد مشتركون بعد.",
+    "subscriberState": "الحالة",
+    "subscriberLocale": "اللغة",
+    "subscriberCreated": "تاريخ الاشتراك",
+    "subscriberConfirmed": "مؤكد",
+    "subscriberPending": "بانتظار التأكيد",
+    "subscriberUnsubscribed": "ملغى",
+    "subscriberPage": "الصفحة {page} من {pages}"
   },
   "security": {
     "title": "الأمان",
@@ -831,7 +855,8 @@
     "withKeycloak": "تسجيل الدخول عبر Keycloak",
     "captchaHint": "أكّد رمز التحقق للمتابعة",
     "noneHint": "لوحة التحكم هذه مفتوحة، ولا يلزم تسجيل الدخول.",
-    "goToDashboard": "الانتقال إلى لوحة التحكم"
+    "goToDashboard": "الانتقال إلى لوحة التحكم",
+    "captchaUnavailable": "تعذر تحميل الاختبار الأمني. حدّث الصفحة وحاول مرة أخرى."
   },
   "publicStatus": {
     "overallUp": "جميع الأنظمة تعمل",
@@ -844,7 +869,17 @@
     "noMonitors": "لا توجد مراقبة منشورة على هذه الصفحة.",
     "notFound": "صفحة الحالة غير موجودة",
     "private": "صفحة الحالة هذه ليست عامة.",
-    "updatedAt": "حُدِّث في {time}"
+    "updatedAt": "حُدِّث في {time}",
+    "subscribeTitle": "احصل على تحديثات الحالة",
+    "subscribeHelp": "نرسل لك بريدًا عندما يبقى أحد المراقبات في هذه الصفحة متوقفًا لمدة {minutes} دقيقة، ومرة أخرى عند عودته.",
+    "subscribeEmailPlaceholder": "you{'@'}example.com",
+    "subscribeSubmit": "اشترك",
+    "subscribeSent": "تفقد بريدك: أرسلنا رابطًا لتأكيد اشتراكك.",
+    "subscribePrivacy": "تأكيد مزدوج. يمكنك إلغاء الاشتراك من أي رسالة.",
+    "subscribeCaptchaRequired": "أكمل الاختبار الأمني للاشتراك.",
+    "subscribeConfirmed": "تم تأكيد اشتراكك.",
+    "subscribeUnsubscribed": "لن تتلقى هذه الرسائل بعد الآن.",
+    "subscribeLinkInvalid": "رابط الاشتراك غير صالح أو انتهت صلاحيته."
   },
   "boot": {
     "title": "Up قيد التشغيل",
@@ -934,7 +969,11 @@
     "ERR_MONITOR_BULK_INVALID": "طلب جماعي غير صالح",
     "ERR_MONITOR_CERT_INVALID": "إعداد الشهادة غير صالح",
     "ERR_MONITOR_DOMAIN_INVALID": "إعداد انتهاء النطاق غير صالح",
-    "ERR_MONITOR_LIGHTHOUSE_INVALID": "إعداد أداء الويب غير صالح"
+    "ERR_MONITOR_LIGHTHOUSE_INVALID": "إعداد أداء الويب غير صالح",
+    "ERR_SUBSCRIPTION_DISABLED": "الاشتراكات غير متاحة في صفحة الحالة هذه",
+    "ERR_SUBSCRIPTION_TOKEN_INVALID": "رابط الاشتراك غير صالح أو انتهت صلاحيته",
+    "ERR_SUBSCRIPTION_EMAIL_INVALID": "أدخل بريدًا إلكترونيًا صالحًا",
+    "ERR_SUBSCRIPTION_SEND_FAILED": "تعذر إرسال بريد التأكيد، حاول لاحقًا"
   },
   "lighthouse": {
     "title": "أداء الويب",

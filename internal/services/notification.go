@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -229,6 +231,38 @@ func (s *NotificationService) monitorIDs(ctx context.Context, notificationID uin
 		ids = append(ids, link.MonitorID)
 	}
 	return ids, nil
+}
+
+// SendEmailTo delivers one localized e-mail through a channel, to one explicit
+// recipient, without writing a NotificationLog row.
+//
+// It is used by the status page subscriptions: those mails are not monitor
+// alerts, they have no channel/monitor pair to log, and one row per subscriber
+// would turn the delivery history into a copy of the subscriber list.
+func (s *NotificationService) SendEmailTo(ctx context.Context, notificationUUID, recipient, subject string, msg notify.Message) error {
+	uuid := strings.TrimSpace(notificationUUID)
+	if uuid == "" {
+		return errors.New("the smtp channel is not configured")
+	}
+	var notification models.Notification
+	if err := s.db.WithContext(ctx).Where("uuid = ?", uuid).First(&notification).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ErrNotFound(i18n.CodeNotificationNotFound, "the configured smtp channel does not exist")
+		}
+		return ErrInternal(err)
+	}
+	if notification.Type != models.NotificationSMTP || notification.Config.SMTP == nil {
+		return ErrBadRequest(i18n.CodeNotificationConfig, "the configured channel is not an smtp channel")
+	}
+	if !notification.Active {
+		return ErrBadRequest(i18n.CodeNotificationConfig, "the configured smtp channel is disabled")
+	}
+	if err := s.engine.SendSMTPTo(&notification, msg, recipient, subject); err != nil {
+		s.log.Warn("subscription e-mail delivery failed",
+			"notification_id", notification.ID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // PurgeOlderThan deletes the delivery history older than the given time.

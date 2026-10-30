@@ -52,8 +52,24 @@ type StatusPage struct {
 	// CustomCSS is injected in the public page (advanced users only).
 	CustomCSS string `gorm:"type:text" json:"custom_css"`
 
+	// SubscriptionEnabled turns on the opt-in incident mails of the page.
+	SubscriptionEnabled bool `gorm:"not null;default:false" json:"subscription_enabled"`
+	// SubscriptionSMTPUUID names the SMTP channel used for those mails. The uuid,
+	// not the local id: the page is federated, and the node that sends must find
+	// the same channel it received from its peer.
+	SubscriptionSMTPUUID string `gorm:"size:36" json:"subscription_smtp_uuid"`
+	// SubscriptionDelayMinutes is how long a monitor must stay down before the
+	// first mail leaves (see models.NormalizeSubscriptionDelayMinutes).
+	SubscriptionDelayMinutes int `gorm:"not null;default:10" json:"subscription_delay_minutes"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// SubscriptionAvailable reports whether the page can actually accept a
+	// subscription right now: switched on, with an existing active SMTP channel.
+	// The public form is gated on it, so a page never offers a form that would
+	// answer ERR_SUBSCRIPTION_DISABLED.
+	SubscriptionAvailable bool `gorm:"-" json:"subscription_available"`
 
 	// Runtime fields -------------------------------------------------------
 	Monitors      []*Monitor        `gorm:"-" json:"monitors,omitempty"`

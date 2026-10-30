@@ -79,6 +79,7 @@ function blankTelegram(): TelegramConfig {
 function blankChannel(): Notification {
   return {
     id: 0,
+    uuid: '',
     name: '',
     type: 'smtp',
     active: true,

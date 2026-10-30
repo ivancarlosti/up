@@ -60,7 +60,9 @@
     "timeout": "超时",
     "seconds": "秒",
     "hours": "小时",
-    "days": "天"
+    "days": "天",
+    "previous": "上一页",
+    "next": "下一页"
   },
   "nav": {
     "dashboard": "仪表盘",
@@ -661,7 +663,29 @@
     "deleteWarning": "公开页面将立即停止响应。",
     "uptimeWindow": "可用率周期",
     "uptimeWindowHelp": "本页显示可用率和心跳条所用的周期。",
-    "uptimeWindowInherit": "使用全局周期"
+    "uptimeWindowInherit": "使用全局周期",
+    "subscriptionTitle": "邮件订阅",
+    "subscriptionHelp": "为访问者提供故障邮件通知。",
+    "subscriptionEnabled": "启用订阅",
+    "subscriptionChannel": "SMTP 通道",
+    "subscriptionChannelNone": "选择通道",
+    "subscriptionChannelHelp": "只有 SMTP 通道可以发送订阅邮件。集群中的每个节点都必须存在该通道。",
+    "subscriptionNoChannels": "请先在“通知”中创建一个启用的 SMTP 通道。",
+    "subscriptionDelay": "故障延迟（分钟）",
+    "subscriptionDelayHelp": "监控持续故障多久后发送第一封邮件。5 到 1440 分钟，以 5 为步长。",
+    "subscribers": "订阅者",
+    "subscribersTitle": "{page} 的订阅者",
+    "subscribersHelp": "已同意接收此页面故障邮件的邮箱地址。已取消订阅的记录会保留以保留历史。",
+    "subscriberSearch": "按邮箱筛选",
+    "subscriberCount": "{total} 位订阅者",
+    "subscriberEmpty": "暂无订阅者。",
+    "subscriberState": "状态",
+    "subscriberLocale": "语言",
+    "subscriberCreated": "订阅时间",
+    "subscriberConfirmed": "已确认",
+    "subscriberPending": "等待确认",
+    "subscriberUnsubscribed": "已取消",
+    "subscriberPage": "第 {page} 页，共 {pages} 页"
   },
   "security": {
     "title": "安全",
@@ -831,7 +855,8 @@
     "withKeycloak": "使用 Keycloak 登录",
     "captchaHint": "请确认验证码以继续",
     "noneHint": "此仪表盘已开放，无需登录。",
-    "goToDashboard": "前往仪表盘"
+    "goToDashboard": "前往仪表盘",
+    "captchaUnavailable": "验证码加载失败，请刷新页面后重试。"
   },
   "publicStatus": {
     "overallUp": "所有系统运行正常",
@@ -844,7 +869,17 @@
     "noMonitors": "此页面未发布任何监控项。",
     "notFound": "找不到状态页面",
     "private": "此状态页面不是公开的。",
-    "updatedAt": "更新于 {time}"
+    "updatedAt": "更新于 {time}",
+    "subscribeTitle": "获取状态更新",
+    "subscribeHelp": "当此页面上的监控持续故障 {minutes} 分钟时，我们会发送邮件；恢复时再发送一次。",
+    "subscribeEmailPlaceholder": "you{'@'}example.com",
+    "subscribeSubmit": "订阅",
+    "subscribeSent": "请查收邮箱：我们已发送确认订阅的链接。",
+    "subscribePrivacy": "双重确认。您可以在任何一封邮件中取消订阅。",
+    "subscribeCaptchaRequired": "请先完成验证码。",
+    "subscribeConfirmed": "您的订阅已确认。",
+    "subscribeUnsubscribed": "您将不再收到这些邮件。",
+    "subscribeLinkInvalid": "此订阅链接无效或已过期。"
   },
   "boot": {
     "title": "Up 正在启动",
@@ -934,7 +969,11 @@
     "ERR_MONITOR_BULK_INVALID": "批量请求无效",
     "ERR_MONITOR_CERT_INVALID": "证书配置无效",
     "ERR_MONITOR_DOMAIN_INVALID": "域名过期配置无效",
-    "ERR_MONITOR_LIGHTHOUSE_INVALID": "网页性能配置无效"
+    "ERR_MONITOR_LIGHTHOUSE_INVALID": "网页性能配置无效",
+    "ERR_SUBSCRIPTION_DISABLED": "此状态页面不提供订阅",
+    "ERR_SUBSCRIPTION_TOKEN_INVALID": "此订阅链接无效或已过期",
+    "ERR_SUBSCRIPTION_EMAIL_INVALID": "请输入有效的邮箱地址",
+    "ERR_SUBSCRIPTION_SEND_FAILED": "确认邮件发送失败，请稍后重试"
   },
   "lighthouse": {
     "title": "网页性能",

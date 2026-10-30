@@ -135,9 +135,41 @@ type StatusPagePayload struct {
 	ShowCertExpiry   bool   `json:"show_cert_expiry"`
 	ShowDomainExpiry bool   `json:"show_domain_expiry"`
 	CustomCSS        string `json:"custom_css"`
+	// The subscription switches are additive fields: a peer that predates them
+	// ignores them and keeps offering no form, which is the safe direction.
+	SubscriptionEnabled      bool   `json:"subscription_enabled"`
+	SubscriptionSMTPUUID     string `json:"subscription_smtp_uuid"`
+	SubscriptionDelayMinutes int    `json:"subscription_delay_minutes"`
 
 	Monitors []StatusPageItemPayload  `json:"monitors"`
 	Groups   []StatusPageGroupPayload `json:"groups"`
+}
+
+// StatusPageSubscriberPayload is one opt-in subscription on the wire.
+//
+// It carries the token HASHES and never the tokens themselves: a confirmation
+// token is single-use and only its hash is stored, while the unsubscribe token is
+// derived from the page identity and the shared cluster key, so a peer can rebuild
+// the link without receiving a bearer secret in the payload.
+type StatusPageSubscriberPayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	StatusPageUUID string `json:"status_page_uuid"`
+	Email          string `json:"email"`
+	Locale         string `json:"locale"`
+
+	ConfirmedAt        *time.Time `json:"confirmed_at"`
+	UnsubscribedAt     *time.Time `json:"unsubscribed_at"`
+	ConfirmationSentAt *time.Time `json:"confirmation_sent_at"`
+
+	ConfirmTokenHash      string     `json:"confirm_token_hash"`
+	ConfirmTokenExpiresAt *time.Time `json:"confirm_token_expires_at"`
+	UnsubscribeTokenHash  string     `json:"unsubscribe_token_hash"`
+
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // StatusPageItemPayload is one monitor of a page's selection, WITH its display
@@ -327,6 +359,7 @@ func SyncedEntities() []string {
 		EntityMonitorGroupMember,
 		EntityMonitorTemplate,
 		EntityStatusPage,
+		EntityStatusPageSubscriber,
 		EntityNotification,
 		EntityMonitorNotification,
 	}

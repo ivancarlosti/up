@@ -25,6 +25,11 @@ import (
 //     (`show_cert_expiry` and `show_domain_expiry`) instead of a single
 //     `show_expiry`. A version 2 receiver cannot read either of them, so it
 //     would keep its own `show_expiry` and publish a badge the origin hides.
+//
+// Additive entities do NOT bump the version: `status_page_subscriber` and the
+// subscription fields of a page are ignored by an older peer, which keeps its
+// own rows. The manifest pass skips an entity the peer does not list, so the two
+// versions coexist without resynchronising an empty entity forever.
 const ProtocolVersion = 3
 
 // Peer status values stored in SyncPeer.Status.
@@ -110,6 +115,12 @@ const (
 	// own entity with a deterministic identity (LinkEntityUUID).
 	EntityMonitorGroupMember  = "monitor_group_member"
 	EntityMonitorNotification = "monitor_notification"
+	// EntityStatusPageSubscriber carries the opt-in subscriptions of a page. It
+	// is a normal federated entity, so any node can confirm or unsubscribe a
+	// link and the node that owns the mail duty always has the row. Its payload
+	// carries an e-mail address, which makes the peer transport a PII channel
+	// (docs/clustering-modes.md).
+	EntityStatusPageSubscriber = "status_page_subscriber"
 )
 
 // linkNamespace is the fixed namespace of the relation identifiers. Every node

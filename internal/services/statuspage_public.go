@@ -105,6 +105,12 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 		page.Monitors = []*models.Monitor{}
 		page.Groups = []models.StatusPageGroup{}
 		page.OverallStatus = models.AggregateUnknown
+		if s.subscriptions != nil {
+			page.SubscriptionAvailable = page.IsPublic && s.subscriptions.PublicAvailability(ctx, page)
+			// The public payload never names the SMTP channel: it is internal
+			// configuration, and only the boolean above is the visitor's business.
+			page.SubscriptionSMTPUUID = ""
+		}
 		return page, nil
 	}
 
@@ -183,6 +189,12 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 		}
 	}
 	page.OverallStatus = overallStatus(ordered)
+	if s.subscriptions != nil {
+		page.SubscriptionAvailable = page.IsPublic && s.subscriptions.PublicAvailability(ctx, page)
+		// The public payload never names the SMTP channel (see the empty-selection
+		// branch above).
+		page.SubscriptionSMTPUUID = ""
+	}
 	return page, nil
 }
 

@@ -60,7 +60,9 @@
     "timeout": "Timeout",
     "seconds": "segundos",
     "hours": "horas",
-    "days": "dias"
+    "days": "dias",
+    "previous": "Anterior",
+    "next": "Próxima"
   },
   "nav": {
     "dashboard": "Painel",
@@ -661,7 +663,29 @@
     "deleteWarning": "A página pública deixará de responder imediatamente.",
     "uptimeWindow": "Período de disponibilidade",
     "uptimeWindowHelp": "O período que esta página mostra para a disponibilidade e as barras de batimentos.",
-    "uptimeWindowInherit": "Usar o período global"
+    "uptimeWindowInherit": "Usar o período global",
+    "subscriptionTitle": "Assinaturas por e-mail",
+    "subscriptionHelp": "E-mails de incidentes para os visitantes desta página.",
+    "subscriptionEnabled": "Ativar assinaturas",
+    "subscriptionChannel": "Canal SMTP",
+    "subscriptionChannelNone": "Selecione um canal",
+    "subscriptionChannelHelp": "Somente canais SMTP podem enviar as mensagens de assinatura. O canal precisa existir em todos os nós do cluster.",
+    "subscriptionNoChannels": "Crie um canal SMTP ativo em Notificações primeiro.",
+    "subscriptionDelay": "Atraso de indisponibilidade (minutos)",
+    "subscriptionDelayHelp": "Quanto tempo um monitor precisa ficar fora do ar antes do primeiro e-mail. De 5 a 1440 minutos, em passos de 5.",
+    "subscribers": "Assinantes",
+    "subscribersTitle": "Assinantes de {page}",
+    "subscribersHelp": "Os endereços que aceitaram receber os e-mails de incidentes desta página. As linhas canceladas são mantidas para preservar o histórico.",
+    "subscriberSearch": "Filtrar por e-mail",
+    "subscriberCount": "{total} assinante(s)",
+    "subscriberEmpty": "Nenhum assinante ainda.",
+    "subscriberState": "Estado",
+    "subscriberLocale": "Idioma",
+    "subscriberCreated": "Assinou em",
+    "subscriberConfirmed": "Confirmado",
+    "subscriberPending": "Aguardando confirmação",
+    "subscriberUnsubscribed": "Cancelado",
+    "subscriberPage": "Página {page} de {pages}"
   },
   "security": {
     "title": "Segurança",
@@ -831,7 +855,8 @@
     "withKeycloak": "Entrar com Keycloak",
     "captchaHint": "Confirme o captcha para continuar",
     "noneHint": "Este painel está aberto, sem necessidade de login.",
-    "goToDashboard": "Ir para o painel"
+    "goToDashboard": "Ir para o painel",
+    "captchaUnavailable": "Não foi possível carregar o captcha. Atualize a página e tente novamente."
   },
   "publicStatus": {
     "overallUp": "Todos os sistemas operantes",
@@ -844,7 +869,17 @@
     "noMonitors": "Nenhum monitor publicado nesta página.",
     "notFound": "Página de status não encontrada",
     "private": "Esta página de status não é pública.",
-    "updatedAt": "Atualizado em {time}"
+    "updatedAt": "Atualizado em {time}",
+    "subscribeTitle": "Receba atualizações de status",
+    "subscribeHelp": "Enviamos um e-mail quando um monitor desta página fica fora do ar por {minutes} minutos e outro quando ele volta.",
+    "subscribeEmailPlaceholder": "voce{'@'}exemplo.com",
+    "subscribeSubmit": "Assinar",
+    "subscribeSent": "Verifique sua caixa de entrada: enviamos um link para confirmar sua assinatura.",
+    "subscribePrivacy": "Confirmação em duas etapas. Você pode cancelar em qualquer e-mail.",
+    "subscribeCaptchaRequired": "Confirme o captcha para assinar.",
+    "subscribeConfirmed": "Sua assinatura foi confirmada.",
+    "subscribeUnsubscribed": "Você não receberá mais estes e-mails.",
+    "subscribeLinkInvalid": "Este link de assinatura é inválido ou expirou."
   },
   "boot": {
     "title": "O Up está iniciando",
@@ -934,7 +969,11 @@
     "ERR_MONITOR_BULK_INVALID": "Requisição em lote inválida",
     "ERR_MONITOR_CERT_INVALID": "Configuração de certificado inválida",
     "ERR_MONITOR_DOMAIN_INVALID": "Configuração de expiração de domínio inválida",
-    "ERR_MONITOR_LIGHTHOUSE_INVALID": "Configuração de desempenho web inválida"
+    "ERR_MONITOR_LIGHTHOUSE_INVALID": "Configuração de desempenho web inválida",
+    "ERR_SUBSCRIPTION_DISABLED": "As assinaturas não estão disponíveis nesta página de status",
+    "ERR_SUBSCRIPTION_TOKEN_INVALID": "Este link de assinatura é inválido ou expirou",
+    "ERR_SUBSCRIPTION_EMAIL_INVALID": "Informe um endereço de e-mail válido",
+    "ERR_SUBSCRIPTION_SEND_FAILED": "Não foi possível enviar o e-mail de confirmação, tente novamente mais tarde"
   },
   "lighthouse": {
     "title": "Desempenho web",

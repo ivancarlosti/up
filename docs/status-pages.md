@@ -11,6 +11,9 @@ own slug, title, theme and footer. It is the shareable surface for end users,
 | `https://up.example.com/status/<slug>` | the page (SPA route, anonymous) |
 | `https://up.example.com/api/public/status/<slug>` | the JSON payload rendered by the page |
 | `https://up.example.com/api/public/status/<slug>/badge.svg` | shields.io style badge |
+| `POST https://up.example.com/api/public/status/<slug>/subscribe` | starts the double opt-in (`email`, `locale`, `recaptcha_token` when enabled) |
+| `GET https://up.example.com/api/public/status/<slug>/confirm?token=…` | confirmation link from the e-mail (302 back to the page) |
+| `GET https://up.example.com/api/public/status/<slug>/unsubscribe?token=…` | unsubscribe link from every e-mail (302 back to the page) |
 
 Example API response:
 
@@ -22,6 +25,8 @@ Example API response:
   "show_uptime": true, "show_charts": true, "show_tags": false,
   "show_cert_expiry": false, "show_domain_expiry": false,
   "uptime_window_hours": 0,
+  "subscription_enabled": false, "subscription_smtp_uuid": "", "subscription_delay_minutes": 10,
+  "subscription_available": false,
   "overall_status": "up", "up_monitors": 4, "down_monitors": 0, "monitors_count": 4,
   "monitors": [
     {
@@ -50,6 +55,9 @@ Example API response:
 | `show_domain_expiry` | publishes the **domain registration** days-left badge (`Domain: 91 days`) of the monitors (default `false`); independent from `show_cert_expiry` |
 | `uptime_window_hours` | period the uptime and the bars cover: `0` inherits the global one (Admin > Settings), otherwise `24`, `168`, `336` (14 d) or `720` (30 d) |
 | `custom_css` | injected into the public page (advanced) |
+| `subscription_enabled` | offers the opt-in incident e-mails to the visitors (default `false`) |
+| `subscription_smtp_uuid` | SMTP channel that sends them, named by uuid so every cluster node finds the same channel |
+| `subscription_delay_minutes` | how long a monitor must stay down before the first mail: `5` to `1440`, multiple of `5`, default `10` |
 | `monitor_ids` order | display order (up to any number of monitors) |
 
 ## 3. Managing pages
@@ -128,17 +136,54 @@ Colours follow the overall status: green (`up`), red (`down`), amber
 - Responses are sent with `Cache-Control: no-store`; put a CDN in front only if
   you accept a stale status.
 
-## 6. Protection
+## 6. E-mail subscriptions
+
+A page can offer visitors an opt-in e-mail subscription. It is off by default and
+needs an **active SMTP channel**; the public form appears only when the payload
+says `subscription_available: true` (switch on + channel present and active).
+
+- **Double opt-in.** `POST /api/public/status/<slug>/subscribe` stores a pending
+  row and mails a confirmation link valid for 7 days. Only a confirmed address
+  receives incident mails. The endpoint answers the same way for a new, a pending
+  and an existing address, so it cannot be used to enumerate subscribers.
+- **One down and one up per incident.** A transition into `down`/`degraded` opens
+  an incident per page+monitor. The down mail is scheduled after
+  `subscription_delay_minutes`; if the monitor recovers first, the down mail is
+  cancelled and only the recovery mail is sent. The unique
+  `(incident, subscriber, kind)` key makes the rule hold under retries and
+  concurrent scheduler passes.
+- **Unsubscribe in every mail.** The link is a signed, deterministic token; the
+  confirmation mail carries it too, so a confirmation message is never a dead
+  end. A re-subscribe after unsubscribing starts a new double opt-in: an old
+  confirmation link cannot reactivate the address.
+- **Retries and election.** The scheduler runs every 30 s; a notice is claimed
+  atomically, retried with exponential backoff (1, 2, 4, 8 minutes, at most five
+  attempts), and only the node elected by the notification sender strategy sends
+  it. Subscribers are a federated entity, so that node always has the row.
+- **Admin.** The page row opens a paginated subscriber listing
+  (`GET /api/status-pages/:id/subscribers`) with confirmed/pending/unsubscribed
+  states; `DELETE /api/status-pages/:id/subscribers/:subscriber_id` removes one
+  address and tombstones it on the peers.
+- **Privacy.** The subscriber e-mail address replicates to every federated peer
+  (docs/clustering-modes.md). Unsubscribed rows are retained so the operator sees
+  who opted out and a later request cannot silently re-enable the address.
+
+The subscribe endpoint has its own **5 requests/minute per IP** budget on top of
+the public page limit. When `RECAPTCHA_CLIENTID`/`RECAPTCHA_CLIENTSECRET` are
+set, the form must include a valid reCAPTCHA token (`ERR_RECAPTCHA_MISSING` /
+`ERR_RECAPTCHA_FAILED`).
+
+## 7. Protection
 
 | Control | How |
 |---|---|
 | Rate limit | `SECURITY_PUBLIC_RATE_LIMIT` (default 240/min per IP) |
 | IP rules | scope `public` in Admin > Security (`docs/security.md`) |
 | Hidden page | `is_public=false` (admins can preview) |
-| No secrets | the public payload exposes no credentials, no configuration and no error details |
+| No secrets | the public payload exposes no credentials and no error details; the subscription SMTP channel is reduced to the `subscription_available` boolean, never its uuid |
 | Expiry is opt-in, one switch per badge | `show_cert_expiry`/`show_domain_expiry` strip the `certificate`/`domain` object they own from the payload (`PublicPayload`), so a page that only asks for the certificate does not publish the domain with it. Both default to `false` because an anonymous page has no reason to advertise how old the domain is |
 
-## 7. Limitations and extensions
+## 8. Limitations and extensions
 
 - No incident timeline/announcements yet: everything shown is derived from the
   heartbeats.

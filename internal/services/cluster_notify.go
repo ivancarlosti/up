@@ -148,6 +148,17 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 		return err
 	}
 
+	// The public status pages watch the same transition. Their incidents are
+	// separate from the alert bookkeeping: a page with no channel still owes its
+	// subscribers a mail, and a page that is not subscribed costs one indexed
+	// lookup here.
+	if (transition || (isDownStatus(status) && (previous == "" || previous == models.AggregateUnknown))) && s.subscriptions != nil {
+		if err := s.subscriptions.ObserveTransition(ctx, monitorID, previous, status, now); err != nil {
+			s.log.Warn("could not update the status page subscription incidents",
+				"monitor_id", monitorID, "from", previous, "to", status, "error", err)
+		}
+	}
+
 	s.publish("monitor.status", map[string]any{
 		"monitor_id": monitor.ID,
 		"status":     status,
@@ -240,6 +251,28 @@ func (s *ClusterService) claimEvent(ctx context.Context, monitorID uint, event m
 	s.log.Debug("notification already dispatched by another node",
 		"monitor_id", monitorID, "event", event, "bucket", bucket)
 	return false, nil
+}
+
+// OwnsMonitorNotification reports whether this node is the one that may send a
+// notification (or a status page subscription mail) for a monitor, using the
+// same election as the alert path.
+//
+// The status page mailer asks this before claiming a notice: a subscriber row is
+// federated, so every node holds it, and without the election every node would
+// mail the same incident.
+func (s *ClusterService) OwnsMonitorNotification(ctx context.Context, monitorID uint) (bool, error) {
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return false, err
+	}
+	owner, err := s.notificationOwner(ctx, monitorID, settings.NotificationSender)
+	if err != nil {
+		return false, err
+	}
+	if owner == "" {
+		return false, nil
+	}
+	return owner == s.cfg.NodeID, nil
 }
 
 // claimEventFederated elects the sender from this node's own view and de-duplicates

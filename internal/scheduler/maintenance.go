@@ -21,6 +21,9 @@ import (
 //   - the web performance job (ticked every minute too, run once a day at its own
 //     configured time): it scores the page of every measuring monitor with the
 //     deduplicated target of each run (see services.LighthouseService).
+//   - the status page subscription mailer (every 30s): it delivers the due down
+//     and recovery mails of the public pages, one elected sender per monitor (see
+//     services.StatusPageSubscriptionService).
 //   - retention (every 6h): heartbeats when HEARTBEAT_RETENTION_DAYS > 0,
 //     notification de-duplication locks always, delivery history when
 //     NOTIFICATION_LOG_RETENTION_DAYS > 0.
@@ -38,6 +41,9 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	// blocks the loop, see the case below.
 	lighthouseTick := time.NewTicker(time.Minute)
 	retention := time.NewTicker(6 * time.Hour)
+	// The subscription mailer runs often: a down mail must leave close to its
+	// configured delay, and a recovery mail is immediate.
+	subscriptionTick := time.NewTicker(30 * time.Second)
 
 	// The pull loop only exists when this node synchronises with peers. A nil
 	// channel blocks forever, which is exactly what "no loop" means inside a
@@ -70,6 +76,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer expiry.Stop()
 		defer lighthouseTick.Stop()
 		defer retention.Stop()
+		defer subscriptionTick.Stop()
 		if pull != nil {
 			defer pull.Stop()
 		}
@@ -172,6 +179,17 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 					go func(moment time.Time) {
 						if err := s.lighthouse.RunDue(ctx, moment); err != nil {
 							s.log.Error("could not run the lighthouse job", "error", err)
+						}
+					}(time.Now().UTC())
+				}
+			case <-subscriptionTick.C:
+				// Same pattern as the lighthouse run: an SMTP server can take
+				// longer than the tick, and a second pass would duplicate work.
+				if s.statusSubscriptions != nil && s.subscriptionRunMu.TryLock() {
+					go func(moment time.Time) {
+						defer s.subscriptionRunMu.Unlock()
+						if err := s.statusSubscriptions.RunDue(ctx, moment); err != nil {
+							s.log.Error("could not run the status page subscription mailer", "error", err)
 						}
 					}(time.Now().UTC())
 				}

@@ -71,6 +71,11 @@ type Message struct {
 	// expiry worklist for a certificate/domain reminder (/admin/expiry). It is
 	// empty when APP_URL is not configured; InstanceURL stays the instance root.
 	DashboardURL string
+	// TextBody and HTMLBody are rendered bodies supplied by the caller. The
+	// status page subscription mails use them to send localized text and HTML;
+	// every other caller leaves both empty and keeps the default rendering.
+	TextBody string
+	HTMLBody string
 }
 
 // SPA routes the notifications link to. They mirror web/src/router/index.ts: the

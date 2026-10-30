@@ -357,6 +357,7 @@ Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
 | `monitor_groups` (+ members) | sync | already has a uuid |
 | `monitor_templates` | sync | already has a uuid |
 | `status_pages` (+ `status_page_monitors`, `status_page_groups`) | sync | referenced monitors/groups resolve by uuid |
+| `status_page_subscribers` | sync | one row per page+address, deterministic uuid; the payload carries **PII** (the e-mail) and the token hashes, so the peers must run over TLS like the channel payload. Incidents and notices stay local (derived state) |
 | `heartbeats` | local | see **D5** |
 | `monitor_states`, `notification_logs`, `monitor_certificates` | local | runtime, derived or node-specific |
 | `monitor_domains`, `whois_parsers` | local | the domain observation is node-specific and the per-TLD rules are operator input, not configuration the peers must agree on (there is no sync entity for either) |
@@ -364,6 +365,15 @@ Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
 | `settings` | opt-in | whitelist only (app name, default locale, default theme); the cluster key is exchanged at join |
 | `session_secret` | opt-in | without it a login is valid on one dashboard only (decision **D4**) |
 | `api_tokens`, `ip_rules`, per-node rate limits | never | security configuration stays a per-node concern |
+
+The status page subscriber is a normal federated entity with a deterministic uuid
+(`StatusPageSubscriberUUID(pageUuid, lower(email))`). Any node may accept a
+subscription, confirm a link or unsubscribe it; the node elected for a monitor's
+notifications is the one that sends its incident mails, and the replicated row is
+what guarantees it has the recipient. The incident and notice tables are local
+because they are derived from the heartbeat stream, and the unique
+`(incident, subscriber, kind)` key makes a shared database converge on one mail per
+incident.
 
 ### 10.1 Which nodes probe a monitor (`run_on`)
 
@@ -472,6 +482,7 @@ Column additions (**phase 0, implemented**):
 
 - `monitors`: `uuid` (unique), `origin_node_id`, `revision`
 - `status_pages`: `uuid` (unique), `origin_node_id`, `revision`
+- `status_page_subscribers`: `uuid` (unique), `origin_node_id`, `revision`
 - `monitor_groups`, `monitor_templates`: `origin_node_id`, `revision` (uuid exists)
 - `monitor_states`, `heartbeats`, `notification_locks`: unchanged
 

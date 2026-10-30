@@ -4,23 +4,49 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import HeartbeatBar from '@/components/monitors/HeartbeatBar.vue'
 import Badge from '@/components/ui/Badge.vue'
+import Button from '@/components/ui/Button.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import Input from '@/components/ui/Input.vue'
+import Recaptcha from '@/components/ui/Recaptcha.vue'
 import LocaleSwitcher from '@/components/layout/LocaleSwitcher.vue'
 import ThemeToggle from '@/components/layout/ThemeToggle.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { certificateTitle, domainTitle, expiryStateVariant } from '@/lib/expiry'
 import { formatDateTime, formatRelative, formatUptime, formatUptimeWindow, statusColor } from '@/lib/format'
+import { useAppStore } from '@/stores/app'
 import type { StatusPage } from '@/lib/types'
 
 const route = useRoute()
 const { t, locale } = useI18n()
+const app = useAppStore()
 
 const page = ref<StatusPage | null>(null)
 const error = ref('')
 const refreshing = ref(false)
 
+const subscribeEmail = ref('')
+const subscribeError = ref('')
+const subscribing = ref(false)
+const subscribed = ref(false)
+const captchaToken = ref('')
+const recaptcha = ref<InstanceType<typeof Recaptcha> | null>(null)
+
 const slug = computed(() => String(route.params.slug ?? ''))
+
+const subscriptionOutcome = computed(() => String(route.query.subscription ?? ''))
+const subscriptionNotice = computed(() => {
+  switch (subscriptionOutcome.value) {
+    case 'confirmed':
+      return { text: t('publicStatus.subscribeConfirmed'), tone: 'success' }
+    case 'unsubscribed':
+      return { text: t('publicStatus.subscribeUnsubscribed'), tone: 'info' }
+    case 'invalid':
+      return { text: t('publicStatus.subscribeLinkInvalid'), tone: 'danger' }
+    default:
+      return null
+  }
+})
 
 const banner = computed(() => {
   switch (page.value?.overall_status) {
@@ -52,6 +78,31 @@ const sections = computed(() => {
     ...(ungrouped.length ? [{ name: '', monitors: ungrouped }] : []),
   ]
 })
+
+async function subscribe(): Promise<void> {
+  subscribeError.value = ''
+  subscribed.value = false
+  if (app.settings?.recaptcha_enabled && !captchaToken.value) {
+    subscribeError.value = t('publicStatus.subscribeCaptchaRequired')
+    return
+  }
+  subscribing.value = true
+  try {
+    await api.subscribeStatusPage(slug.value, {
+      email: subscribeEmail.value,
+      locale: locale.value,
+      recaptcha_token: captchaToken.value,
+    })
+    subscribed.value = true
+    subscribeEmail.value = ''
+    recaptcha.value?.reset()
+  } catch (caught) {
+    subscribeError.value = translateError(caught)
+    recaptcha.value?.reset()
+  } finally {
+    subscribing.value = false
+  }
+}
 
 async function load(): Promise<void> {
   refreshing.value = true
@@ -117,6 +168,50 @@ watch(slug, load)
           {{ t('publicStatus.updatedAt', { time: formatRelative(new Date().toISOString(), locale) }) }}
         </span>
       </div>
+
+      <div
+        v-if="subscriptionNotice"
+        class="rounded-xl border px-4 py-3 text-xs"
+        :class="subscriptionNotice.tone === 'success'
+          ? 'border-status-up/40 bg-status-up/10 text-status-up'
+          : subscriptionNotice.tone === 'danger'
+            ? 'border-destructive/40 bg-destructive/10 text-destructive'
+            : 'border-border bg-muted text-muted-foreground'"
+      >
+        {{ subscriptionNotice.text }}
+      </div>
+
+      <!-- Opt-in incident mails. The form only appears when the page really can
+           send (the backend publishes subscription_available), so a visitor is
+           never offered a subscription the server would refuse. -->
+      <section v-if="page.subscription_available" class="rounded-xl border border-border bg-card px-4 py-4">
+        <h2 class="text-sm font-semibold">{{ t('publicStatus.subscribeTitle') }}</h2>
+        <p class="mt-1 text-xs text-muted-foreground">
+          {{ t('publicStatus.subscribeHelp', { minutes: page.subscription_delay_minutes }) }}
+        </p>
+        <form class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end" @submit.prevent="subscribe">
+          <Input
+            v-model="subscribeEmail"
+            type="email"
+            autocomplete="email"
+            required
+            class="sm:flex-1"
+            :placeholder="t('publicStatus.subscribeEmailPlaceholder')"
+            :aria-label="t('publicStatus.subscribeEmailPlaceholder')"
+          />
+          <Button type="submit" :loading="subscribing">{{ t('publicStatus.subscribeSubmit') }}</Button>
+        </form>
+        <Recaptcha
+          v-if="app.settings?.recaptcha_enabled"
+          ref="recaptcha"
+          v-model="captchaToken"
+          class="mt-3"
+          :sitekey="app.settings?.recaptcha_client_id ?? ''"
+        />
+        <p v-if="subscribed" class="mt-2 text-xs text-status-up">{{ t('publicStatus.subscribeSent') }}</p>
+        <p v-if="subscribeError" class="mt-2 text-xs text-destructive">{{ subscribeError }}</p>
+        <p class="mt-2 text-[11px] text-muted-foreground">{{ t('publicStatus.subscribePrivacy') }}</p>
+      </section>
 
       <EmptyState v-if="!page.monitors?.length" :title="t('publicStatus.noMonitors')" />
 

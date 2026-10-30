@@ -60,7 +60,9 @@
     "timeout": "समय-सीमा",
     "seconds": "सेकंड",
     "hours": "घंटे",
-    "days": "दिन"
+    "days": "दिन",
+    "previous": "पिछला",
+    "next": "अगला"
   },
   "nav": {
     "dashboard": "डैशबोर्ड",
@@ -661,7 +663,29 @@
     "deleteWarning": "सार्वजनिक पृष्ठ तुरंत प्रतिक्रिया देना बंद कर देगा।",
     "uptimeWindow": "अपटाइम अवधि",
     "uptimeWindowHelp": "यह पृष्ठ अपटाइम और हार्टबीट बार के लिए जिस अवधि को दिखाता है।",
-    "uptimeWindowInherit": "वैश्विक अवधि उपयोग करें"
+    "uptimeWindowInherit": "वैश्विक अवधि उपयोग करें",
+    "subscriptionTitle": "ई-मेल सदस्यताएँ",
+    "subscriptionHelp": "इस पृष्ठ के आगंतुकों के लिए घटना ई-मेल।",
+    "subscriptionEnabled": "सदस्यताएँ सक्षम करें",
+    "subscriptionChannel": "SMTP चैनल",
+    "subscriptionChannelNone": "चैनल चुनें",
+    "subscriptionChannelHelp": "केवल SMTP चैनल सदस्यता ई-मेल भेज सकते हैं। यह चैनल क्लस्टर के हर नोड पर मौजूद होना चाहिए।",
+    "subscriptionNoChannels": "पहले सूचनाओं में एक सक्रिय SMTP चैनल बनाएँ।",
+    "subscriptionDelay": "डाउनटाइम देरी (मिनट)",
+    "subscriptionDelayHelp": "पहला ई-मेल भेजने से पहले मॉनिटर कितनी देर डाउन रहे। 5 से 1440 मिनट, 5 के चरणों में।",
+    "subscribers": "सदस्य",
+    "subscribersTitle": "{page} के सदस्य",
+    "subscribersHelp": "वे पते जिन्होंने इस पृष्ठ के घटना ई-मेल स्वीकार किए। इतिहास बनाए रखने के लिए अनसब्सक्राइब किए गए रिकॉर्ड रखे जाते हैं।",
+    "subscriberSearch": "ई-मेल से फ़िल्टर करें",
+    "subscriberCount": "{total} सदस्य",
+    "subscriberEmpty": "अभी कोई सदस्य नहीं।",
+    "subscriberState": "स्थिति",
+    "subscriberLocale": "भाषा",
+    "subscriberCreated": "सदस्यता ली",
+    "subscriberConfirmed": "पुष्टि हुई",
+    "subscriberPending": "पुष्टि बाकी",
+    "subscriberUnsubscribed": "सदस्यता समाप्त",
+    "subscriberPage": "पृष्ठ {page} / {pages}"
   },
   "security": {
     "title": "सुरक्षा",
@@ -831,7 +855,8 @@
     "withKeycloak": "Keycloak से साइन इन करें",
     "captchaHint": "जारी रखने के लिए कैप्चा की पुष्टि करें",
     "noneHint": "यह डैशबोर्ड खुला है, लॉगिन आवश्यक नहीं।",
-    "goToDashboard": "डैशबोर्ड पर जाएँ"
+    "goToDashboard": "डैशबोर्ड पर जाएँ",
+    "captchaUnavailable": "कैप्चा लोड नहीं हो सका। पृष्ठ रीफ़्रेश करके फिर से प्रयास करें।"
   },
   "publicStatus": {
     "overallUp": "सभी सिस्टम कार्यरत हैं",
@@ -844,7 +869,17 @@
     "noMonitors": "इस पृष्ठ पर कोई मॉनिटर प्रकाशित नहीं है।",
     "notFound": "स्थिति पृष्ठ नहीं मिला",
     "private": "यह स्थिति पृष्ठ सार्वजनिक नहीं है।",
-    "updatedAt": "{time} पर अपडेट किया गया"
+    "updatedAt": "{time} पर अपडेट किया गया",
+    "subscribeTitle": "स्थिति अपडेट प्राप्त करें",
+    "subscribeHelp": "जब इस पृष्ठ का कोई मॉनिटर {minutes} मिनट तक डाउन रहता है तो हम ई-मेल भेजते हैं, और ठीक होने पर एक बार फिर।",
+    "subscribeEmailPlaceholder": "you{'@'}example.com",
+    "subscribeSubmit": "सदस्यता लें",
+    "subscribeSent": "अपना इनबॉक्स देखें: सदस्यता की पुष्टि के लिए हमने लिंक भेजा है।",
+    "subscribePrivacy": "डबल ऑप्ट-इन। आप किसी भी ई-मेल से सदस्यता समाप्त कर सकते हैं।",
+    "subscribeCaptchaRequired": "सदस्यता के लिए कैप्चा पूरा करें।",
+    "subscribeConfirmed": "आपकी सदस्यता की पुष्टि हो गई।",
+    "subscribeUnsubscribed": "अब आपको ये ई-मेल नहीं मिलेंगे।",
+    "subscribeLinkInvalid": "यह सदस्यता लिंक अमान्य है या समाप्त हो गया है।"
   },
   "boot": {
     "title": "Up प्रारंभ हो रहा है",
@@ -934,7 +969,11 @@
     "ERR_MONITOR_BULK_INVALID": "अमान्य थोक अनुरोध",
     "ERR_MONITOR_CERT_INVALID": "अमान्य प्रमाणपत्र कॉन्फ़िगरेशन",
     "ERR_MONITOR_DOMAIN_INVALID": "अमान्य डोमेन समाप्ति कॉन्फ़िगरेशन",
-    "ERR_MONITOR_LIGHTHOUSE_INVALID": "वेब प्रदर्शन कॉन्फ़िगरेशन अमान्य"
+    "ERR_MONITOR_LIGHTHOUSE_INVALID": "वेब प्रदर्शन कॉन्फ़िगरेशन अमान्य",
+    "ERR_SUBSCRIPTION_DISABLED": "इस स्थिति पृष्ठ पर सदस्यता उपलब्ध नहीं है",
+    "ERR_SUBSCRIPTION_TOKEN_INVALID": "यह सदस्यता लिंक अमान्य है या समाप्त हो गया है",
+    "ERR_SUBSCRIPTION_EMAIL_INVALID": "मान्य ई-मेल पता दर्ज करें",
+    "ERR_SUBSCRIPTION_SEND_FAILED": "पुष्टि ई-मेल नहीं भेजा जा सका, बाद में प्रयास करें"
   },
   "lighthouse": {
     "title": "वेब प्रदर्शन",

@@ -228,6 +228,8 @@ func (s *SyncService) applyEntity(ctx context.Context, tx *gorm.DB, change model
 		return s.applyTemplate(ctx, tx, change)
 	case models.EntityStatusPage:
 		return s.applyStatusPage(ctx, tx, change)
+	case models.EntityStatusPageSubscriber:
+		return s.applyStatusPageSubscriber(ctx, tx, change)
 	case models.EntityNotification:
 		return s.applyNotification(ctx, tx, change)
 	case models.EntityMonitorGroupMember, models.EntityMonitorNotification:
@@ -736,6 +738,8 @@ func pendingLinkTarget(entity, kind string) string {
 		return models.EntityMonitor
 	case "group_uuids":
 		return models.EntityMonitorGroup
+	case "status_page_uuid":
+		return models.EntityStatusPage
 	case "notification_uuids":
 		return models.EntityNotification
 	case "target":

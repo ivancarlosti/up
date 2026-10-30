@@ -8,6 +8,7 @@ import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
+import Recaptcha from '@/components/ui/Recaptcha.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { useAppStore } from '@/stores/app'
@@ -20,6 +21,7 @@ const { t } = useI18n()
 const email = ref('')
 const password = ref('')
 const captchaToken = ref('')
+const recaptcha = ref<InstanceType<typeof Recaptcha> | null>(null)
 const error = ref('')
 const loading = ref(false)
 
@@ -42,6 +44,7 @@ async function submit(): Promise<void> {
     await router.push(redirect)
   } catch (caught) {
     error.value = translateError(caught)
+    recaptcha.value?.reset()
   } finally {
     loading.value = false
   }
@@ -76,12 +79,7 @@ function signInWithKeycloak(): void {
 
         <div v-if="app.session?.recaptcha_enabled" class="grid gap-1">
           <Label>{{ t('login.captchaHint') }}</Label>
-          <div
-            class="g-recaptcha"
-            :data-sitekey="app.session?.recaptcha_client_id"
-            data-callback="__upCaptcha"
-          />
-          <Input v-model="captchaToken" :placeholder="t('login.captchaHint')" />
+          <Recaptcha ref="recaptcha" v-model="captchaToken" :sitekey="app.session?.recaptcha_client_id ?? ''" />
         </div>
 
         <Button type="submit" :loading="loading">

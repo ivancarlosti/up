@@ -89,6 +89,11 @@ const (
 	CodeStatusPageNotFound = "ERR_STATUS_PAGE_NOT_FOUND"
 	CodeStatusPageHidden   = "ERR_STATUS_PAGE_NOT_PUBLIC"
 	CodeSlugTaken          = "ERR_STATUS_PAGE_SLUG_TAKEN"
+	// Status page e-mail subscriptions
+	CodeSubscriptionDisabled   = "ERR_SUBSCRIPTION_DISABLED"
+	CodeSubscriptionToken      = "ERR_SUBSCRIPTION_TOKEN_INVALID"
+	CodeSubscriptionEmail      = "ERR_SUBSCRIPTION_EMAIL_INVALID"
+	CodeSubscriptionSendFailed = "ERR_SUBSCRIPTION_SEND_FAILED"
 )
 
 // AllCodes lists every code, which keeps the locale files in sync: the parity
@@ -114,5 +119,7 @@ func AllCodes() []string {
 		CodeIPBlocked, CodeIPRuleInvalid, CodeTokenRequired, CodeTokenInvalid, CodeTokenExpired,
 		CodeTokenScope,
 		CodeStatusPageNotFound, CodeStatusPageHidden, CodeSlugTaken,
+		CodeSubscriptionDisabled, CodeSubscriptionToken, CodeSubscriptionEmail,
+		CodeSubscriptionSendFailed,
 	}
 }

@@ -156,6 +156,9 @@ func MigrationModels() []any {
 		&models.StatusPage{},
 		&models.StatusPageMonitor{},
 		&models.StatusPageGroupLink{},
+		&models.StatusPageSubscriber{},
+		&models.SubscriptionIncident{},
+		&models.SubscriptionNotice{},
 		&models.APIToken{},
 		&models.IPRule{},
 	}

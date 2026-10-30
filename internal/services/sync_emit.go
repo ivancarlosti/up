@@ -174,6 +174,10 @@ func BuildStatusPagePayload(p *models.StatusPage, items []models.StatusPageItemP
 		ShowDomainExpiry: p.ShowDomainExpiry,
 		CustomCSS:        p.CustomCSS,
 
+		SubscriptionEnabled:      p.SubscriptionEnabled,
+		SubscriptionSMTPUUID:     p.SubscriptionSMTPUUID,
+		SubscriptionDelayMinutes: p.SubscriptionDelayMinutes,
+
 		Monitors: orEmptySlice(items),
 		Groups:   orEmptySlice(groups),
 	})
@@ -197,6 +201,31 @@ func BuildNotificationPayload(n *models.Notification) ([]byte, error) {
 }
 
 // orEmpty keeps the JSON shape stable: an absent list and an empty list mean the
+// BuildStatusPageSubscriberPayload renders one subscription for the wire. The
+// page is named by uuid, never by local id, and the tokens travel as hashes.
+func BuildStatusPageSubscriberPayload(s *models.StatusPageSubscriber, pageUUID string) ([]byte, error) {
+	return json.Marshal(models.StatusPageSubscriberPayload{
+		UUID:         s.UUID,
+		OriginNodeID: s.OriginNodeID,
+		Revision:     s.Revision,
+		UpdatedAt:    s.UpdatedAt,
+
+		StatusPageUUID: pageUUID,
+		Email:          s.Email,
+		Locale:         s.Locale,
+
+		ConfirmedAt:        s.ConfirmedAt,
+		UnsubscribedAt:     s.UnsubscribedAt,
+		ConfirmationSentAt: s.ConfirmationSentAt,
+
+		ConfirmTokenHash:      s.ConfirmTokenHash,
+		ConfirmTokenExpiresAt: s.ConfirmTokenExpiresAt,
+		UnsubscribeTokenHash:  s.UnsubscribeTokenHash,
+
+		CreatedAt: s.CreatedAt,
+	})
+}
+
 // same thing (no links), so an always-present array avoids a receiver having to
 // distinguish null from [].
 func orEmpty(values []string) []string {
@@ -252,11 +281,12 @@ func statusPageGroups(ctx context.Context, tx *gorm.DB, pageID uint) ([]models.S
 // syncEntities maps an entity name to the table that holds it. It is the single
 // place where an entity name becomes a table name.
 var syncEntities = map[string]string{
-	models.EntityMonitor:         "monitors",
-	models.EntityMonitorGroup:    "monitor_groups",
-	models.EntityMonitorTemplate: "monitor_templates",
-	models.EntityStatusPage:      "status_pages",
-	models.EntityNotification:    "notifications",
+	models.EntityMonitor:              "monitors",
+	models.EntityMonitorGroup:         "monitor_groups",
+	models.EntityMonitorTemplate:      "monitor_templates",
+	models.EntityStatusPage:           "status_pages",
+	models.EntityStatusPageSubscriber: "status_page_subscribers",
+	models.EntityNotification:         "notifications",
 }
 
 // SyncIdentity is the sync identity of one local row.
@@ -432,6 +462,31 @@ func (e *SyncEmitter) EmitStatusPage(ctx context.Context, tx *gorm.DB, id uint) 
 		return err
 	}
 	return e.write(ctx, tx, models.EntityStatusPage, SyncIdentity{
+		LocalID: row.ID, UUID: row.UUID, Revision: row.Revision,
+		OriginNodeID: row.OriginNodeID, UpdatedAt: row.UpdatedAt,
+	}, models.ActionUpsert, payload)
+}
+
+// EmitStatusPageSubscriber publishes one opt-in subscription.
+func (e *SyncEmitter) EmitStatusPageSubscriber(ctx context.Context, tx *gorm.DB, id uint) error {
+	if e.skip(ctx) {
+		return nil
+	}
+	var row models.StatusPageSubscriber
+	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
+		return fmt.Errorf("reading the subscriber to publish: %w", err)
+	}
+	var pageUUID string
+	if err := tx.WithContext(ctx).Table("status_pages").Select("uuid").
+		Where("id = ?", row.StatusPageID).Scan(&pageUUID).Error; err != nil {
+		return fmt.Errorf("reading the status page of subscriber %d: %w", id, err)
+	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.StatusPageSubscriber{}, row.ID)
+	payload, err := BuildStatusPageSubscriberPayload(&row, pageUUID)
+	if err != nil {
+		return err
+	}
+	return e.write(ctx, tx, models.EntityStatusPageSubscriber, SyncIdentity{
 		LocalID: row.ID, UUID: row.UUID, Revision: row.Revision,
 		OriginNodeID: row.OriginNodeID, UpdatedAt: row.UpdatedAt,
 	}, models.ActionUpsert, payload)

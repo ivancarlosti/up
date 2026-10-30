@@ -77,6 +77,14 @@ Under the hood the settings are translated into a shoutrrr URL
 smtp://user:pass@host:port/?fromaddress=up@example.com&toaddresses=a@x,b@y&subject=[Up]%20...&usehtml=yes&encryption=Auto&usestarttls=yes
 ```
 
+The same channel can be selected by a public status page to send its opt-in
+subscription mails ([status-pages.md](status-pages.md) §6). Those messages are
+localized per subscriber and addressed one recipient at a time: the channel owns
+the server/credentials/sender, `SendSMTPTo` overrides only the recipient and the
+subject, and **no `notification_logs` row is written** for them (they are not
+monitor alerts, and one row per subscriber would copy the subscriber list into
+the delivery history).
+
 ### Webhook
 
 | Field | Notes |

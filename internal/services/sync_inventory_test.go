@@ -14,15 +14,16 @@ import (
 // syncedModels are the model types whose tables the protocol carries. A write to one
 // of them is a change the peers are owed, so it has to be published.
 var syncedModels = map[string]bool{
-	"Monitor":             true,
-	"MonitorGroup":        true,
-	"MonitorGroupMember":  true,
-	"MonitorTemplate":     true,
-	"StatusPage":          true,
-	"StatusPageMonitor":   true,
-	"StatusPageGroupLink": true,
-	"Notification":        true,
-	"MonitorNotification": true,
+	"Monitor":              true,
+	"MonitorGroup":         true,
+	"MonitorGroupMember":   true,
+	"MonitorTemplate":      true,
+	"StatusPage":           true,
+	"StatusPageMonitor":    true,
+	"StatusPageGroupLink":  true,
+	"StatusPageSubscriber": true,
+	"Notification":         true,
+	"MonitorNotification":  true,
 }
 
 // writeCalls are the GORM verbs that change a row.
@@ -160,25 +161,28 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		// The apply path. Publishing there is FORBIDDEN, not merely unnecessary: a
 		// receiver that re-published what it applied would echo the change back and
 		// forth for ever. Every one of these runs with WithApply(ctx).
-		"writeMonitor":              "apply path (no echo)",
-		"writeGroup":                "apply path (no echo)",
-		"writeNotification":         "apply path (no echo)",
-		"writeTemplate":             "apply path (no echo)",
-		"writeStatusPage":           "apply path (no echo)",
-		"writeStatusPageSelection":  "apply path (no echo)",
-		"applyMonitor":              "apply path (no echo)",
-		"applyGroup":                "apply path (no echo)",
-		"applyNotification":         "apply path (no echo)",
-		"applyTemplate":             "apply path (no echo)",
-		"applyStatusPage":           "apply path (no echo)",
-		"applyRelation":             "apply path (no echo)",
-		"trackApplied":              "records the identity of an applied change",
-		"recordConflict":            "records the merge outcome, not a synced table",
-		"deleteGroupCascade":        "shared cascade; the caller publishes the tombstones",
-		"deleteStatusPageSelection": "shared cascade; the caller publishes the tombstone",
-		"deleteMonitorCascade":      "shared cascade; the caller publishes the tombstones",
-		"removeRelation":            "apply path (no echo)",
-		"linkRelation":              "apply path (no echo)",
+		"writeMonitor":                     "apply path (no echo)",
+		"writeGroup":                       "apply path (no echo)",
+		"writeNotification":                "apply path (no echo)",
+		"writeTemplate":                    "apply path (no echo)",
+		"writeStatusPage":                  "apply path (no echo)",
+		"writeStatusPageSubscriber":        "apply path (no echo)",
+		"writeStatusPageSelection":         "apply path (no echo)",
+		"applyMonitor":                     "apply path (no echo)",
+		"applyGroup":                       "apply path (no echo)",
+		"applyNotification":                "apply path (no echo)",
+		"applyTemplate":                    "apply path (no echo)",
+		"applyStatusPage":                  "apply path (no echo)",
+		"applyStatusPageSubscriber":        "apply path (no echo)",
+		"applyRelation":                    "apply path (no echo)",
+		"trackApplied":                     "records the identity of an applied change",
+		"recordConflict":                   "records the merge outcome, not a synced table",
+		"deleteGroupCascade":               "shared cascade; the caller publishes the tombstones",
+		"deleteStatusPageSelection":        "shared cascade; the caller publishes the tombstone",
+		"deleteStatusPageSubscriptionData": "shared cascade; the caller publishes the tombstones",
+		"deleteMonitorCascade":             "shared cascade; the caller publishes the tombstones",
+		"removeRelation":                   "apply path (no echo)",
+		"linkRelation":                     "apply path (no echo)",
 		// Shared join-table writers. Their callers take a before/after snapshot and
 		// publish exactly what moved (publishMonitor, publishGroup), which is what keeps
 		// a membership with one writer per edit.

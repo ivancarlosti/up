@@ -9,6 +9,9 @@ import (
 
 // Text renders the default human readable body used by the SMTP channel.
 func (m Message) Text() string {
+	if m.TextBody != "" {
+		return m.TextBody
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n", m.Title)
 	fmt.Fprintf(&b, "Monitor : %s (%s)\n", m.MonitorName, m.MonitorType)
@@ -43,6 +46,9 @@ func (m Message) Text() string {
 
 // HTML renders the body used when the SMTP channel is configured as HTML.
 func (m Message) HTML() string {
+	if m.HTMLBody != "" {
+		return m.HTMLBody
+	}
 	var b strings.Builder
 	b.WriteString(`<div style="font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#111">`)
 	fmt.Fprintf(&b, `<h2 style="margin:0 0 12px">%s</h2>`, template.HTMLEscapeString(m.Title))
