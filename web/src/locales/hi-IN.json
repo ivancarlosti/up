@@ -62,7 +62,8 @@
     "hours": "घंटे",
     "days": "दिन",
     "previous": "पिछला",
-    "next": "अगला"
+    "next": "अगला",
+    "captchaUnavailable": "कैप्चा लोड नहीं हो सका। पृष्ठ रीफ़्रेश करके फिर से प्रयास करें।"
   },
   "nav": {
     "dashboard": "डैशबोर्ड",
@@ -777,11 +778,13 @@
     "lighthouseCard": "वेब प्रदर्शन (Lighthouse)",
     "lighthouseCardHelp": "PageSpeed Insights माप: शेड्यूल, गति, API कुंजी और इतिहास प्रतिधारण।",
     "recaptchaCard": "लॉगिन सुरक्षा (reCAPTCHA)",
-    "recaptchaCardHelp": "लॉगिन फ़ॉर्म और सार्वजनिक सदस्यता फ़ॉर्म का Google reCAPTCHA।",
+    "recaptchaCardHelp": "लॉगिन फ़ॉर्म और सार्वजनिक सदस्यता फ़ॉर्म का Google reCAPTCHA v3 (स्कोर आधारित)। v2 कुंजी जोड़ी यहाँ काम नहीं करती।",
     "recaptchaClientId": "साइट कुंजी",
     "recaptchaClientIdHelp": "reCAPTCHA कंसोल की सार्वजनिक कुंजी। यह ब्राउज़र को भेजी जाती है।",
     "recaptchaClientSecret": "गोपनीय कुंजी",
     "recaptchaClientSecretHelp": "उसी जोड़ी की गोपनीय कुंजी। यह सर्वर पर ही रहती है और केवल यहाँ दिखती है।",
+    "recaptchaMinScore": "न्यूनतम स्कोर",
+    "recaptchaMinScoreHelp": "reCAPTCHA v3 चुनौती के बजाय 0 से 1 के बीच स्कोर लौटाता है। इससे कम स्कोर वाले अनुरोध अस्वीकार होते हैं; Google 0.5 से शुरुआत सुझाता है।",
     "recaptchaActive": "reCAPTCHA सक्रिय है: लॉगिन और सार्वजनिक सदस्यता के लिए टोकन आवश्यक है।",
     "recaptchaInactive": "reCAPTCHA बंद है। टोकन अनिवार्य करने के लिए दोनों कुंजियाँ भरें (केवल एक भरना अस्वीकार होता है)।"
   },
@@ -874,10 +877,8 @@
     "submit": "साइन इन",
     "signingIn": "साइन इन हो रहा है…",
     "withKeycloak": "Keycloak से साइन इन करें",
-    "captchaHint": "जारी रखने के लिए कैप्चा की पुष्टि करें",
     "noneHint": "यह डैशबोर्ड खुला है, लॉगिन आवश्यक नहीं।",
-    "goToDashboard": "डैशबोर्ड पर जाएँ",
-    "captchaUnavailable": "कैप्चा लोड नहीं हो सका। पृष्ठ रीफ़्रेश करके फिर से प्रयास करें।"
+    "goToDashboard": "डैशबोर्ड पर जाएँ"
   },
   "publicStatus": {
     "overallUp": "सभी सिस्टम कार्यरत हैं",
@@ -897,7 +898,6 @@
     "subscribeSubmit": "सदस्यता लें",
     "subscribeSent": "अपना इनबॉक्स देखें: सदस्यता की पुष्टि के लिए हमने लिंक भेजा है।",
     "subscribePrivacy": "डबल ऑप्ट-इन। आप किसी भी ई-मेल से सदस्यता समाप्त कर सकते हैं।",
-    "subscribeCaptchaRequired": "सदस्यता के लिए कैप्चा पूरा करें।",
     "subscribeConfirmed": "आपकी सदस्यता की पुष्टि हो गई।",
     "subscribeUnsubscribed": "अब आपको ये ई-मेल नहीं मिलेंगे।",
     "subscribeLinkInvalid": "यह सदस्यता लिंक अमान्य है या समाप्त हो गया है।"
@@ -959,7 +959,7 @@
     "ERR_AUTH_RATE_LIMITED": "बहुत अधिक लॉगिन प्रयास",
     "ERR_AUTH_DOMAIN_NOT_ALLOWED": "यह खाता इस इंस्टेंस पर अनुमत नहीं है",
     "ERR_RECAPTCHA_FAILED": "कैप्चा सत्यापन विफल रहा",
-    "ERR_RECAPTCHA_MISSING": "जारी रखने के लिए कैप्चा की पुष्टि करें",
+    "ERR_RECAPTCHA_MISSING": "कैप्चा पूरा नहीं हो सका — पृष्ठ रीफ़्रेश करके फिर से प्रयास करें",
     "ERR_AUTH_STATE_INVALID": "लॉगिन सत्र समाप्त हो गया, पुनः प्रयास करें",
     "ERR_AUTH_PROVIDER_ERROR": "पहचान प्रदाता ने त्रुटि लौटाई",
     "ERR_AUTH_METHOD_DISABLED": "यह प्रमाणीकरण विधि अक्षम है",

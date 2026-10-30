@@ -7,23 +7,16 @@ declare module '*.vue' {
 }
 
 /**
- * The subset of the Google reCAPTCHA API the Recaptcha.vue component uses.
+ * The subset of the Google reCAPTCHA v3 API the Recaptcha.vue component uses.
  * Loading the script is the component's job; the global only appears after it.
+ *
+ * v3 has no widget: `execute` mints a token for one action with a score the
+ * server evaluates. There is deliberately no `render`/`reset` here, because
+ * loading `api.js` without `?render=<sitekey>` makes `execute` fail.
  */
 interface UpRecaptcha {
   ready(callback: () => void): void
-  render(
-    element: HTMLElement,
-    options: {
-      sitekey: string
-      theme?: 'light' | 'dark'
-      size?: 'normal' | 'compact'
-      callback?: (token: string) => void
-      'expired-callback'?: () => void
-      'error-callback'?: () => void
-    },
-  ): number
-  reset(widgetId?: number): void
+  execute(siteKey: string, options: { action: string }): Promise<string>
 }
 
 interface Window {

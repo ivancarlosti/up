@@ -87,8 +87,11 @@ export const adminApi = {
    * subscription form. Both keys or neither: an empty pair switches it off.
    */
   recaptchaSettings: () => get<RecaptchaSettings>('/api/admin/recaptcha'),
-  updateRecaptchaSettings: (payload: { client_id: string; client_secret: string }) =>
-    put<RecaptchaSettings>('/api/admin/recaptcha', payload),
+  updateRecaptchaSettings: (payload: {
+    client_id: string
+    client_secret: string
+    min_score: number
+  }) => put<RecaptchaSettings>('/api/admin/recaptcha', payload),
 
   /** History housekeeping: what is stored and the explicit purge action. */
   heartbeatRetention: () => get<HeartbeatRetentionStats>('/api/admin/maintenance/heartbeats'),

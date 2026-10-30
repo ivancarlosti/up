@@ -29,8 +29,11 @@ const subscribeEmail = ref('')
 const subscribeError = ref('')
 const subscribing = ref(false)
 const subscribed = ref(false)
-const captchaToken = ref('')
 const recaptcha = ref<InstanceType<typeof Recaptcha> | null>(null)
+
+// The action the token is minted for (models.RecaptchaActionStatusSubscribe on
+// the server): a token minted for another form is rejected.
+const recaptchaAction = 'status_page_subscribe'
 
 const slug = computed(() => String(route.params.slug ?? ''))
 
@@ -82,23 +85,28 @@ const sections = computed(() => {
 async function subscribe(): Promise<void> {
   subscribeError.value = ''
   subscribed.value = false
-  if (app.settings?.recaptcha_enabled && !captchaToken.value) {
-    subscribeError.value = t('publicStatus.subscribeCaptchaRequired')
-    return
-  }
   subscribing.value = true
   try {
+    // v3 mints the token here, right before the request: it is single use and
+    // expires after two minutes, so a token obtained earlier would be rejected.
+    let token = ''
+    if (app.settings?.recaptcha_enabled) {
+      try {
+        token = (await recaptcha.value?.execute()) ?? ''
+      } catch {
+        subscribeError.value = t('common.captchaUnavailable')
+        return
+      }
+    }
     await api.subscribeStatusPage(slug.value, {
       email: subscribeEmail.value,
       locale: locale.value,
-      recaptcha_token: captchaToken.value,
+      recaptcha_token: token,
     })
     subscribed.value = true
     subscribeEmail.value = ''
-    recaptcha.value?.reset()
   } catch (caught) {
     subscribeError.value = translateError(caught)
-    recaptcha.value?.reset()
   } finally {
     subscribing.value = false
   }
@@ -204,9 +212,8 @@ watch(slug, load)
         <Recaptcha
           v-if="app.settings?.recaptcha_enabled"
           ref="recaptcha"
-          v-model="captchaToken"
-          class="mt-3"
-          :sitekey="app.settings?.recaptcha_client_id ?? ''"
+          :sitekey="app.settings.recaptcha_client_id ?? ''"
+          :action="recaptchaAction"
         />
         <p v-if="subscribed" class="mt-2 text-xs text-status-up">{{ t('publicStatus.subscribeSent') }}</p>
         <p v-if="subscribeError" class="mt-2 text-xs text-destructive">{{ subscribeError }}</p>

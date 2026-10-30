@@ -1,5 +1,13 @@
 # Plan - reCAPTCHA moves from the environment to Admin > Settings
 
+> **Superseded by [2026-10-30-recaptcha-v3.md](2026-10-30-recaptcha-v3.md)** for
+> the client half: the settings table, the dedicated `GET`/`PUT
+> /api/admin/recaptcha` endpoints, the "both keys or neither" rule and the
+> per-node scope all stand, but `Recaptcha.vue` no longer renders a v2 widget.
+> The instance speaks reCAPTCHA **v3** now (invisible, score based) and the card
+> has a third field, the minimum score. Read this file for the storage decisions
+> and the v3 plan for the protocol.
+
 > Task: stop configuring the Google reCAPTCHA keys through `.env`. The site key
 > and the secret become two rows of the `settings` table, edited in a new card of
 > Admin > Settings ("Login protection"), with `RECAPTCHA_CLIENTID` /

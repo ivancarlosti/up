@@ -344,9 +344,9 @@ func (s *SettingService) SetExpiryLastRunDay(ctx context.Context, day int64) err
 }
 
 // Recaptcha returns the Google reCAPTCHA configuration of the public forms
-// (Admin > Settings, "Login protection"). The pair is read on every call so a
-// key rotated in the UI applies immediately, without a restart: the cache
-// behind Get already holds the row.
+// (Admin > Settings, "Login protection"). The values are read on every call so
+// a pair rotated in the UI applies immediately, without a restart: the cache
+// behind Get already holds the rows.
 //
 // An empty pair means "no captcha". There is no third "enabled" switch on
 // purpose: a flag turned on without keys could not be honoured.
@@ -354,6 +354,13 @@ func (s *SettingService) Recaptcha() models.RecaptchaSettings {
 	out := models.RecaptchaSettings{
 		ClientID:     s.GetOr(models.SettingRecaptchaClientID, ""),
 		ClientSecret: s.GetOr(models.SettingRecaptchaClientSecret, ""),
+	}
+	// A threshold outside the supported band is a hand edited row, not a
+	// configuration: fall back to the default instead of honouring a value that
+	// would accept (or reject) every visitor.
+	if parsed, err := strconv.ParseFloat(s.GetOr(models.SettingRecaptchaMinScore, ""), 64); err == nil &&
+		parsed >= models.MinRecaptchaMinScore && parsed <= models.MaxRecaptchaMinScore {
+		out.MinScore = parsed
 	}
 	out.Normalize()
 	return out
@@ -365,9 +372,10 @@ func (s *SettingService) RecaptchaEnabled() bool {
 	return s.Recaptcha().Enabled()
 }
 
-// SetRecaptcha stores the captcha keys. The caller validates the payload (like
-// every other settings endpoint); the check is repeated here so a future
-// caller cannot persist a half filled configuration that would lock the login.
+// SetRecaptcha stores the captcha pair and the score threshold. The caller
+// validates the payload (like every other settings endpoint); the check is
+// repeated here so a future caller cannot persist a half filled configuration
+// that would lock the login, or a threshold nobody can pass.
 func (s *SettingService) SetRecaptcha(ctx context.Context, settings models.RecaptchaSettings) error {
 	settings.Normalize()
 	if problem := settings.Validate(); problem != "" {
@@ -376,6 +384,7 @@ func (s *SettingService) SetRecaptcha(ctx context.Context, settings models.Recap
 	stored := map[string]string{
 		models.SettingRecaptchaClientID:     settings.ClientID,
 		models.SettingRecaptchaClientSecret: settings.ClientSecret,
+		models.SettingRecaptchaMinScore:     strconv.FormatFloat(settings.MinScore, 'f', 2, 64),
 	}
 	for key, value := range stored {
 		if err := s.Set(ctx, key, value); err != nil {

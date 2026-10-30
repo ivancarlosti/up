@@ -62,7 +62,8 @@
     "hours": "小时",
     "days": "天",
     "previous": "上一页",
-    "next": "下一页"
+    "next": "下一页",
+    "captchaUnavailable": "验证码加载失败，请刷新页面后重试。"
   },
   "nav": {
     "dashboard": "仪表盘",
@@ -777,11 +778,13 @@
     "lighthouseCard": "网页性能（Lighthouse）",
     "lighthouseCardHelp": "PageSpeed Insights 测量：计划、速率、API 密钥与历史保留。",
     "recaptchaCard": "登录保护（reCAPTCHA）",
-    "recaptchaCardHelp": "登录表单与公开订阅表单使用的 Google reCAPTCHA。",
+    "recaptchaCardHelp": "登录表单与公开订阅表单使用的 Google reCAPTCHA v3（基于分数）。v2 密钥对在此不可用。",
     "recaptchaClientId": "站点密钥",
     "recaptchaClientIdHelp": "reCAPTCHA 控制台中的公开站点密钥，会发送到浏览器。",
     "recaptchaClientSecret": "私密密钥",
     "recaptchaClientSecretHelp": "同一对密钥中的服务端私密密钥，只保留在服务器上，且仅在此处显示。",
+    "recaptchaMinScore": "最低分数",
+    "recaptchaMinScoreHelp": "reCAPTCHA v3 返回 0 到 1 的分数而不是验证挑战。低于该分数的请求会被拒绝，Google 建议从 0.5 开始。",
     "recaptchaActive": "reCAPTCHA 已启用：登录和公开订阅都需要令牌。",
     "recaptchaInactive": "reCAPTCHA 已关闭。请同时填写两个密钥以要求令牌（只填一个会被拒绝）。"
   },
@@ -874,10 +877,8 @@
     "submit": "登录",
     "signingIn": "正在登录…",
     "withKeycloak": "使用 Keycloak 登录",
-    "captchaHint": "请确认验证码以继续",
     "noneHint": "此仪表盘已开放，无需登录。",
-    "goToDashboard": "前往仪表盘",
-    "captchaUnavailable": "验证码加载失败，请刷新页面后重试。"
+    "goToDashboard": "前往仪表盘"
   },
   "publicStatus": {
     "overallUp": "所有系统运行正常",
@@ -897,7 +898,6 @@
     "subscribeSubmit": "订阅",
     "subscribeSent": "请查收邮箱：我们已发送确认订阅的链接。",
     "subscribePrivacy": "双重确认。您可以在任何一封邮件中取消订阅。",
-    "subscribeCaptchaRequired": "请先完成验证码。",
     "subscribeConfirmed": "您的订阅已确认。",
     "subscribeUnsubscribed": "您将不再收到这些邮件。",
     "subscribeLinkInvalid": "此订阅链接无效或已过期。"
@@ -959,7 +959,7 @@
     "ERR_AUTH_RATE_LIMITED": "登录尝试次数过多",
     "ERR_AUTH_DOMAIN_NOT_ALLOWED": "此账户不允许在此实例上使用",
     "ERR_RECAPTCHA_FAILED": "验证码校验失败",
-    "ERR_RECAPTCHA_MISSING": "请确认验证码以继续",
+    "ERR_RECAPTCHA_MISSING": "无法完成验证码，请刷新页面后重试",
     "ERR_AUTH_STATE_INVALID": "登录会话已过期，请重试",
     "ERR_AUTH_PROVIDER_ERROR": "身份提供方返回了错误",
     "ERR_AUTH_METHOD_DISABLED": "此身份验证方式已禁用",

@@ -190,6 +190,10 @@ The subscribe endpoint has its own **5 requests/minute per IP** budget on top of
 the public page limit. When the reCAPTCHA pair is configured
 (Admin > Settings > **Login protection**, see `docs/authentication.md`), the form
 must include a valid token (`ERR_RECAPTCHA_MISSING` / `ERR_RECAPTCHA_FAILED`).
+The token is minted by `grecaptcha.execute(siteKey, {action:"status_page_subscribe"})`
+right before the request: reCAPTCHA v3 shows no widget, and the server rejects a
+token whose action is not `status_page_subscribe` (so a token from the login form
+cannot be replayed here) or whose score is below the configured minimum.
 
 ## 7. Protection
 

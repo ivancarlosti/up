@@ -18,9 +18,12 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 
+// The action the token is minted for (models.RecaptchaActionLogin on the
+// server): a token from another form is rejected, so it is not user input.
+const recaptchaAction = 'login'
+
 const email = ref('')
 const password = ref('')
-const captchaToken = ref('')
 const recaptcha = ref<InstanceType<typeof Recaptcha> | null>(null)
 const error = ref('')
 const loading = ref(false)
@@ -38,13 +41,23 @@ async function submit(): Promise<void> {
   error.value = ''
   loading.value = true
   try {
-    await api.login(email.value, password.value, captchaToken.value)
+    // reCAPTCHA v3 mints the token at submit time: it lives two minutes and can
+    // be verified once, so it is requested here instead of on mount.
+    let token = ''
+    if (app.session?.recaptcha_enabled) {
+      try {
+        token = (await recaptcha.value?.execute()) ?? ''
+      } catch {
+        error.value = t('common.captchaUnavailable')
+        return
+      }
+    }
+    await api.login(email.value, password.value, token)
     await app.refreshSession()
     const redirect = (route.query.redirect as string) || '/'
     await router.push(redirect)
   } catch (caught) {
     error.value = translateError(caught)
-    recaptcha.value?.reset()
   } finally {
     loading.value = false
   }
@@ -77,10 +90,14 @@ function signInWithKeycloak(): void {
           <Input id="login-password" v-model="password" type="password" autocomplete="current-password" required />
         </div>
 
-        <div v-if="app.session?.recaptcha_enabled" class="grid gap-1">
-          <Label>{{ t('login.captchaHint') }}</Label>
-          <Recaptcha ref="recaptcha" v-model="captchaToken" :sitekey="app.session?.recaptcha_client_id ?? ''" />
-        </div>
+        <!-- reCAPTCHA v3 has no widget: the badge Google injects is the only
+             visible part, and the token is minted by submit(). -->
+        <Recaptcha
+          v-if="app.session?.recaptcha_enabled"
+          ref="recaptcha"
+          :sitekey="app.session.recaptcha_client_id ?? ''"
+          :action="recaptchaAction"
+        />
 
         <Button type="submit" :loading="loading">
           <LogIn class="h-4 w-4" aria-hidden="true" />

@@ -62,7 +62,8 @@
     "hours": "ساعات",
     "days": "أيام",
     "previous": "السابق",
-    "next": "التالي"
+    "next": "التالي",
+    "captchaUnavailable": "تعذر تحميل الاختبار الأمني. حدّث الصفحة وحاول مرة أخرى."
   },
   "nav": {
     "dashboard": "لوحة التحكم",
@@ -777,11 +778,13 @@
     "lighthouseCard": "أداء الويب (Lighthouse)",
     "lighthouseCardHelp": "قياسات PageSpeed Insights: الجدولة والمعدل ومفتاح الـ API والاحتفاظ بالسجل.",
     "recaptchaCard": "حماية تسجيل الدخول (reCAPTCHA)",
-    "recaptchaCardHelp": "Google reCAPTCHA لنموذج تسجيل الدخول ونموذج الاشتراك العام.",
+    "recaptchaCardHelp": "Google reCAPTCHA v3 (قائم على الدرجة) لنموذج تسجيل الدخول ونموذج الاشتراك العام. لا يعمل زوج مفاتيح v2 هنا.",
     "recaptchaClientId": "مفتاح الموقع",
     "recaptchaClientIdHelp": "المفتاح العام من وحدة تحكم reCAPTCHA. يُرسل إلى المتصفح.",
     "recaptchaClientSecret": "المفتاح السري",
     "recaptchaClientSecretHelp": "المفتاح السري لنفس الزوج. يبقى على الخادم ولا يظهر إلا هنا.",
+    "recaptchaMinScore": "الحد الأدنى للدرجة",
+    "recaptchaMinScoreHelp": "يعيد reCAPTCHA v3 درجة بين 0 و1 بدلاً من تحدٍّ. تُرفض الطلبات التي تقل درجتها عن هذه القيمة، ويقترح Google البدء من 0.5.",
     "recaptchaActive": "reCAPTCHA مفعّل: تسجيل الدخول والاشتراك العام يتطلبان رمزًا.",
     "recaptchaInactive": "reCAPTCHA معطّل. أدخل المفتاحين معًا لطلب الرمز (إدخال مفتاح واحد مرفوض)."
   },
@@ -874,10 +877,8 @@
     "submit": "تسجيل الدخول",
     "signingIn": "جارٍ تسجيل الدخول…",
     "withKeycloak": "تسجيل الدخول عبر Keycloak",
-    "captchaHint": "أكّد رمز التحقق للمتابعة",
     "noneHint": "لوحة التحكم هذه مفتوحة، ولا يلزم تسجيل الدخول.",
-    "goToDashboard": "الانتقال إلى لوحة التحكم",
-    "captchaUnavailable": "تعذر تحميل الاختبار الأمني. حدّث الصفحة وحاول مرة أخرى."
+    "goToDashboard": "الانتقال إلى لوحة التحكم"
   },
   "publicStatus": {
     "overallUp": "جميع الأنظمة تعمل",
@@ -897,7 +898,6 @@
     "subscribeSubmit": "اشترك",
     "subscribeSent": "تفقد بريدك: أرسلنا رابطًا لتأكيد اشتراكك.",
     "subscribePrivacy": "تأكيد مزدوج. يمكنك إلغاء الاشتراك من أي رسالة.",
-    "subscribeCaptchaRequired": "أكمل الاختبار الأمني للاشتراك.",
     "subscribeConfirmed": "تم تأكيد اشتراكك.",
     "subscribeUnsubscribed": "لن تتلقى هذه الرسائل بعد الآن.",
     "subscribeLinkInvalid": "رابط الاشتراك غير صالح أو انتهت صلاحيته."
@@ -959,7 +959,7 @@
     "ERR_AUTH_RATE_LIMITED": "محاولات تسجيل دخول كثيرة جدًا",
     "ERR_AUTH_DOMAIN_NOT_ALLOWED": "هذا الحساب غير مسموح به على هذه النسخة",
     "ERR_RECAPTCHA_FAILED": "فشل التحقق من رمز التحقق",
-    "ERR_RECAPTCHA_MISSING": "أكّد رمز التحقق للمتابعة",
+    "ERR_RECAPTCHA_MISSING": "تعذّر إكمال رمز التحقق — حدّث الصفحة وحاول مرة أخرى",
     "ERR_AUTH_STATE_INVALID": "انتهت جلسة تسجيل الدخول، أعد المحاولة",
     "ERR_AUTH_PROVIDER_ERROR": "أعاد مزوّد الهوية خطأً",
     "ERR_AUTH_METHOD_DISABLED": "طريقة المصادقة هذه معطّلة",

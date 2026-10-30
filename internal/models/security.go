@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -76,8 +77,8 @@ const (
 	// SettingRecaptchaClientID is the public site key of Google reCAPTCHA and
 	// SettingRecaptchaClientSecret the matching server side secret. Both are
 	// edited in Admin > Settings ("Login protection") and stored here only:
-	// the login form, the OIDC-less account flow and the public status page
-	// subscription form require a captcha token as soon as both are set.
+	// the login form and the public status page subscription form require a
+	// captcha token as soon as both are set.
 	//
 	// They used to come from RECAPTCHA_CLIENTID / RECAPTCHA_CLIENTSECRET. The
 	// variables are gone (an upgrade must re-enter the keys once), which is
@@ -85,30 +86,84 @@ const (
 	// row, rotable at runtime without a restart.
 	SettingRecaptchaClientID     = "recaptcha_client_id"
 	SettingRecaptchaClientSecret = "recaptcha_client_secret"
+	// SettingRecaptchaMinScore is the lowest v3 score accepted. A v3 key
+	// answers every execute with a score between 0 and 1 instead of a
+	// challenge, so the threshold *is* the policy; the card lets an operator
+	// tune it between MinRecaptchaMinScore and MaxRecaptchaMinScore.
+	SettingRecaptchaMinScore = "recaptcha_min_score"
+)
+
+const (
+	// DefaultRecaptchaMinScore is Google's recommended starting threshold and
+	// the value stored when an operator never touched the field.
+	DefaultRecaptchaMinScore = 0.5
+	// MinRecaptchaMinScore and MaxRecaptchaMinScore bound the accepted
+	// threshold. Below 0.1 the captcha accepts almost everything (clearing the
+	// keys is the way to switch it off); above 0.9 ordinary visitors start to
+	// be rejected.
+	MinRecaptchaMinScore = 0.1
+	MaxRecaptchaMinScore = 0.9
+)
+
+const (
+	// RecaptchaActionLogin and RecaptchaActionStatusSubscribe are the v3 action
+	// names the frontend mints the tokens with, one per protected form. The
+	// server compares the action carried by the token with the action of the
+	// endpoint, so a token harvested from the public subscription form cannot
+	// unlock the login. Google accepts alphanumerics, slashes and underscores
+	// only, and the action must not be user specific.
+	RecaptchaActionLogin           = "login"
+	RecaptchaActionStatusSubscribe = "status_page_subscribe"
 )
 
 // RecaptchaSettings is the Google reCAPTCHA configuration of the public forms
 // (Admin > Settings). An empty pair means "no captcha": enablement is derived
 // from the values themselves, so a half filled configuration is never stored.
+//
+// The instance speaks reCAPTCHA v3 (score based): the browser never renders a
+// widget, it asks grecaptcha for a token when the form is submitted, and the
+// server accepts it once the score reaches MinScore.
 type RecaptchaSettings struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	// MinScore is the smallest v3 score accepted, see MinRecaptchaMinScore.
+	MinScore float64 `json:"min_score"`
 }
 
 // Normalize trims what an operator pasted from the reCAPTCHA console: the
-// keys are copied by hand, and a trailing newline is the usual accident.
+// keys are copied by hand, and a trailing newline is the usual accident. A zero
+// threshold means the payload did not carry one (it predates the field), so it
+// falls back to Google's recommendation instead of accepting every visitor.
 func (r *RecaptchaSettings) Normalize() {
 	r.ClientID = strings.TrimSpace(r.ClientID)
 	r.ClientSecret = strings.TrimSpace(r.ClientSecret)
+	if r.MinScore == 0 {
+		r.MinScore = DefaultRecaptchaMinScore
+	}
 }
 
 // Validate reports the first problem with the configuration. Both halves are
-// required together: a site key without a secret would render the widget and
-// then reject every login, and a secret without a site key would reject the
-// form before the widget is ever rendered.
+// required together: a site key without a secret would hand out tokens the
+// server cannot verify, and a secret without a site key would demand a token no
+// client can mint. The threshold has to stay inside the supported band.
+//
+// An empty pair is always valid: clearing the keys is how an operator switches
+// the captcha off, and the threshold means nothing without them.
 func (r RecaptchaSettings) Validate() string {
-	if (r.ClientID == "") != (r.ClientSecret == "") {
+	if r.ClientID == "" && r.ClientSecret == "" {
+		return ""
+	}
+	if r.ClientID == "" || r.ClientSecret == "" {
 		return "both the reCAPTCHA site key and the secret are required, or neither"
+	}
+	if r.MinScore == 0 {
+		// Zero is what a payload without the field decodes to; Normalize turns
+		// it into the default, so Validate does not treat it as out of range.
+		return ""
+	}
+	if r.MinScore < MinRecaptchaMinScore || r.MinScore > MaxRecaptchaMinScore {
+		return fmt.Sprintf("the minimum score must be between %.1f and %.1f",
+			float64(MinRecaptchaMinScore), float64(MaxRecaptchaMinScore))
 	}
 	return ""
 }

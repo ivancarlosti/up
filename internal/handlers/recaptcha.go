@@ -20,9 +20,10 @@ func (h *Container) adminRecaptcha(c *gin.Context) {
 	api.OK(c, h.recaptchaPayload())
 }
 
-// updateAdminRecaptcha stores both keys. An empty pair switches the captcha
-// off; a half filled pair is rejected, because it would either render a widget
-// the server then refuses or require a token no client could mint.
+// updateAdminRecaptcha stores both keys and the v3 score threshold. An empty
+// pair switches the captcha off; a half filled pair is rejected, because it
+// would either hand out tokens the server cannot verify or demand a token no
+// client could mint.
 func (h *Container) updateAdminRecaptcha(c *gin.Context) {
 	var payload models.RecaptchaSettings
 	if !bindJSON(c, &payload) {
@@ -40,14 +41,16 @@ func (h *Container) updateAdminRecaptcha(c *gin.Context) {
 	api.OK(c, h.recaptchaPayload())
 }
 
-// recaptchaPayload is what both endpoints answer: the stored pair plus the
-// state the card renders. "enabled" is derived from the pair on purpose, there
-// is no third setting that could contradict it.
+// recaptchaPayload is what both endpoints answer: the stored pair, the score
+// threshold (a v3 answer that does not reach it is rejected) and the state the
+// card renders. "enabled" is derived from the pair on purpose, there is no third
+// setting that could contradict it.
 func (h *Container) recaptchaPayload() gin.H {
 	captcha := h.Settings.Recaptcha()
 	return gin.H{
 		"client_id":     captcha.ClientID,
 		"client_secret": captcha.ClientSecret,
+		"min_score":     captcha.MinScore,
 		"enabled":       captcha.Enabled(),
 	}
 }

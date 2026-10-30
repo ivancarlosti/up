@@ -422,8 +422,8 @@ export interface AdminSettings {
 }
 
 /**
- * RecaptchaSettings is the Google reCAPTCHA configuration of the login form and
- * of the public subscription form (Admin > Settings, "Login protection").
+ * RecaptchaSettings is the Google reCAPTCHA v3 configuration of the login form
+ * and of the public subscription form (Admin > Settings, "Login protection").
  *
  * There is no explicit switch: filling both keys turns the captcha on, and the
  * API derives `enabled` from them, so the card never has to guess.
@@ -433,6 +433,12 @@ export interface RecaptchaSettings {
   client_id: string
   /** Server side secret, used by POST /login and the subscription form. */
   client_secret: string
+  /**
+   * Lowest v3 score accepted (0.1–0.9, default 0.5): v3 answers with a score
+   * instead of a challenge, so this number is the policy. A zero means "not
+   * configured yet" and the server falls back to 0.5.
+   */
+  min_score: number
   enabled: boolean
 }
 

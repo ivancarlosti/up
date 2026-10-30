@@ -12,6 +12,7 @@ import (
 	"github.com/ivancarlosti/up/internal/api"
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/middleware"
+	"github.com/ivancarlosti/up/internal/models"
 )
 
 // subscribeStatusPage starts the double opt-in of an address. The answer is
@@ -31,7 +32,8 @@ func (h *Container) subscribeStatusPage(c *gin.Context) {
 				"the captcha token is required")
 			return
 		}
-		if err := h.verifyRecaptcha(c.Request.Context(), payload.RecaptchaToken, middleware.ClientIP(c)); err != nil {
+		if err := h.verifyRecaptcha(c.Request.Context(), payload.RecaptchaToken,
+			models.RecaptchaActionStatusSubscribe, middleware.ClientIP(c)); err != nil {
 			api.WriteError(c, http.StatusForbidden, i18n.CodeAuthCaptchaFailed, err.Error())
 			return
 		}

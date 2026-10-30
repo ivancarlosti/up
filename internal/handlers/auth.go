@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/ivancarlosti/up/internal/config"
 	"github.com/ivancarlosti/up/internal/i18n"
 	"github.com/ivancarlosti/up/internal/middleware"
+	"github.com/ivancarlosti/up/internal/models"
 	"github.com/ivancarlosti/up/internal/services"
 )
 
@@ -70,7 +72,8 @@ func (h *Container) login(c *gin.Context) {
 				"the captcha token is required")
 			return
 		}
-		if err := h.verifyRecaptcha(c.Request.Context(), payload.RecaptchaToken, middleware.ClientIP(c)); err != nil {
+		if err := h.verifyRecaptcha(c.Request.Context(), payload.RecaptchaToken,
+			models.RecaptchaActionLogin, middleware.ClientIP(c)); err != nil {
 			api.WriteError(c, http.StatusForbidden, i18n.CodeAuthCaptchaFailed, err.Error())
 			return
 		}
@@ -107,19 +110,45 @@ func (h *Container) logout(c *gin.Context) {
 	api.NoContent(c)
 }
 
-// verifyRecaptcha validates a Google reCAPTCHA token (v2 checkbox or v3).
+// recaptchaVerdict explains why a Site Verify answer must be rejected, and
+// returns "" when the answer is acceptable.
 //
-// The secret is read from the shared settings on each call, so a key rotated in
-// Admin > Settings is used by the very next attempt.
-func (h *Container) verifyRecaptcha(ctx context.Context, token, clientIP string) error {
-	secret := h.Settings.Recaptcha().ClientSecret
-	if secret == "" {
+// reCAPTCHA v3 answers every execute with a score instead of a challenge, so
+// `success` alone is not enough: the token also carries the action it was minted
+// for (a token harvested from the public subscription form must not unlock the
+// login) and the score the operator tuned in Admin > Settings. A token with no
+// score comes from a v2 key pair, where the rendered challenge is the gate: the
+// threshold does not apply to it.
+func recaptchaVerdict(success bool, score float64, action, expectedAction string,
+	errorCodes []string, minScore float64) string {
+	if !success {
+		return "the captcha validation failed: " + strings.Join(errorCodes, ", ")
+	}
+	if action != "" && action != expectedAction {
+		return "the captcha token was minted for the action " + action +
+			", the endpoint expects " + expectedAction
+	}
+	if score > 0 && score < minScore {
+		return fmt.Sprintf("the captcha score %.2f is below the minimum %.2f", score, minScore)
+	}
+	return ""
+}
+
+// verifyRecaptcha validates a Google reCAPTCHA token with the Site Verify
+// endpoint.
+//
+// The secret, the score threshold and the expected action are read from the
+// shared settings on every call, so a pair rotated in Admin > Settings applies
+// to the very next attempt, without a restart.
+func (h *Container) verifyRecaptcha(ctx context.Context, token, expectedAction, clientIP string) error {
+	captcha := h.Settings.Recaptcha()
+	if captcha.ClientSecret == "" {
 		// The captcha was switched off between the gate of the caller and this
 		// call: fail closed instead of posting an empty secret to Google.
 		return errors.New("the reCAPTCHA secret is not configured")
 	}
 	form := url.Values{}
-	form.Set("secret", secret)
+	form.Set("secret", captcha.ClientSecret)
 	form.Set("response", token)
 	if clientIP != "" {
 		form.Set("remoteip", clientIP)
@@ -147,20 +176,18 @@ func (h *Container) verifyRecaptcha(ctx context.Context, token, clientIP string)
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		return err
 	}
-	if !result.Success {
+	// The score is logged either way: it is the only way to tell whether the
+	// threshold tuned in Admin > Settings matches the traffic of this instance.
+	if reason := recaptchaVerdict(result.Success, result.Score, result.Action,
+		expectedAction, result.ErrorCodes, captcha.MinScore); reason != "" {
+		h.Log.Warn("captcha rejected", "action", result.Action, "score", result.Score,
+			"minimum", captcha.MinScore, "reason", reason)
 		return &services.APIError{
 			Status:  http.StatusForbidden,
 			Code:    i18n.CodeAuthCaptchaFailed,
-			Message: "the captcha validation failed: " + strings.Join(result.ErrorCodes, ", "),
+			Message: reason,
 		}
 	}
-	// reCAPTCHA v3 returns a score between 0 and 1: require at least 0.5.
-	if result.Score > 0 && result.Score < 0.5 {
-		return &services.APIError{
-			Status:  http.StatusForbidden,
-			Code:    i18n.CodeAuthCaptchaFailed,
-			Message: "the captcha score is too low",
-		}
-	}
+	h.Log.Debug("captcha accepted", "action", result.Action, "score", result.Score)
 	return nil
 }

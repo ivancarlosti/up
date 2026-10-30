@@ -86,15 +86,37 @@ Details:
 - `SECURITY_LOGIN_RATE_LIMIT` (default 20/min per IP) protects the endpoint.
 - Errors are always the same shape, they never reveal which field was wrong.
 
-### Optional Google reCAPTCHA
+### Optional Google reCAPTCHA (v3)
 
 The captcha of the login form is configured **in the dashboard**, not in `.env`:
 Admin > Settings > **Login protection** (site key + secret, stored in the
-`settings` table as `recaptcha_client_id` / `recaptcha_client_secret`).
+`settings` table as `recaptcha_client_id` / `recaptcha_client_secret`, plus the
+score threshold in `recaptcha_min_score`).
 
+- **reCAPTCHA v3 only.** The pair must be a *score based* key pair: with a v2
+  pair Google answers `Invalid key type` and no token is ever minted. The browser
+  renders no widget and asks no question; the page loads
+  `api.js?render=<site key>` and calls `grecaptcha.execute()` when the form is
+  submitted. Google's badge stays in the corner of the page, which is the visible
+  proof that v3 is running.
+- **One action per form.** The token is minted for `login`
+  (`models.RecaptchaActionLogin`) or `status_page_subscribe`
+  (`models.RecaptchaActionStatusSubscribe`), and the server rejects a token whose
+  action does not match the endpoint, so a token harvested from the public
+  subscription form cannot open the dashboard.
+- **Score and threshold.** Every `execute` returns a score between 0 and 1
+  (1 = almost certainly a human). A request is rejected when the score is below
+  `recaptcha_min_score`, which is editable in the card: `0.1`-`0.9`, default
+  `0.5` (Google's recommendation). A row that is absent or out of range falls
+  back to `0.5`. Accepted and rejected scores are logged
+  (`captcha accepted` / `captcha rejected`, with `action`, `score` and
+  `minimum`), so the threshold can be tuned from the log instead of by guessing.
+- **Single use, two minutes.** A token can be verified once and expires after two
+  minutes, which is why the SPA mints it at submit time and never on mount.
 - Both keys or neither: the API refuses a half filled pair
-  (`400 ERR_VALIDATION`) because it would either render a widget the server then
-  rejects or demand a token no client can mint.
+  (`400 ERR_VALIDATION`) because it would either hand out tokens the server
+  cannot verify or demand a token no client can mint. An out of range threshold
+  is refused the same way.
 - There is no separate switch: filling both keys turns the captcha on, clearing
   both turns it off. A rotation applies to the next request, without a restart.
 - The keys are security settings, so they are **not** synchronised between the
@@ -109,12 +131,15 @@ The same pair protects the subscription form of the public status pages
 request) must carry `recaptcha_token`:
 
 - missing token -> `403 ERR_RECAPTCHA_MISSING`
-- failed validation or score < 0.5 -> `403 ERR_RECAPTCHA_FAILED`
+- failed validation, wrong action or score below the threshold ->
+  `403 ERR_RECAPTCHA_FAILED`
 
-For manual tests Google publishes always-pass test keys (site key
-`6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI`, secret
-`6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`); paste them in the card, save, and
-the login form of the next visit renders the widget.
+Google's documented test keys (`6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI` /
+`6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`) are **v2** keys and cannot be used
+here: they answer `Invalid key type` under v3. For a lab, create a free v3 key
+pair in the reCAPTCHA console, add `localhost` to its allowed domains, and paste
+it in the card; every answer passes with a high score, so keep the threshold at
+its default.
 
 ## 5. Mode `keycloak` (OIDC)
 

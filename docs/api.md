@@ -125,12 +125,18 @@ Public bootstrap payload used by the SPA:
 ### `POST /api/auth/login`
 
 ```json
-{"email":"admin@example.com","password":"admin123","recaptcha_token":""}
+{"email":"admin@example.com","password":"admin123","recaptcha_token":"03AGdBq26..."}
 ```
 
-Sets the `up_session` cookie. Errors: `401 ERR_AUTH_INVALID_CREDENTIALS`,
-`403 ERR_AUTH_METHOD_DISABLED`, `403 ERR_RECAPTCHA_MISSING`,
-`403 ERR_RECAPTCHA_FAILED`, `429 ERR_RATE_LIMITED`.
+Sets the `up_session` cookie. `recaptcha_token` is the reCAPTCHA v3 token the SPA
+mints with `grecaptcha.execute(siteKey, {action:"login"})` while submitting; the
+server verifies it with the stored secret, refuses an action other than `login`
+and refuses a score below the configured minimum (`recaptcha_min_score`, `0.5`
+when it was never set). The token is single use and expires after two minutes, so
+it cannot be cached by the client. Errors: `401 ERR_AUTH_INVALID_CREDENTIALS`,
+`403 ERR_AUTH_METHOD_DISABLED`, `403 ERR_RECAPTCHA_MISSING` (no token sent while
+the captcha is on), `403 ERR_RECAPTCHA_FAILED` (validation failed, wrong action or
+score too low), `429 ERR_RATE_LIMITED`.
 
 ### `POST /api/auth/logout` -> `204`
 
@@ -527,8 +533,8 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/admin/settings` | locale/theme/clock defaults, the global uptime period and the history retention + instance info |
-| GET | `/api/admin/recaptcha` | login protection (Google reCAPTCHA) of the login form and the public subscription form: `{client_id, client_secret, enabled}` (`enabled` is derived: both keys stored or none) |
-| PUT | `/api/admin/recaptcha` | `{"client_id":"6Le...","client_secret":"6Le..."}` -> the same payload. Both keys or neither (`400 ERR_VALIDATION`); an empty pair switches the captcha off. Applies to the next request, no restart |
+| GET | `/api/admin/recaptcha` | login protection (Google reCAPTCHA **v3**) of the login form and the public subscription form: `{client_id, client_secret, min_score, enabled}` (`enabled` is derived: both keys stored or none; `min_score` is `0.1`-`0.9`, `0.5` when never set) |
+| PUT | `/api/admin/recaptcha` | `{"client_id":"6Le...","client_secret":"6Le...","min_score":0.5}` -> the same payload. Both keys or neither, and a threshold inside `0.1`-`0.9` (`400 ERR_VALIDATION`); `min_score` omitted or `0` becomes `0.5`, an empty pair switches the captcha off. Applies to the next request, no restart |
 | PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","timezone":"America/Sao_Paulo","app_name":"Up","heartbeat_retention_days":90,"uptime_window_hours":168}` -> `204` (`time_format` is `auto`, `12h` or `24h`; `timezone` is an IANA name, shared by the daily certificate/domain and web performance jobs; `uptime_window_hours` is `24`, `168`, `336` or `720`; `heartbeat_retention_days` is `0`-`3650`, `0` = never purge). Every field is optional |
 | GET | `/api/admin/maintenance/heartbeats` | `{retention_days, default_days, max_days, total, oldest, newest, would_delete, cutoff?}` |
 | POST | `/api/admin/maintenance/heartbeats/purge` | deletes the history older than the retention: `{}` uses the configured days, `{"days": 90}` overrides it -> `{deleted, days, before}` |
@@ -685,7 +691,8 @@ The complete, stable catalogue (also present in `web/src/locales/*.json` under
 | `ERR_AUTH_INVALID_CREDENTIALS` | 401 | wrong e-mail or password |
 | `ERR_AUTH_RATE_LIMITED` | 429 | too many login attempts |
 | `ERR_AUTH_DOMAIN_NOT_ALLOWED` | 403 | e-mail outside `KEYCLOAK_ACCOUNTS` |
-| `ERR_RECAPTCHA_FAILED` / `ERR_RECAPTCHA_MISSING` | 403 | captcha rejected/absent |
+| `ERR_RECAPTCHA_FAILED` | 403 | reCAPTCHA v3 token rejected (validation failed, wrong action or score below `recaptcha_min_score`) |
+| `ERR_RECAPTCHA_MISSING` | 403 | captcha is enabled and the request carried no `recaptcha_token` |
 | `ERR_AUTH_STATE_INVALID` | 400 | expired OIDC state |
 | `ERR_AUTH_PROVIDER_ERROR` | 403 | identity provider error |
 | `ERR_AUTH_METHOD_DISABLED` | 403 | endpoint not enabled for the configured method |

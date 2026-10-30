@@ -66,3 +66,58 @@ func TestRecaptchaSettingsNormalize(t *testing.T) {
 		t.Fatal("a blank secret must be rejected, not trimmed away silently")
 	}
 }
+
+// TestRecaptchaSettingsMinScore pins the threshold rules the admin card and the
+// Site Verify check rely on: an absent value (a client that predates the field,
+// or a fresh install) becomes Google's recommended 0.5 instead of 0, which would
+// accept every visitor, and a value outside the supported band cannot be stored.
+func TestRecaptchaSettingsMinScore(t *testing.T) {
+	fresh := RecaptchaSettings{}
+	fresh.Normalize()
+	if fresh.MinScore != DefaultRecaptchaMinScore {
+		t.Fatalf("empty payload normalized to %v, want %v", fresh.MinScore, DefaultRecaptchaMinScore)
+	}
+
+	kept := RecaptchaSettings{MinScore: 0.7}
+	kept.Normalize()
+	if kept.MinScore != 0.7 {
+		t.Fatalf("an explicit threshold was overwritten: %v", kept.MinScore)
+	}
+
+	pair := RecaptchaSettings{ClientID: "6Le-site", ClientSecret: "6Le-secret"}
+	for _, score := range []float64{MinRecaptchaMinScore, DefaultRecaptchaMinScore, MaxRecaptchaMinScore} {
+		settings := pair
+		settings.MinScore = score
+		if problem := settings.Validate(); problem != "" {
+			t.Fatalf("score %v rejected: %q", score, problem)
+		}
+	}
+	for _, score := range []float64{0.05, 0.95, 1} {
+		settings := pair
+		settings.MinScore = score
+		if problem := settings.Validate(); problem == "" {
+			t.Fatalf("score %v accepted, want a validation problem", score)
+		}
+	}
+
+	// The pair stays the switch: no threshold can enable a captcha without keys.
+	onlyScore := RecaptchaSettings{MinScore: 0.5}
+	if onlyScore.Enabled() {
+		t.Fatal("a threshold alone must not enable the captcha")
+	}
+}
+
+// TestRecaptchaActions guards the names shared with the frontend: they travel
+// inside the token and are compared server side, so renaming one without the
+// other would reject every submit of that form.
+func TestRecaptchaActions(t *testing.T) {
+	if RecaptchaActionLogin != "login" {
+		t.Fatalf("login action = %q", RecaptchaActionLogin)
+	}
+	if RecaptchaActionStatusSubscribe != "status_page_subscribe" {
+		t.Fatalf("subscription action = %q", RecaptchaActionStatusSubscribe)
+	}
+	if RecaptchaActionLogin == RecaptchaActionStatusSubscribe {
+		t.Fatal("the two forms must not share an action")
+	}
+}

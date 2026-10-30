@@ -38,13 +38,26 @@ const saving = ref(false)
 const purgeOpen = ref(false)
 const purging = ref(false)
 
-// --- Login protection (Google reCAPTCHA) ------------------------------------
+// --- Login protection (Google reCAPTCHA v3) --------------------------------
 // The keys used to come from RECAPTCHA_CLIENTID / RECAPTCHA_CLIENTSECRET; they
 // now live in the settings table, so they can be rotated here and the next
 // login attempt uses them (no restart). An empty pair switches the captcha off,
 // which is why the card has no separate switch: the API derives `enabled`.
-const captcha = ref<RecaptchaSettings>({ client_id: '', client_secret: '', enabled: false })
+// v3 answers every execute with a score, so MinScore is the actual policy.
+const captcha = ref<RecaptchaSettings>({
+  client_id: '',
+  client_secret: '',
+  min_score: 0.5,
+  enabled: false,
+})
 const captchaSaving = ref(false)
+/** String wrapper: the number input speaks strings. */
+const captchaMinScore = computed({
+  get: () => String(captcha.value.min_score ?? 0.5),
+  set: (value: string) => {
+    captcha.value.min_score = Number(value)
+  },
+})
 
 // --- Certificate & domain expiration (moved here from the TLD/SSL page) -----
 // The job settings live with the other runtime settings; the TLD/SSL page keeps
@@ -199,16 +212,19 @@ async function saveExpiry(): Promise<void> {
   }
 }
 
-/** saveCaptcha stores the reCAPTCHA pair used by the login and subscription forms. */
+/** saveCaptcha stores the reCAPTCHA pair and the score threshold. */
 async function saveCaptcha(): Promise<void> {
   captchaSaving.value = true
   try {
     captcha.value = await api.updateRecaptchaSettings({
       client_id: captcha.value.client_id,
       client_secret: captcha.value.client_secret,
+      // An emptied input would arrive as NaN, which the API refuses: fall back
+      // to Google's recommendation instead of failing the save.
+      min_score: toNumber(captcha.value.min_score, 0.5),
     })
     toast.success(t('common.saved'))
-    // The login form and the public pages read these two values on boot.
+    // The login form and the public pages read these values on boot.
     await app.bootstrap()
   } catch (error) {
     toast.error(t('common.error'), translateError(error))
@@ -310,6 +326,19 @@ onMounted(load)
             autocomplete="off"
             spellcheck="false"
             placeholder="6Le..."
+          />
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-recaptcha-score" :help="t('settings.recaptchaMinScoreHelp')">
+            {{ t('settings.recaptchaMinScore') }}
+          </Label>
+          <Input
+            id="settings-recaptcha-score"
+            v-model="captchaMinScore"
+            type="number"
+            min="0.1"
+            max="0.9"
+            step="0.1"
           />
         </div>
       </div>

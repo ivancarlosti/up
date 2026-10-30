@@ -62,7 +62,8 @@
     "hours": "horas",
     "days": "dias",
     "previous": "Anterior",
-    "next": "Próxima"
+    "next": "Próxima",
+    "captchaUnavailable": "Não foi possível carregar o captcha. Atualize a página e tente novamente."
   },
   "nav": {
     "dashboard": "Painel",
@@ -850,11 +851,13 @@
     "lighthouseCard": "Desempenho web (Lighthouse)",
     "lighthouseCardHelp": "Medições do PageSpeed Insights: agendamento, ritmo, chave de API e retenção do histórico.",
     "recaptchaCard": "Proteção do login (reCAPTCHA)",
-    "recaptchaCardHelp": "Google reCAPTCHA do formulário de login e do formulário público de inscrição.",
+    "recaptchaCardHelp": "Google reCAPTCHA v3 (baseado em pontuação) do formulário de login e do formulário público de inscrição. Um par de chaves v2 não funciona aqui.",
     "recaptchaClientId": "Chave do site",
     "recaptchaClientIdHelp": "A chave pública do console do reCAPTCHA. Ela é enviada ao navegador.",
     "recaptchaClientSecret": "Chave secreta",
     "recaptchaClientSecretHelp": "A chave secreta do mesmo par. Ela permanece no servidor e só aparece aqui.",
+    "recaptchaMinScore": "Pontuação mínima",
+    "recaptchaMinScoreHelp": "O reCAPTCHA v3 responde com uma pontuação de 0 a 1 em vez de um desafio. Requisições abaixo desse valor são recusadas; o Google sugere começar em 0,5.",
     "recaptchaActive": "O reCAPTCHA está ativo: o login e a inscrição pública exigem um token.",
     "recaptchaInactive": "O reCAPTCHA está desativado. Preencha as duas chaves para exigir o token (apenas uma é recusada)."
   },
@@ -874,10 +877,8 @@
     "submit": "Entrar",
     "signingIn": "Entrando…",
     "withKeycloak": "Entrar com Keycloak",
-    "captchaHint": "Confirme o captcha para continuar",
     "noneHint": "Este painel está aberto, sem necessidade de login.",
-    "goToDashboard": "Ir para o painel",
-    "captchaUnavailable": "Não foi possível carregar o captcha. Atualize a página e tente novamente."
+    "goToDashboard": "Ir para o painel"
   },
   "publicStatus": {
     "overallUp": "Todos os sistemas operantes",
@@ -897,7 +898,6 @@
     "subscribeSubmit": "Assinar",
     "subscribeSent": "Verifique sua caixa de entrada: enviamos um link para confirmar sua assinatura.",
     "subscribePrivacy": "Confirmação em duas etapas. Você pode cancelar em qualquer e-mail.",
-    "subscribeCaptchaRequired": "Confirme o captcha para assinar.",
     "subscribeConfirmed": "Sua assinatura foi confirmada.",
     "subscribeUnsubscribed": "Você não receberá mais estes e-mails.",
     "subscribeLinkInvalid": "Este link de assinatura é inválido ou expirou."
@@ -959,7 +959,7 @@
     "ERR_AUTH_RATE_LIMITED": "Muitas tentativas de login",
     "ERR_AUTH_DOMAIN_NOT_ALLOWED": "Esta conta não tem acesso a esta instância",
     "ERR_RECAPTCHA_FAILED": "A validação do captcha falhou",
-    "ERR_RECAPTCHA_MISSING": "Confirme o captcha para continuar",
+    "ERR_RECAPTCHA_MISSING": "Não foi possível concluir o captcha — recarregue a página e tente novamente",
     "ERR_AUTH_STATE_INVALID": "Sessão de login expirada, tente novamente",
     "ERR_AUTH_PROVIDER_ERROR": "O provedor de identidade retornou um erro",
     "ERR_AUTH_METHOD_DISABLED": "Este método de autenticação está desativado",

@@ -62,7 +62,8 @@
     "hours": "horas",
     "days": "días",
     "previous": "Anterior",
-    "next": "Siguiente"
+    "next": "Siguiente",
+    "captchaUnavailable": "No se pudo cargar el captcha. Actualiza la página e inténtalo de nuevo."
   },
   "nav": {
     "dashboard": "Panel",
@@ -850,11 +851,13 @@
     "lighthouseCard": "Rendimiento web (Lighthouse)",
     "lighthouseCardHelp": "Mediciones de PageSpeed Insights: programación, ritmo, clave de API y retención del historial.",
     "recaptchaCard": "Protección del inicio de sesión (reCAPTCHA)",
-    "recaptchaCardHelp": "Google reCAPTCHA del formulario de inicio de sesión y del formulario público de suscripción.",
+    "recaptchaCardHelp": "Google reCAPTCHA v3 (basado en puntuación) del inicio de sesión y del formulario público de suscripción. Un par de claves v2 no funciona aquí.",
     "recaptchaClientId": "Clave del sitio",
     "recaptchaClientIdHelp": "La clave pública de la consola de reCAPTCHA. Se envía al navegador.",
     "recaptchaClientSecret": "Clave secreta",
     "recaptchaClientSecretHelp": "La clave secreta del mismo par. Permanece en el servidor y solo se muestra aquí.",
+    "recaptchaMinScore": "Puntuación mínima",
+    "recaptchaMinScoreHelp": "reCAPTCHA v3 responde con una puntuación de 0 a 1 en lugar de un desafío. Las solicitudes por debajo de este valor se rechazan; Google sugiere empezar en 0,5.",
     "recaptchaActive": "reCAPTCHA está activo: el inicio de sesión y la suscripción pública exigen un token.",
     "recaptchaInactive": "reCAPTCHA está desactivado. Complete las dos claves para exigir el token (dejar solo una se rechaza)."
   },
@@ -874,10 +877,8 @@
     "submit": "Iniciar sesión",
     "signingIn": "Iniciando sesión…",
     "withKeycloak": "Iniciar sesión con Keycloak",
-    "captchaHint": "Confirma el captcha para continuar",
     "noneHint": "Este panel está abierto, no requiere inicio de sesión.",
-    "goToDashboard": "Ir al panel",
-    "captchaUnavailable": "No se pudo cargar el captcha. Actualiza la página e inténtalo de nuevo."
+    "goToDashboard": "Ir al panel"
   },
   "publicStatus": {
     "overallUp": "Todos los sistemas operativos",
@@ -897,7 +898,6 @@
     "subscribeSubmit": "Suscribirme",
     "subscribeSent": "Revisa tu bandeja: enviamos un enlace para confirmar tu suscripción.",
     "subscribePrivacy": "Confirmación en dos pasos. Puedes cancelar desde cualquier correo.",
-    "subscribeCaptchaRequired": "Confirma el captcha para suscribirte.",
     "subscribeConfirmed": "Tu suscripción está confirmada.",
     "subscribeUnsubscribed": "Ya no recibirás estos correos.",
     "subscribeLinkInvalid": "Este enlace de suscripción no es válido o expiró."
@@ -959,7 +959,7 @@
     "ERR_AUTH_RATE_LIMITED": "Demasiados intentos de inicio de sesión",
     "ERR_AUTH_DOMAIN_NOT_ALLOWED": "Esta cuenta no tiene acceso a esta instancia",
     "ERR_RECAPTCHA_FAILED": "La validación del captcha falló",
-    "ERR_RECAPTCHA_MISSING": "Confirma el captcha para continuar",
+    "ERR_RECAPTCHA_MISSING": "No se pudo completar el captcha — recarga la página e inténtalo de nuevo",
     "ERR_AUTH_STATE_INVALID": "La sesión de acceso expiró, inténtalo de nuevo",
     "ERR_AUTH_PROVIDER_ERROR": "El proveedor de identidad devolvió un error",
     "ERR_AUTH_METHOD_DISABLED": "Este método de autenticación está desactivado",

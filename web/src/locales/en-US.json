@@ -62,7 +62,8 @@
     "hours": "hours",
     "days": "days",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "captchaUnavailable": "The captcha could not be loaded. Refresh the page and try again."
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -850,11 +851,13 @@
     "lighthouseCard": "Web performance (Lighthouse)",
     "lighthouseCardHelp": "PageSpeed Insights measurements: schedule, pacing, API key and history retention.",
     "recaptchaCard": "Login protection (reCAPTCHA)",
-    "recaptchaCardHelp": "Google reCAPTCHA of the login form and of the public subscription form.",
+    "recaptchaCardHelp": "Google reCAPTCHA v3 (score based) of the login form and of the public subscription form. A v2 key pair does not work here.",
     "recaptchaClientId": "Site key",
     "recaptchaClientIdHelp": "The public site key from the reCAPTCHA console. It is sent to the browser.",
     "recaptchaClientSecret": "Secret key",
     "recaptchaClientSecretHelp": "The server side secret of the same pair. It stays on the server and is only shown here.",
+    "recaptchaMinScore": "Minimum score",
+    "recaptchaMinScoreHelp": "reCAPTCHA v3 answers with a score between 0 and 1 instead of a challenge. Requests below this value are rejected; Google suggests starting at 0.5.",
     "recaptchaActive": "reCAPTCHA is active: the login form and the public subscription form require a token.",
     "recaptchaInactive": "reCAPTCHA is off. Fill in both keys to require a token (one key alone is rejected)."
   },
@@ -874,10 +877,8 @@
     "submit": "Sign in",
     "signingIn": "Signing in…",
     "withKeycloak": "Sign in with Keycloak",
-    "captchaHint": "Confirm the captcha to continue",
     "noneHint": "This dashboard is open, no login required.",
-    "goToDashboard": "Go to the dashboard",
-    "captchaUnavailable": "The captcha could not be loaded. Refresh the page and try again."
+    "goToDashboard": "Go to the dashboard"
   },
   "publicStatus": {
     "overallUp": "All systems operational",
@@ -897,7 +898,6 @@
     "subscribeSubmit": "Subscribe",
     "subscribeSent": "Check your inbox: we sent a link to confirm your subscription.",
     "subscribePrivacy": "Double opt-in. You can unsubscribe from any e-mail.",
-    "subscribeCaptchaRequired": "Confirm the captcha to subscribe.",
     "subscribeConfirmed": "Your subscription is confirmed.",
     "subscribeUnsubscribed": "You will no longer receive these e-mails.",
     "subscribeLinkInvalid": "This subscription link is invalid or has expired."
@@ -959,7 +959,7 @@
     "ERR_AUTH_RATE_LIMITED": "Too many login attempts",
     "ERR_AUTH_DOMAIN_NOT_ALLOWED": "This account is not allowed on this instance",
     "ERR_RECAPTCHA_FAILED": "The captcha validation failed",
-    "ERR_RECAPTCHA_MISSING": "Confirm the captcha to continue",
+    "ERR_RECAPTCHA_MISSING": "The captcha could not be completed — reload the page and try again",
     "ERR_AUTH_STATE_INVALID": "The login session expired, please try again",
     "ERR_AUTH_PROVIDER_ERROR": "The identity provider returned an error",
     "ERR_AUTH_METHOD_DISABLED": "This authentication method is disabled",

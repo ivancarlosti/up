@@ -120,7 +120,8 @@ cannot mutate state; CORS additionally rejects an `Origin` different from
 - OIDC with PKCE (S256), nonce and a single use signed state cookie.
 - `KEYCLOAK_ACCOUNTS` allow list (exact addresses and/or domains) so a public
   identity provider cannot open the dashboard to the world.
-- Optional reCAPTCHA on the login form.
+- Optional reCAPTCHA v3 on the login form and on the public subscription form
+  (score threshold in Admin > Settings, `docs/authentication.md`).
 - Rate limiting per IP on the login endpoint.
 - Failed logins are logged with the client IP (`failed login attempt`); OIDC
   rejections are logged with the refused e-mail.
