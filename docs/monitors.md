@@ -321,7 +321,9 @@ names) and the position; the edit dialog is a **search box plus a member list**:
 typing filters the monitors by name, type or tags, clicking a result moves it into
 the group's member list (each member shows its template and its tags), and the
 remove button takes it out again. The search/pick pair replaces the checkbox grid
-of the first releases, which did not scale past a few dozen monitors.
+of the first releases, which did not scale past a few dozen monitors. The status
+page dialog uses the same pair for its monitors **and** its groups, so both admin
+screens behave the same way (see [status-pages.md](status-pages.md) §3.1).
 
 ## 8. Templates
 

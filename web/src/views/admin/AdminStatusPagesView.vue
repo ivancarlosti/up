@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink, Pencil, Plus, Tag, Trash2, Users } from 'lucide-vue-next'
+import { Boxes, ExternalLink, Pencil, Plus, Tag, Trash2, Users, X } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
-import Checkbox from '@/components/ui/Checkbox.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -41,6 +40,9 @@ const editing = ref<StatusPage | null>(null)
 const selectedMonitors = ref<number[]>([])
 const selectedGroups = ref<number[]>([])
 const form = ref<Partial<StatusPage>>(blank())
+// The term of the picker above the two selection lists (see the picker block
+// below): it filters the monitors and the groups the operator can still add.
+const pickerSearch = ref('')
 
 // Filter and sort of the pages table: the text filter looks at the title, the
 // slug and the description, and the sort choice is remembered per browser
@@ -176,6 +178,7 @@ async function load(): Promise<void> {
 async function openEdit(page: StatusPage): Promise<void> {
   editing.value = page
   form.value = JSON.parse(JSON.stringify(page))
+  pickerSearch.value = ''
   const items = await api.statusPageMonitors(page.id)
   selectedMonitors.value = items.map((item) => item.monitor_id)
   const links = await api.statusPageGroups(page.id)
@@ -188,6 +191,7 @@ function openCreate(): void {
   form.value = blank()
   selectedMonitors.value = []
   selectedGroups.value = []
+  pickerSearch.value = ''
   dialogOpen.value = true
 }
 
@@ -255,18 +259,112 @@ function subscriberStateClass(subscriber: StatusPageSubscriber): 'secondary' | '
 }
 
 
-function toggleMonitor(id: number, value: boolean): void {
-  const set = new Set(selectedMonitors.value)
-  if (value) set.add(id)
-  else set.delete(id)
-  selectedMonitors.value = [...set]
+// --- the picker of the dialog ----------------------------------------------
+// The same search-and-pick pair as the monitor group dialog (AdminMonitorGroupsView),
+// extended to the groups: typing filters both kinds and a click moves the row into
+// the list it belongs to. The two selections stay separate lists because the page
+// renders the explicit monitors first, in their order, and then one section per
+// group: one merged list would promise an order the backend does not keep.
+
+/** pickerTerm is the trimmed search term of the picker, lower cased once. */
+const pickerTerm = computed(() => pickerSearch.value.trim().toLowerCase())
+
+/** matchingMonitors applies the term to the name, the type and the tags. */
+const matchingMonitors = computed(() => {
+  const term = pickerTerm.value
+  if (!term) return monitors.value
+  return monitors.value.filter((monitor) =>
+    [monitor.name, monitor.type, monitor.tags].some((value) => (value ?? '').toLowerCase().includes(term)),
+  )
+})
+
+/** matchingGroups applies it to the name and the description. */
+const matchingGroups = computed(() => {
+  const term = pickerTerm.value
+  if (!term) return groups.value
+  return groups.value.filter((group) =>
+    [group.name, group.description].some((value) => (value ?? '').toLowerCase().includes(term)),
+  )
+})
+
+/**
+ * coveredByGroup maps every monitor a selected group already publishes to the
+ * name of that group: the page shows it without an explicit entry, so the picker
+ * reports it instead of offering the same monitor a second time.
+ */
+const coveredByGroup = computed(() => {
+  const covered = new Map<number, string>()
+  for (const group of groups.value) {
+    if (!selectedGroups.value.includes(group.id)) continue
+    for (const monitorId of group.monitor_ids ?? []) covered.set(monitorId, group.name)
+  }
+  return covered
+})
+
+/** offeredMonitors are the monitors the operator can still add (covered ones flagged). */
+const offeredMonitors = computed(() =>
+  matchingMonitors.value
+    .filter((monitor) => !selectedMonitors.value.includes(monitor.id))
+    .map((monitor) => ({ monitor, coveredBy: coveredByGroup.value.get(monitor.id) ?? '' })),
+)
+
+/** offeredGroups are the groups not linked to the page yet. */
+const offeredGroups = computed(() =>
+  matchingGroups.value.filter((group) => !selectedGroups.value.includes(group.id)),
+)
+
+/** pickerEmpty hides the offer box once there is nothing left to add. */
+const pickerEmpty = computed(() => offeredMonitors.value.length === 0 && offeredGroups.value.length === 0)
+
+/** pickerHasMatch tells "no result for the term" from "everything is already here". */
+const pickerHasMatch = computed(
+  () => matchingMonitors.value.length > 0 || matchingGroups.value.length > 0,
+)
+
+/** selectedMonitorRows resolves the explicit selection into the rows below the picker. */
+const selectedMonitorRows = computed(() => {
+  const byId = new Map(monitors.value.map((monitor) => [monitor.id, monitor]))
+  return selectedMonitors.value
+    .map((id) => byId.get(id))
+    .filter((monitor): monitor is Monitor => monitor !== undefined)
+})
+
+/** selectedGroupRows resolves the linked groups into the rows below the picker. */
+const selectedGroupRows = computed(() => {
+  const byId = new Map(groups.value.map((group) => [group.id, group]))
+  return selectedGroups.value
+    .map((id) => byId.get(id))
+    .filter((group): group is MonitorGroup => group !== undefined)
+})
+
+/** tagList splits the comma separated tags of a monitor into badge labels. */
+function tagList(monitor: Monitor): string[] {
+  return (monitor.tags ?? '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
 }
 
-function toggleGroup(id: number, value: boolean): void {
-  const set = new Set(selectedGroups.value)
-  if (value) set.add(id)
-  else set.delete(id)
-  selectedGroups.value = [...set]
+/** addMonitor appends a monitor at the end of the displayed monitors (their order). */
+function addMonitor(id: number): void {
+  if (selectedMonitors.value.includes(id)) return
+  selectedMonitors.value = [...selectedMonitors.value, id]
+}
+
+/** removeMonitor takes it off the page. */
+function removeMonitor(id: number): void {
+  selectedMonitors.value = selectedMonitors.value.filter((current) => current !== id)
+}
+
+/** addGroup appends a group: its section renders after the explicit monitors. */
+function addGroup(id: number): void {
+  if (selectedGroups.value.includes(id)) return
+  selectedGroups.value = [...selectedGroups.value, id]
+}
+
+/** removeGroup unlinks it, so the monitors it published leave the page with it. */
+function removeGroup(id: number): void {
+  selectedGroups.value = selectedGroups.value.filter((current) => current !== id)
 }
 
 async function save(): Promise<void> {
@@ -527,30 +625,135 @@ onMounted(load)
           </div>
         </div>
         <div class="grid gap-2 sm:col-span-2">
-          <Label :help="t('statusPages.selectMonitorsHelp')">{{ t('statusPages.selectMonitors') }}</Label>
-          <div class="flex flex-wrap gap-4">
-            <Checkbox
-              v-for="monitor in monitors"
+          <Label :help="t('statusPages.pickerHelp')">{{ t('statusPages.pickerTitle') }}</Label>
+          <Input
+            id="status-page-picker"
+            v-model="pickerSearch"
+            :placeholder="t('statusPages.pickerPlaceholder')"
+          />
+          <!--
+            The picker: every monitor and group matching the search that is not on
+            the page yet. A click appends it to the list it belongs to below. A
+            monitor a selected group already publishes is listed but not clickable,
+            so the same monitor is never added twice.
+          -->
+          <div v-if="!pickerEmpty" class="max-h-56 overflow-y-auto rounded-md border border-border">
+            <template v-if="offeredMonitors.length">
+              <p class="border-b border-border bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                {{ t('statusPages.monitors') }}
+              </p>
+              <button
+                v-for="offer in offeredMonitors"
+                :key="`monitor-${offer.monitor.id}`"
+                type="button"
+                class="flex w-full flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-start text-sm last:border-b-0"
+                :class="offer.coveredBy ? 'cursor-default text-muted-foreground' : 'hover:bg-muted'"
+                :disabled="Boolean(offer.coveredBy)"
+                :title="offer.coveredBy
+                  ? t('statusPages.pickerCovered', { group: offer.coveredBy })
+                  : t('statusPages.pickerAddMonitor')"
+                :aria-label="offer.coveredBy
+                  ? t('statusPages.pickerCovered', { group: offer.coveredBy })
+                  : t('statusPages.pickerAddMonitor')"
+                @click="addMonitor(offer.monitor.id)"
+              >
+                <Boxes v-if="offer.coveredBy" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <Plus v-else class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span class="min-w-0 truncate">{{ offer.monitor.name }}</span>
+                <Badge variant="secondary" class="ms-auto shrink-0">{{ offer.monitor.type }}</Badge>
+                <Badge v-if="offer.coveredBy" variant="outline" class="min-w-0">
+                  <span class="min-w-0 truncate">
+                    {{ t('statusPages.pickerVia', { group: offer.coveredBy }) }}
+                  </span>
+                </Badge>
+              </button>
+            </template>
+            <template v-if="offeredGroups.length">
+              <p class="border-b border-border bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                {{ t('statusPages.groups') }}
+              </p>
+              <button
+                v-for="group in offeredGroups"
+                :key="`group-${group.id}`"
+                type="button"
+                class="flex w-full flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-start text-sm last:border-b-0 hover:bg-muted"
+                :title="t('statusPages.pickerAddGroup')"
+                :aria-label="t('statusPages.pickerAddGroup')"
+                @click="addGroup(group.id)"
+              >
+                <Plus class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span class="min-w-0 truncate">{{ group.name }}</span>
+                <Badge variant="outline" class="ms-auto shrink-0">
+                  {{ t('statusPages.pickerGroupSize', { count: group.monitor_count }) }}
+                </Badge>
+              </button>
+            </template>
+          </div>
+          <p v-else class="text-[11px] text-muted-foreground">
+            {{ pickerHasMatch ? t('statusPages.pickerAllAdded') : t('common.noMatch') }}
+          </p>
+          <p v-if="!groups.length" class="text-[11px] text-muted-foreground">
+            {{ t('statusPages.pickerNoGroupsHint') }}
+          </p>
+
+          <!-- The monitors of the page, in display order: they render before the groups. -->
+          <Label class="mt-1">{{ t('statusPages.selectMonitors') }} ({{ selectedMonitors.length }})</Label>
+          <div v-if="selectedMonitorRows.length" class="flex flex-col gap-1">
+            <div
+              v-for="monitor in selectedMonitorRows"
               :key="monitor.id"
-              :model-value="selectedMonitors.includes(monitor.id)"
-              @update:model-value="toggleMonitor(monitor.id, $event)"
+              class="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm"
             >
-              {{ monitor.name }}
-            </Checkbox>
+              <span class="min-w-0 truncate font-medium">{{ monitor.name }}</span>
+              <Badge variant="secondary" class="shrink-0">{{ monitor.type }}</Badge>
+              <Badge v-for="tag in tagList(monitor)" :key="tag" variant="outline" class="shrink-0">
+                {{ tag }}
+              </Badge>
+              <Badge v-if="coveredByGroup.get(monitor.id)" variant="outline" class="min-w-0">
+                <span class="min-w-0 truncate">
+                  {{ t('statusPages.pickerAlsoIn', { group: coveredByGroup.get(monitor.id) }) }}
+                </span>
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="ms-auto shrink-0 text-status-down"
+                :title="t('statusPages.pickerRemoveMonitor')"
+                :aria-label="t('statusPages.pickerRemoveMonitor')"
+                @click="removeMonitor(monitor.id)"
+              >
+                <X class="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
-        </div>
-        <div v-if="groups.length" class="grid gap-2 sm:col-span-2">
-          <Label :help="t('statusPages.selectGroupsHelp')">{{ t('statusPages.selectGroups') }}</Label>
-          <div class="flex flex-wrap gap-4">
-            <Checkbox
-              v-for="group in groups"
+          <p v-else class="text-[11px] text-muted-foreground">{{ t('statusPages.pickerNoMonitors') }}</p>
+
+          <!-- The linked groups: each one renders its own section after the monitors. -->
+          <Label class="mt-1">{{ t('statusPages.selectGroups') }} ({{ selectedGroups.length }})</Label>
+          <div v-if="selectedGroupRows.length" class="flex flex-col gap-1">
+            <div
+              v-for="group in selectedGroupRows"
               :key="group.id"
-              :model-value="selectedGroups.includes(group.id)"
-              @update:model-value="toggleGroup(group.id, $event)"
+              class="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm"
             >
-              {{ group.name }} ({{ group.monitor_count }})
-            </Checkbox>
+              <Boxes class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span class="min-w-0 truncate font-medium">{{ group.name }}</span>
+              <Badge variant="outline" class="ms-auto shrink-0">
+                {{ t('statusPages.pickerGroupSize', { count: group.monitor_count }) }}
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="shrink-0 text-status-down"
+                :title="t('statusPages.pickerRemoveGroup')"
+                :aria-label="t('statusPages.pickerRemoveGroup')"
+                @click="removeGroup(group.id)"
+              >
+                <X class="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
+          <p v-else class="text-[11px] text-muted-foreground">{{ t('statusPages.pickerNoGroups') }}</p>
         </div>
       </div>
 

@@ -4,11 +4,12 @@
  *
  * The promise: a page that includes a group renders every monitor of the group,
  * so adding a monitor to the group publishes it on the page without touching the
- * page. The script creates the two monitors, the group, the page and the
+ * page. The script creates the three monitors, the group, the page and the
  * memberships with the API, checks the rendered page in a real browser, checks
- * that the admin dialog shows the selection and finally deletes everything it
- * created. The monitors are created here on purpose: taking the first rows of the
- * monitor list made the check fail on an empty database.
+ * that the admin dialog lists the group and publishes a monitor picked in its
+ * search box, and finally deletes everything it created. The monitors are created
+ * here on purpose: taking the first rows of the monitor list made the check fail
+ * on an empty database.
  *
  * Usage:
  *   npm run build && npm run e2e:status-page-groups -- --url http://localhost:3000
@@ -52,10 +53,14 @@ try {
   console.log(`> ${url} with ${chrome}`)
 
   // --- fixtures through the API --------------------------------------------
-  // The two monitors are created here: borrowing the first two rows of the
-  // monitor list made the check fail on a database that has no monitor yet.
+  // The three monitors are created here: borrowing the first rows of the monitor
+  // list made the check fail on a database that has no monitor yet.
   await page.goto(`${url}/admin/status-pages`, { settle: 1500 })
-  const monitorNames = [`e2e page ${stamp} monitor a`, `e2e page ${stamp} monitor b`]
+  const monitorNames = [
+    `e2e page ${stamp} monitor a`,
+    `e2e page ${stamp} monitor b`,
+    `e2e page ${stamp} monitor c`,
+  ]
   const monitors = await api(`(async () => {
     const made = []
     for (const [index, name] of ${JSON.stringify(monitorNames)}.entries()) {
@@ -78,8 +83,8 @@ try {
   })()`)
   created.monitors.push(...monitors.map((monitor) => monitor.id).filter(Boolean))
   check(
-    'the two monitors of the fixture were created',
-    monitors.length === 2 && monitors.every((monitor) => monitor.status === 201 && monitor.id > 0),
+    'the three monitors of the fixture were created',
+    monitors.length === 3 && monitors.every((monitor) => monitor.status === 201 && monitor.id > 0),
     monitors.map((monitor) => `${monitor.status} ${monitor.name}`).join(', '),
   )
 
@@ -121,7 +126,7 @@ try {
     const saved = await fetch('/api/status-pages/${statusPage.id}', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...current, show_cert_expiry: true, show_domain_expiry: false }),
+      body: JSON.stringify({ ...current.page, show_cert_expiry: true, show_domain_expiry: false }),
     })
     const anonymous = await fetch('/api/public/status/${slug}').then((r) => r.json())
     return {
@@ -176,11 +181,15 @@ try {
     secondPass.text.includes(monitors[0].name) && secondPass.headings.includes(groupName),
   )
 
-  // --- the admin dialog shows the selection --------------------------------
+  // --- the admin dialog drives the selection through the picker ------------
+  // The dialog no longer lists checkboxes: it offers a filtered picker over the
+  // monitors and the groups, plus the two lists of what the page publishes. This
+  // checks that the group the page carries is listed, that a monitor of that group
+  // is not offered a second time, and that a monitor picked in the box is saved.
   await page.goto(`${url}/admin/status-pages`, { settle: 1500 })
   const dialog = await api(`(async () => {
     const row = [...document.querySelectorAll('table tbody tr')].find(
-      (tr) => ((tr.querySelector('td')?.innerText ?? '').split('\\n')[0] ?? '').trim() === ${JSON.stringify(pageTitle)},
+      (tr) => (tr.querySelector('td')?.innerText ?? '').trim().startsWith(${JSON.stringify(pageTitle)}),
     )
     const button = [...(row?.querySelectorAll('button') ?? [])].find((b) =>
       /^(edit|editar)$/i.test(b.getAttribute('aria-label') ?? '') || /^(edit|editar)$/i.test(b.textContent.trim()),
@@ -188,20 +197,70 @@ try {
     if (!button) return { opened: false }
     button.click()
     await new Promise((resolve) => setTimeout(resolve, 900))
-    const labels = [...document.querySelectorAll('label')].map((el) => el.innerText.trim())
-    const box = [...document.querySelectorAll('label')]
-      .find((el) => el.innerText.trim().startsWith(${JSON.stringify(groupName)}))
-      ?.querySelector('button[role="checkbox"]')
+    const dialog = document.querySelector('[role="dialog"]')
+    if (!dialog) return { opened: false }
+    const groupRow = [...dialog.querySelectorAll('div')].find((el) =>
+      (el.innerText ?? '').trim().startsWith(${JSON.stringify(groupName)}),
+    )
+    const removeGroup = [...(groupRow?.querySelectorAll('button') ?? [])].find((b) =>
+      /remove this group from the page|quitar este grupo de la página/i.test(b.getAttribute('aria-label') ?? ''),
+    )
+    const coveredRow = [...dialog.querySelectorAll('button')].find((b) =>
+      (b.innerText ?? '').trim().startsWith(${JSON.stringify(monitors[0].name)}),
+    )
     return {
       opened: true,
-      hasGroup: labels.some((text) => text.startsWith(${JSON.stringify(groupName)})),
-      checked: box?.getAttribute('data-state') === 'checked' || box?.getAttribute('aria-checked') === 'true',
-      labels: labels.filter((text) => text.startsWith('e2e')).slice(0, 3),
+      hasSearch: Boolean(dialog.querySelector('#status-page-picker')),
+      hasGroup: Boolean(groupRow),
+      removable: Boolean(removeGroup),
+      coveredDisabled: coveredRow?.disabled === true,
+      coveredBadge: /via |vía /i.test(coveredRow?.innerText ?? ''),
+      text: (dialog.innerText ?? '').slice(0, 400),
     }
   })()`)
   check('admin dialog opens', dialog.opened)
-  check('group listed in the dialog', dialog.hasGroup)
-  check('group checkbox is checked', dialog.checked, JSON.stringify(dialog.labels))
+  check('the picker search box is there', dialog.hasSearch)
+  check('group listed among the displayed groups', dialog.hasGroup, dialog.hasGroup ? '' : dialog.text)
+  check('group can be removed from the page', dialog.removable)
+  check('a monitor of the group is not offered twice', dialog.coveredDisabled && dialog.coveredBadge)
+
+  const picked = await api(`(async () => {
+    const dialog = document.querySelector('[role="dialog"]')
+    const input = dialog?.querySelector('#status-page-picker')
+    if (!input) return { clicked: false }
+    input.value = ${JSON.stringify(monitors[2].name)}
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    const offer = [...dialog.querySelectorAll('button')].find((b) =>
+      (b.innerText ?? '').trim().startsWith(${JSON.stringify(monitors[2].name)}),
+    )
+    if (!offer) return { clicked: false, seen: (dialog.innerText ?? '').slice(0, 300) }
+    offer.click()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const listed = [...dialog.querySelectorAll('div')].some(
+      (el) =>
+        (el.innerText ?? '').trim().startsWith(${JSON.stringify(monitors[2].name)}) &&
+        [...el.querySelectorAll('button')].some((b) =>
+          /remove this monitor from the page|quitar este monitor de la página/i.test(b.getAttribute('aria-label') ?? ''),
+        ),
+    )
+    const save = [...dialog.querySelectorAll('button')].find((b) =>
+      /^(save|guardar|salvar)$/i.test(b.textContent.trim()),
+    )
+    if (!save) return { clicked: true, listed, saved: false }
+    save.click()
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    const stored = await fetch('/api/status-pages/${statusPage.id}/monitors').then((r) => r.json())
+    return { clicked: true, listed, saved: true, stored: stored.map((item) => item.monitor_id) }
+  })()`)
+  check('monitor picked in the search box', picked.clicked, picked.seen)
+  check('it moves to the displayed monitors', picked.listed)
+  check(
+    'saving stores it on the page',
+    picked.saved && (picked.stored ?? []).includes(monitors[2].id),
+    JSON.stringify(picked.stored),
+  )
+
   await page.screenshot('/tmp/up-e2e-status-page-groups.png')
 
   const consoleErrors = [...page.consoleMessages, ...page.exceptions].filter((line) =>

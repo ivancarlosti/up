@@ -115,6 +115,24 @@ The public payload keeps `monitors` (the flat union, what the badge and the publ
 API have always used) and adds `groups` (the same list split into sections), so
 the order of the sections and of the flat list always agree.
 
+Both lists are picked in the page dialog (**Admin > Status pages > New/Edit page**)
+with the same search-and-pick pair as the monitor group dialog (see
+[monitors.md](monitors.md) §7): one search box filters the monitors (name, type,
+tags) and the groups (name, description), a click appends the row to the list it
+belongs to — `Displayed monitors` for the display order, `Displayed groups` for
+the section order — and the remove button takes it out again. The two lists stay
+separate because the page renders the explicit monitors first and the group
+sections after them, so one interleaved list would promise an order the API does
+not keep.
+
+A monitor that a selected group already publishes is still listed by the search
+but **not** clickable (`via <group>`): an explicit entry would only add a
+redundant row that the renderer drops anyway. The reverse case — an explicit
+monitor that later joins a linked group — is kept and marked `also in <group>`,
+so nothing disappears silently; the operator can remove the explicit row to let
+the group order win. A page with no groups still shows the group half of the
+picker with a hint pointing at Admin > Monitor groups.
+
 ## 4. Badge
 
 ```markdown

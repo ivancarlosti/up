@@ -179,8 +179,8 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > `npm run e2e:status-page-groups` proves the membership promise: it creates its
 > own monitors plus the group and the page, and checks that a public page that
 > includes a group shows a monitor added to the group **without editing the
-> page**, while the row of the admin status pages table opens the dialog with the
-> group already ticked.
+> page**, while the row of the admin status pages table opens the dialog that
+> lists the group and publishes a third monitor picked in its search box.
 >
 > `npm run e2e:templates` drives the templates page and both bulk flows: create a
 > template, add two monitors by pasting `name,url` in the bulk dialog (with a row
