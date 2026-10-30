@@ -25,7 +25,7 @@ func (h *Container) subscribeStatusPage(c *gin.Context) {
 	if !bindJSON(c, &payload) {
 		return
 	}
-	if h.Cfg.RecaptchaEnabled {
+	if h.Settings.RecaptchaEnabled() {
 		if strings.TrimSpace(payload.RecaptchaToken) == "" {
 			api.WriteError(c, http.StatusForbidden, i18n.CodeAuthCaptchaMissing,
 				"the captcha token is required")

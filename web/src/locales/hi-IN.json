@@ -762,7 +762,15 @@
     "certificateCard": "प्रमाणपत्र और डोमेन समाप्ति",
     "certificateCardHelp": "दैनिक प्रमाणपत्र और डोमेन जांच कब और कितनी तेज़ी से चलती हैं। TLD नियम TLD/SSL पेज पर हैं।",
     "lighthouseCard": "वेब प्रदर्शन (Lighthouse)",
-    "lighthouseCardHelp": "PageSpeed Insights माप: शेड्यूल, गति, API कुंजी और इतिहास प्रतिधारण।"
+    "lighthouseCardHelp": "PageSpeed Insights माप: शेड्यूल, गति, API कुंजी और इतिहास प्रतिधारण।",
+    "recaptchaCard": "लॉगिन सुरक्षा (reCAPTCHA)",
+    "recaptchaCardHelp": "लॉगिन फ़ॉर्म और सार्वजनिक सदस्यता फ़ॉर्म का Google reCAPTCHA।",
+    "recaptchaClientId": "साइट कुंजी",
+    "recaptchaClientIdHelp": "reCAPTCHA कंसोल की सार्वजनिक कुंजी। यह ब्राउज़र को भेजी जाती है।",
+    "recaptchaClientSecret": "गोपनीय कुंजी",
+    "recaptchaClientSecretHelp": "उसी जोड़ी की गोपनीय कुंजी। यह सर्वर पर ही रहती है और केवल यहाँ दिखती है।",
+    "recaptchaActive": "reCAPTCHA सक्रिय है: लॉगिन और सार्वजनिक सदस्यता के लिए टोकन आवश्यक है।",
+    "recaptchaInactive": "reCAPTCHA बंद है। टोकन अनिवार्य करने के लिए दोनों कुंजियाँ भरें (केवल एक भरना अस्वीकार होता है)।"
   },
   "about": {
     "title": "परिचय",

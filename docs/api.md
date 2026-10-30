@@ -527,6 +527,8 @@ routes always answer (a node with `CLUSTER_PEER_API=false` replies `403`, not
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/admin/settings` | locale/theme/clock defaults, the global uptime period and the history retention + instance info |
+| GET | `/api/admin/recaptcha` | login protection (Google reCAPTCHA) of the login form and the public subscription form: `{client_id, client_secret, enabled}` (`enabled` is derived: both keys stored or none) |
+| PUT | `/api/admin/recaptcha` | `{"client_id":"6Le...","client_secret":"6Le..."}` -> the same payload. Both keys or neither (`400 ERR_VALIDATION`); an empty pair switches the captcha off. Applies to the next request, no restart |
 | PUT | `/api/admin/settings` | `{"default_locale":"pt-BR","default_theme":"dark","time_format":"24h","timezone":"America/Sao_Paulo","app_name":"Up","heartbeat_retention_days":90,"uptime_window_hours":168}` -> `204` (`time_format` is `auto`, `12h` or `24h`; `timezone` is an IANA name, shared by the daily certificate/domain and web performance jobs; `uptime_window_hours` is `24`, `168`, `336` or `720`; `heartbeat_retention_days` is `0`-`3650`, `0` = never purge). Every field is optional |
 | GET | `/api/admin/maintenance/heartbeats` | `{retention_days, default_days, max_days, total, oldest, newest, would_delete, cutoff?}` |
 | POST | `/api/admin/maintenance/heartbeats/purge` | deletes the history older than the retention: `{}` uses the configured days, `{"days": 90}` overrides it -> `{deleted, days, before}` |

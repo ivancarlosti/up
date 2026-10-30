@@ -90,6 +90,13 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	admin.GET("/admin/settings", h.adminSettings)
 	admin.PUT("/admin/settings", h.updateAdminSettings)
 
+	// Login protection (Google reCAPTCHA) of the login form and of the public
+	// subscription form. It lives in the settings table, so a rotation applies
+	// on the next request instead of on the next restart.
+	captcha := admin.Group("/admin/recaptcha")
+	captcha.GET("", h.adminRecaptcha)
+	captcha.PUT("", h.updateAdminRecaptcha)
+
 	// History housekeeping: what is stored and the explicit purge action.
 	maintenance := admin.Group("/admin/maintenance")
 	maintenance.GET("/heartbeats", h.heartbeatRetentionPreview)

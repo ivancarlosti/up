@@ -21,6 +21,7 @@ import type {
   LighthouseSettingsPayload,
   LighthouseSettingsResponse,
   PeerStatusReport,
+  RecaptchaSettings,
   StatusPage,
   StatusPageMonitorItem,
   StatusPageGroupLink,
@@ -80,6 +81,14 @@ export const adminApi = {
     uptime_window_hours?: number
   }) =>
     put<void>('/api/admin/settings', payload),
+
+  /**
+   * Login protection (Google reCAPTCHA) shared by the login form and the public
+   * subscription form. Both keys or neither: an empty pair switches it off.
+   */
+  recaptchaSettings: () => get<RecaptchaSettings>('/api/admin/recaptcha'),
+  updateRecaptchaSettings: (payload: { client_id: string; client_secret: string }) =>
+    put<RecaptchaSettings>('/api/admin/recaptcha', payload),
 
   /** History housekeeping: what is stored and the explicit purge action. */
   heartbeatRetention: () => get<HeartbeatRetentionStats>('/api/admin/maintenance/heartbeats'),

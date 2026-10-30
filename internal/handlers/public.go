@@ -65,14 +65,18 @@ func (h *Container) version(c *gin.Context) {
 
 // publicSettings is consumed by the frontend on boot: it tells the SPA which
 // auth method is active, which defaults to apply and what the instance is.
+//
+// The reCAPTCHA pair lives in the shared settings (Admin > Settings) and only
+// the public site key leaves the server: the secret stays behind the admin API.
 func (h *Container) publicSettings(c *gin.Context) {
+	captcha := h.Settings.Recaptcha()
 	api.OK(c, gin.H{
 		"app_name":               h.Settings.GetOr(models.SettingAppName, "Up"),
 		"version":                version.Version,
 		"auth_method":            string(h.Cfg.AuthMethod),
 		"auth_enabled":           h.Cfg.AuthEnabled(),
-		"recaptcha_enabled":      h.Cfg.RecaptchaEnabled,
-		"recaptcha_client_id":    h.Cfg.RecaptchaClientID,
+		"recaptcha_enabled":      captcha.Enabled(),
+		"recaptcha_client_id":    captcha.ClientID,
 		"default_locale":         h.Settings.DefaultLocale(),
 		"default_theme":          h.Settings.DefaultTheme(),
 		"time_format":            h.Settings.TimeFormat(),

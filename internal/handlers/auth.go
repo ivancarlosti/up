@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,15 +18,20 @@ import (
 )
 
 // session reports whether the caller is authenticated and how login works.
+//
+// The captcha keys come from the shared settings table (Admin > Settings), not
+// from the environment: the SPA reads this payload on boot and only gets the
+// public site key, never the secret.
 func (h *Container) session(c *gin.Context) {
 	identity, ok := h.Sessions.CurrentIdentity(c.Request.Context(), c.Request)
+	captcha := h.Settings.Recaptcha()
 	payload := gin.H{
 		"authenticated":       ok,
 		"auth_method":         string(h.Cfg.AuthMethod),
 		"login_enabled":       h.Cfg.AuthMethod == config.AuthMethodAccount,
 		"oidc_enabled":        h.Cfg.AuthMethod == config.AuthMethodKeycloak,
-		"recaptcha_enabled":   h.Cfg.RecaptchaEnabled,
-		"recaptcha_client_id": h.Cfg.RecaptchaClientID,
+		"recaptcha_enabled":   captcha.Enabled(),
+		"recaptcha_client_id": captcha.ClientID,
 		"instance_url":        h.Cfg.AppURL,
 	}
 	if ok {
@@ -58,7 +64,7 @@ func (h *Container) login(c *gin.Context) {
 		return
 	}
 
-	if h.Cfg.RecaptchaEnabled {
+	if captcha := h.Settings.Recaptcha(); captcha.Enabled() {
 		if strings.TrimSpace(payload.RecaptchaToken) == "" {
 			api.WriteError(c, http.StatusForbidden, i18n.CodeAuthCaptchaMissing,
 				"the captcha token is required")
@@ -102,9 +108,18 @@ func (h *Container) logout(c *gin.Context) {
 }
 
 // verifyRecaptcha validates a Google reCAPTCHA token (v2 checkbox or v3).
+//
+// The secret is read from the shared settings on each call, so a key rotated in
+// Admin > Settings is used by the very next attempt.
 func (h *Container) verifyRecaptcha(ctx context.Context, token, clientIP string) error {
+	secret := h.Settings.Recaptcha().ClientSecret
+	if secret == "" {
+		// The captcha was switched off between the gate of the caller and this
+		// call: fail closed instead of posting an empty secret to Google.
+		return errors.New("the reCAPTCHA secret is not configured")
+	}
 	form := url.Values{}
-	form.Set("secret", h.Cfg.RecaptchaClientSecret)
+	form.Set("secret", secret)
 	form.Set("response", token)
 	if clientIP != "" {
 		form.Set("remoteip", clientIP)

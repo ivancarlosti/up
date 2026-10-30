@@ -343,6 +343,48 @@ func (s *SettingService) SetExpiryLastRunDay(ctx context.Context, day int64) err
 	return s.Set(ctx, models.SettingExpiryLastRunDay, strconv.FormatInt(day, 10))
 }
 
+// Recaptcha returns the Google reCAPTCHA configuration of the public forms
+// (Admin > Settings, "Login protection"). The pair is read on every call so a
+// key rotated in the UI applies immediately, without a restart: the cache
+// behind Get already holds the row.
+//
+// An empty pair means "no captcha". There is no third "enabled" switch on
+// purpose: a flag turned on without keys could not be honoured.
+func (s *SettingService) Recaptcha() models.RecaptchaSettings {
+	out := models.RecaptchaSettings{
+		ClientID:     s.GetOr(models.SettingRecaptchaClientID, ""),
+		ClientSecret: s.GetOr(models.SettingRecaptchaClientSecret, ""),
+	}
+	out.Normalize()
+	return out
+}
+
+// RecaptchaEnabled reports whether the login form and the public subscription
+// form must carry a captcha token.
+func (s *SettingService) RecaptchaEnabled() bool {
+	return s.Recaptcha().Enabled()
+}
+
+// SetRecaptcha stores the captcha keys. The caller validates the payload (like
+// every other settings endpoint); the check is repeated here so a future
+// caller cannot persist a half filled configuration that would lock the login.
+func (s *SettingService) SetRecaptcha(ctx context.Context, settings models.RecaptchaSettings) error {
+	settings.Normalize()
+	if problem := settings.Validate(); problem != "" {
+		return errors.New(problem)
+	}
+	stored := map[string]string{
+		models.SettingRecaptchaClientID:     settings.ClientID,
+		models.SettingRecaptchaClientSecret: settings.ClientSecret,
+	}
+	for key, value := range stored {
+		if err := s.Set(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // LighthouseSettings returns the admin managed configuration of the daily web
 // performance job (Admin > Settings, shown again on the Web performance page).
 func (s *SettingService) LighthouseSettings() models.LighthouseSettings {

@@ -835,7 +835,15 @@
     "certificateCard": "Certificado y vencimiento del dominio",
     "certificateCardHelp": "Cuándo y con qué rapidez se ejecutan las comprobaciones diarias de certificado y dominio. Las reglas de TLD están en la página TLD/SSL.",
     "lighthouseCard": "Rendimiento web (Lighthouse)",
-    "lighthouseCardHelp": "Mediciones de PageSpeed Insights: programación, ritmo, clave de API y retención del historial."
+    "lighthouseCardHelp": "Mediciones de PageSpeed Insights: programación, ritmo, clave de API y retención del historial.",
+    "recaptchaCard": "Protección del inicio de sesión (reCAPTCHA)",
+    "recaptchaCardHelp": "Google reCAPTCHA del formulario de inicio de sesión y del formulario público de suscripción.",
+    "recaptchaClientId": "Clave del sitio",
+    "recaptchaClientIdHelp": "La clave pública de la consola de reCAPTCHA. Se envía al navegador.",
+    "recaptchaClientSecret": "Clave secreta",
+    "recaptchaClientSecretHelp": "La clave secreta del mismo par. Permanece en el servidor y solo se muestra aquí.",
+    "recaptchaActive": "reCAPTCHA está activo: el inicio de sesión y la suscripción pública exigen un token.",
+    "recaptchaInactive": "reCAPTCHA está desactivado. Complete las dos claves para exigir el token (dejar solo una se rechaza)."
   },
   "about": {
     "title": "Acerca de",

@@ -61,7 +61,8 @@ func (c *Config) validate() []string {
 	}
 
 	// --- Authentication ----------------------------------------------------
-	c.RecaptchaEnabled = c.RecaptchaClientID != "" && c.RecaptchaClientSecret != ""
+	// The reCAPTCHA keys are not validated here: they belong to the settings
+	// table and are checked when an administrator saves them.
 	switch c.AuthMethod {
 	case AuthMethodNone:
 		// Nothing to validate: the dashboard is fully open.

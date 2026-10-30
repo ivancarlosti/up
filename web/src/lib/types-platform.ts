@@ -421,6 +421,21 @@ export interface AdminSettings {
   uptime_windows: number[]
 }
 
+/**
+ * RecaptchaSettings is the Google reCAPTCHA configuration of the login form and
+ * of the public subscription form (Admin > Settings, "Login protection").
+ *
+ * There is no explicit switch: filling both keys turns the captcha on, and the
+ * API derives `enabled` from them, so the card never has to guess.
+ */
+export interface RecaptchaSettings {
+  /** Public site key, the only half a visitor ever receives. */
+  client_id: string
+  /** Server side secret, used by POST /login and the subscription form. */
+  client_secret: string
+  enabled: boolean
+}
+
 /** Response of GET /api/admin/maintenance/heartbeats. */
 export interface HeartbeatRetentionStats {
   retention_days: number

@@ -62,9 +62,10 @@ login screen.
 AUTH_METHOD=account
 ACCOUNT_LOGIN=admin@example.com
 ACCOUNT_PASSWORD=admin123
-RECAPTCHA_CLIENTID=
-RECAPTCHA_CLIENTSECRET=
 ```
+
+The reCAPTCHA keys are not configuration: they live in the dashboard
+(Admin > Settings > **Login protection**), see below.
 
 ```bash
 curl -c cookies.txt -X POST http://localhost:3000/api/auth/login \
@@ -87,15 +88,33 @@ Details:
 
 ### Optional Google reCAPTCHA
 
-When **both** `RECAPTCHA_CLIENTID` and `RECAPTCHA_CLIENTSECRET` are set, the SPA
-renders the widget and the login request must carry `recaptcha_token`:
+The captcha of the login form is configured **in the dashboard**, not in `.env`:
+Admin > Settings > **Login protection** (site key + secret, stored in the
+`settings` table as `recaptcha_client_id` / `recaptcha_client_secret`).
+
+- Both keys or neither: the API refuses a half filled pair
+  (`400 ERR_VALIDATION`) because it would either render a widget the server then
+  rejects or demand a token no client can mint.
+- There is no separate switch: filling both keys turns the captcha on, clearing
+  both turns it off. A rotation applies to the next request, without a restart.
+- The keys are security settings, so they are **not** synchronised between the
+  nodes of a cluster (`CLUSTER_SYNC_SETTINGS` only carries the presentation
+  whitelist): configure each node.
+- The `RECAPTCHA_CLIENTID` / `RECAPTCHA_CLIENTSECRET` variables were removed. A
+  deployment that used them must paste the same values once in the settings
+  page; the boot logs a warning while they are still in the environment.
+
+The same pair protects the subscription form of the public status pages
+(`docs/status-pages.md`). When it is set, the login request (and the subscribe
+request) must carry `recaptcha_token`:
 
 - missing token -> `403 ERR_RECAPTCHA_MISSING`
 - failed validation or score < 0.5 -> `403 ERR_RECAPTCHA_FAILED`
 
 For manual tests Google publishes always-pass test keys (site key
 `6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI`, secret
-`6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`).
+`6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`); paste them in the card, save, and
+the login form of the next visit renders the widget.
 
 ## 5. Mode `keycloak` (OIDC)
 

@@ -93,12 +93,14 @@ type Config struct {
 	DBSSL      bool
 
 	// --- Authentication ---------------------------------------------------
-	AuthMethod            AuthMethod
-	AccountLogin          string
-	AccountPassword       string
-	RecaptchaClientID     string
-	RecaptchaClientSecret string
-	RecaptchaEnabled      bool
+	AuthMethod      AuthMethod
+	AccountLogin    string
+	AccountPassword string
+	// The reCAPTCHA pair is not configuration any more: it lives in the shared
+	// settings table (Admin > Settings > "Login protection") and is read
+	// through services.SettingService, so a key rotation needs no restart and
+	// every node of a cluster keeps its own (security settings never
+	// synchronise). See models.SettingRecaptchaClientID.
 
 	KeycloakBaseURL               string
 	KeycloakRealm                 string
@@ -227,23 +229,21 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		AppURL:                trimURL(env("APP_URL", "http://localhost:3000")),
-		AppPort:               envInt("APP_PORT", 3000),
-		DBHost:                env("DB_HOST", ""),
-		DBPort:                envInt("DB_PORT", 3306),
-		DBDatabase:            env("DB_DATABASE", ""),
-		DBUsername:            env("DB_USERNAME", ""),
-		DBPassword:            env("DB_PASSWORD", ""),
-		AuthMethod:            AuthMethod(strings.ToLower(env("AUTH_METHOD", string(AuthMethodAccount)))),
-		AccountLogin:          env("ACCOUNT_LOGIN", ""),
-		AccountPassword:       env("ACCOUNT_PASSWORD", ""),
-		RecaptchaClientID:     env("RECAPTCHA_CLIENTID", ""),
-		RecaptchaClientSecret: env("RECAPTCHA_CLIENTSECRET", ""),
-		KeycloakBaseURL:       trimURL(env("KEYCLOAK_BASE_URL", "")),
-		KeycloakRealm:         env("KEYCLOAK_REALM", ""),
-		KeycloakClientID:      env("KEYCLOAK_CLIENT_ID", ""),
-		KeycloakClientSecret:  env("KEYCLOAK_CLIENT_SECRET", ""),
-		KeycloakRedirectURI:   strings.TrimSpace(env("KEYCLOAK_REDIRECT_URI", "")),
+		AppURL:               trimURL(env("APP_URL", "http://localhost:3000")),
+		AppPort:              envInt("APP_PORT", 3000),
+		DBHost:               env("DB_HOST", ""),
+		DBPort:               envInt("DB_PORT", 3306),
+		DBDatabase:           env("DB_DATABASE", ""),
+		DBUsername:           env("DB_USERNAME", ""),
+		DBPassword:           env("DB_PASSWORD", ""),
+		AuthMethod:           AuthMethod(strings.ToLower(env("AUTH_METHOD", string(AuthMethodAccount)))),
+		AccountLogin:         env("ACCOUNT_LOGIN", ""),
+		AccountPassword:      env("ACCOUNT_PASSWORD", ""),
+		KeycloakBaseURL:      trimURL(env("KEYCLOAK_BASE_URL", "")),
+		KeycloakRealm:        env("KEYCLOAK_REALM", ""),
+		KeycloakClientID:     env("KEYCLOAK_CLIENT_ID", ""),
+		KeycloakClientSecret: env("KEYCLOAK_CLIENT_SECRET", ""),
+		KeycloakRedirectURI:  strings.TrimSpace(env("KEYCLOAK_REDIRECT_URI", "")),
 		// The default of KEYCLOAK_POST_LOGOUT_REDIRECT_URI depends on APP_URL,
 		// so it is resolved in validate.go.
 		KeycloakPostLogoutRedirectURI: strings.TrimSpace(env("KEYCLOAK_POST_LOGOUT_REDIRECT_URI", "")),

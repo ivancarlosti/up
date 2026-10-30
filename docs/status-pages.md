@@ -169,9 +169,9 @@ says `subscription_available: true` (switch on + channel present and active).
   who opted out and a later request cannot silently re-enable the address.
 
 The subscribe endpoint has its own **5 requests/minute per IP** budget on top of
-the public page limit. When `RECAPTCHA_CLIENTID`/`RECAPTCHA_CLIENTSECRET` are
-set, the form must include a valid reCAPTCHA token (`ERR_RECAPTCHA_MISSING` /
-`ERR_RECAPTCHA_FAILED`).
+the public page limit. When the reCAPTCHA pair is configured
+(Admin > Settings > **Login protection**, see `docs/authentication.md`), the form
+must include a valid token (`ERR_RECAPTCHA_MISSING` / `ERR_RECAPTCHA_FAILED`).
 
 ## 7. Protection
 

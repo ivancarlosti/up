@@ -762,7 +762,15 @@
     "certificateCard": "الشهادة وانتهاء النطاق",
     "certificateCardHelp": "متى وبأي سرعة تُنفَّذ فحوص الشهادة والنطاق اليومية. قواعد TLD موجودة في صفحة TLD/SSL.",
     "lighthouseCard": "أداء الويب (Lighthouse)",
-    "lighthouseCardHelp": "قياسات PageSpeed Insights: الجدولة والمعدل ومفتاح الـ API والاحتفاظ بالسجل."
+    "lighthouseCardHelp": "قياسات PageSpeed Insights: الجدولة والمعدل ومفتاح الـ API والاحتفاظ بالسجل.",
+    "recaptchaCard": "حماية تسجيل الدخول (reCAPTCHA)",
+    "recaptchaCardHelp": "Google reCAPTCHA لنموذج تسجيل الدخول ونموذج الاشتراك العام.",
+    "recaptchaClientId": "مفتاح الموقع",
+    "recaptchaClientIdHelp": "المفتاح العام من وحدة تحكم reCAPTCHA. يُرسل إلى المتصفح.",
+    "recaptchaClientSecret": "المفتاح السري",
+    "recaptchaClientSecretHelp": "المفتاح السري لنفس الزوج. يبقى على الخادم ولا يظهر إلا هنا.",
+    "recaptchaActive": "reCAPTCHA مفعّل: تسجيل الدخول والاشتراك العام يتطلبان رمزًا.",
+    "recaptchaInactive": "reCAPTCHA معطّل. أدخل المفتاحين معًا لطلب الرمز (إدخال مفتاح واحد مرفوض)."
   },
   "about": {
     "title": "حول",

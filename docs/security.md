@@ -141,7 +141,7 @@ marked `Secure` automatically.
 |---|---|---|
 | `ACCOUNT_PASSWORD` | environment | change and restart |
 | `KEYCLOAK_CLIENT_SECRET` | environment | rotate in the provider, restart |
-| `RECAPTCHA_CLIENTSECRET` | environment | rotate in the console, restart |
+| `RECAPTCHA_CLIENTSECRET` | `settings.recaptcha_client_secret` | rotate in the console, paste the pair in Admin > Settings (no restart) |
 | `CLUSTER_PRIVATE_KEY` | `settings.cluster_private_key` (or env) | Admin > Cluster > regenerate (nodes must rejoin) |
 | `session_secret` | `settings.session_secret` | delete the row and restart (invalidates sessions); propagated between nodes only when `CLUSTER_SYNC_SESSION_SECRET=true` |
 | API tokens | `api_tokens.token_hash` | revoke/delete in Admin > Security |

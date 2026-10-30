@@ -160,6 +160,15 @@ unset) and `uptime_window_hours` (the global uptime period: `24`, `168`, `336` o
 `720`). Both are part of the federated settings whitelist, so a cluster converges
 on one policy.
 
+The same table holds the Google reCAPTCHA pair of the login form and of the
+public subscription form: `recaptcha_client_id` (public site key, sent to the
+browser) and `recaptcha_client_secret` (server side, returned only by the admin
+API). The rows are created by the first save in Admin > Settings > "Login
+protection" - a key/value table needs no migration - and an empty pair means the
+captcha is off. They are **not** in the federated whitelist: like the other
+security settings they are per node, and the `RECAPTCHA_CLIENTID` /
+`RECAPTCHA_CLIENTSECRET` environment variables they replaced are gone.
+
 `whois_parsers` stores one rule per TLD: `tld` (unique, e.g. `br` or `com.br`),
 `server` (optional registry override), `expiry_regex` (RE2 with a capture group),
 `date_layouts` (`;` separated Go layouts), `not_found_pattern`, `min_interval_ms`

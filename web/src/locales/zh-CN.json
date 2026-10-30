@@ -762,7 +762,15 @@
     "certificateCard": "证书与域名到期",
     "certificateCardHelp": "每日证书与域名检查的运行时间与速度。TLD 规则位于 TLD/SSL 页面。",
     "lighthouseCard": "网页性能（Lighthouse）",
-    "lighthouseCardHelp": "PageSpeed Insights 测量：计划、速率、API 密钥与历史保留。"
+    "lighthouseCardHelp": "PageSpeed Insights 测量：计划、速率、API 密钥与历史保留。",
+    "recaptchaCard": "登录保护（reCAPTCHA）",
+    "recaptchaCardHelp": "登录表单与公开订阅表单使用的 Google reCAPTCHA。",
+    "recaptchaClientId": "站点密钥",
+    "recaptchaClientIdHelp": "reCAPTCHA 控制台中的公开站点密钥，会发送到浏览器。",
+    "recaptchaClientSecret": "私密密钥",
+    "recaptchaClientSecretHelp": "同一对密钥中的服务端私密密钥，只保留在服务器上，且仅在此处显示。",
+    "recaptchaActive": "reCAPTCHA 已启用：登录和公开订阅都需要令牌。",
+    "recaptchaInactive": "reCAPTCHA 已关闭。请同时填写两个密钥以要求令牌（只填一个会被拒绝）。"
   },
   "about": {
     "title": "关于",

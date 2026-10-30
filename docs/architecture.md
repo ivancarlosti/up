@@ -270,7 +270,7 @@ All variables, their defaults and validation rules live in
 | Docker publish (compose only) | `HOST_PORT` (optional; published host port, defaults to `APP_PORT`; ignored by `docker-compose-host*.yml`, which bind `APP_PORT` on the host) |
 | Docker bundle (compose only) | `DB_ROOT_PASSWORD` (root password of the bundled MariaDB), `DB_HOST_PORT` (optional; publishes the bundled database on the host, on `127.0.0.1` in `docker-compose-host-bundle.yml`) |
 | Database | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL` |
-| Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `RECAPTCHA_CLIENTID`, `RECAPTCHA_CLIENTSECRET`, `KEYCLOAK_*` |
+| Auth | `AUTH_METHOD`, `ACCOUNT_LOGIN`, `ACCOUNT_PASSWORD`, `KEYCLOAK_*` |
 | Defaults | `DEFAULT_LOCALE`, `DEFAULT_THEME` |
 | Cluster | `CLUSTER_ENABLED`, `CLUSTER_MODE` (`shared`\|`federated`), `CLUSTER_PEER_API`, `CLUSTER_LEADER_SETTLE_SECONDS`, `NODE_ID`, `NODE_NAME`, `CLUSTER_PRIVATE_KEY` |
 | Cluster (federated sync) | `CLUSTER_LEADER_ELECTION`, `CLUSTER_LEADER_NODE_ID`, `CLUSTER_NOTIFY_ELECTION`, `CLUSTER_SYNC_SECONDS`, `CLUSTER_SYNC_BATCH`, `CLUSTER_SYNC_MANIFEST_SECONDS`, `CLUSTER_SYNC_TOMBSTONE_DAYS`, `CLUSTER_SYNC_NOTIFICATIONS`, `CLUSTER_SYNC_SETTINGS`, `CLUSTER_SYNC_SESSION_SECRET`, `CLUSTER_SYNC_PUSH`, `CLUSTER_INSECURE_SKIP_VERIFY` |

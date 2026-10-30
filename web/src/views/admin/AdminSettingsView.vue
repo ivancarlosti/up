@@ -17,7 +17,7 @@ import { formatDateTime } from '@/lib/format'
 import { uptimeWindowOptions } from '@/lib/uptime-window'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
-import type { AdminSettings, ExpirySettings, HeartbeatRetentionStats } from '@/lib/types'
+import type { AdminSettings, ExpirySettings, HeartbeatRetentionStats, RecaptchaSettings } from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toast = useToastStore()
@@ -37,6 +37,14 @@ const form = ref({
 const saving = ref(false)
 const purgeOpen = ref(false)
 const purging = ref(false)
+
+// --- Login protection (Google reCAPTCHA) ------------------------------------
+// The keys used to come from RECAPTCHA_CLIENTID / RECAPTCHA_CLIENTSECRET; they
+// now live in the settings table, so they can be rotated here and the next
+// login attempt uses them (no restart). An empty pair switches the captcha off,
+// which is why the card has no separate switch: the API derives `enabled`.
+const captcha = ref<RecaptchaSettings>({ client_id: '', client_secret: '', enabled: false })
+const captchaSaving = ref(false)
 
 // --- Certificate & domain expiration (moved here from the TLD/SSL page) -----
 // The job settings live with the other runtime settings; the TLD/SSL page keeps
@@ -136,14 +144,16 @@ const retentionDays = computed({
 
 async function load(): Promise<void> {
   try {
-    const [adminSettings, stats, expiry] = await Promise.all([
+    const [adminSettings, stats, expiry, captchaSettings] = await Promise.all([
       api.adminSettings(),
       api.heartbeatRetention(),
       api.expirySettings(),
+      api.recaptchaSettings(),
     ])
     settings.value = adminSettings
     retention.value = stats
     expiryForm.value = { ...expiry.settings }
+    captcha.value = { ...captchaSettings }
     form.value = {
       default_locale: adminSettings.default_locale,
       default_theme: adminSettings.default_theme,
@@ -186,6 +196,24 @@ async function saveExpiry(): Promise<void> {
     toast.error(t('common.error'), translateError(error))
   } finally {
     expirySaved.value = false
+  }
+}
+
+/** saveCaptcha stores the reCAPTCHA pair used by the login and subscription forms. */
+async function saveCaptcha(): Promise<void> {
+  captchaSaving.value = true
+  try {
+    captcha.value = await api.updateRecaptchaSettings({
+      client_id: captcha.value.client_id,
+      client_secret: captcha.value.client_secret,
+    })
+    toast.success(t('common.saved'))
+    // The login form and the public pages read these two values on boot.
+    await app.bootstrap()
+  } catch (error) {
+    toast.error(t('common.error'), translateError(error))
+  } finally {
+    captchaSaving.value = false
   }
 }
 
@@ -251,6 +279,47 @@ onMounted(load)
 
       <template #footer>
         <Button size="sm" :loading="saving" @click="save">
+          <Save class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('common.save') }}
+        </Button>
+      </template>
+    </Card>
+
+    <Card :title="t('settings.recaptchaCard')" :description="t('settings.recaptchaCardHelp')">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="grid gap-1">
+          <Label for="settings-recaptcha-id" :help="t('settings.recaptchaClientIdHelp')">
+            {{ t('settings.recaptchaClientId') }}
+          </Label>
+          <Input
+            id="settings-recaptcha-id"
+            v-model="captcha.client_id"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="6Le..."
+          />
+        </div>
+        <div class="grid gap-1">
+          <Label for="settings-recaptcha-secret" :help="t('settings.recaptchaClientSecretHelp')">
+            {{ t('settings.recaptchaClientSecret') }}
+          </Label>
+          <Input
+            id="settings-recaptcha-secret"
+            v-model="captcha.client_secret"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="6Le..."
+          />
+        </div>
+      </div>
+
+      <Alert :variant="captcha.enabled ? 'success' : 'info'" class="mt-3">
+        {{ captcha.enabled ? t('settings.recaptchaActive') : t('settings.recaptchaInactive') }}
+      </Alert>
+
+      <template #footer>
+        <Button size="sm" :loading="captchaSaving" @click="saveCaptcha">
           <Save class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('common.save') }}
         </Button>

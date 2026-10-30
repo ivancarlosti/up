@@ -835,7 +835,15 @@
     "certificateCard": "Certificate & domain expiration",
     "certificateCardHelp": "When and how fast the daily certificate and domain checks run. The TLD rules live on the TLD/SSL expiration page.",
     "lighthouseCard": "Web performance (Lighthouse)",
-    "lighthouseCardHelp": "PageSpeed Insights measurements: schedule, pacing, API key and history retention."
+    "lighthouseCardHelp": "PageSpeed Insights measurements: schedule, pacing, API key and history retention.",
+    "recaptchaCard": "Login protection (reCAPTCHA)",
+    "recaptchaCardHelp": "Google reCAPTCHA of the login form and of the public subscription form.",
+    "recaptchaClientId": "Site key",
+    "recaptchaClientIdHelp": "The public site key from the reCAPTCHA console. It is sent to the browser.",
+    "recaptchaClientSecret": "Secret key",
+    "recaptchaClientSecretHelp": "The server side secret of the same pair. It stays on the server and is only shown here.",
+    "recaptchaActive": "reCAPTCHA is active: the login form and the public subscription form require a token.",
+    "recaptchaInactive": "reCAPTCHA is off. Fill in both keys to require a token (one key alone is rejected)."
   },
   "about": {
     "title": "About",

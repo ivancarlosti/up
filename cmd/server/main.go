@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -73,6 +74,7 @@ func run() error {
 	}
 	log := newLogger(cfg.LogLevel)
 	log.Info("starting Up", "config", cfg.Summary())
+	warnDeprecatedRecaptchaEnv(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -292,7 +294,6 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	return nil, nil
 }
 
-
 // startDeferredRollups runs the full rollup rebuild after the API started
 // serving.
 //
@@ -386,6 +387,20 @@ func waitForShutdown(ctx context.Context, log *slog.Logger, serverErrors <-chan 
 		log.Info("shutdown signal received, draining connections")
 	}
 	return nil
+}
+
+// warnDeprecatedRecaptchaEnv tells an operator whose .env still carries the
+// reCAPTCHA variables that they are not read any more. Nothing consumes them:
+// the keys live in the settings table since they moved to Admin > Settings, so
+// a restart would otherwise drop the captcha without a word.
+func warnDeprecatedRecaptchaEnv(log *slog.Logger) {
+	for _, key := range []string{"RECAPTCHA_CLIENTID", "RECAPTCHA_CLIENTSECRET"} {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			continue
+		}
+		log.Warn("the reCAPTCHA keys are configured in Admin > Settings now: "+
+			key+" is ignored, paste the value once in the settings page", "variable", key)
+	}
 }
 
 // newLogger builds the structured logger used by the whole application.

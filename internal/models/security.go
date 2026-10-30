@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ---------------------------------------------------------------------------
 // Settings (key/value runtime configuration shared by every node)
@@ -70,7 +73,50 @@ const (
 	// heartbeat bars cover. It is the global default (Admin > Settings) and the
 	// fallback of every public status page.
 	SettingUptimeWindowHours = "uptime_window_hours"
+	// SettingRecaptchaClientID is the public site key of Google reCAPTCHA and
+	// SettingRecaptchaClientSecret the matching server side secret. Both are
+	// edited in Admin > Settings ("Login protection") and stored here only:
+	// the login form, the OIDC-less account flow and the public status page
+	// subscription form require a captcha token as soon as both are set.
+	//
+	// They used to come from RECAPTCHA_CLIENTID / RECAPTCHA_CLIENTSECRET. The
+	// variables are gone (an upgrade must re-enter the keys once), which is
+	// why the database is the only source of truth: one value per cluster
+	// row, rotable at runtime without a restart.
+	SettingRecaptchaClientID     = "recaptcha_client_id"
+	SettingRecaptchaClientSecret = "recaptcha_client_secret"
 )
+
+// RecaptchaSettings is the Google reCAPTCHA configuration of the public forms
+// (Admin > Settings). An empty pair means "no captcha": enablement is derived
+// from the values themselves, so a half filled configuration is never stored.
+type RecaptchaSettings struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+// Normalize trims what an operator pasted from the reCAPTCHA console: the
+// keys are copied by hand, and a trailing newline is the usual accident.
+func (r *RecaptchaSettings) Normalize() {
+	r.ClientID = strings.TrimSpace(r.ClientID)
+	r.ClientSecret = strings.TrimSpace(r.ClientSecret)
+}
+
+// Validate reports the first problem with the configuration. Both halves are
+// required together: a site key without a secret would render the widget and
+// then reject every login, and a secret without a site key would reject the
+// form before the widget is ever rendered.
+func (r RecaptchaSettings) Validate() string {
+	if (r.ClientID == "") != (r.ClientSecret == "") {
+		return "both the reCAPTCHA site key and the secret are required, or neither"
+	}
+	return ""
+}
+
+// Enabled reports whether the captcha is configured and must be enforced.
+func (r RecaptchaSettings) Enabled() bool {
+	return r.ClientID != "" && r.ClientSecret != ""
+}
 
 // Setting is a single key/value pair. Because the table lives in the shared
 // external database, every node reads the same runtime configuration.
