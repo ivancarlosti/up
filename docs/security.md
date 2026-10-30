@@ -183,19 +183,21 @@ What an operator should know:
   carries the non-secret whitelist (app name, default locale, default theme);
   API tokens, IP rules and the per-node rate limits never synchronise.
 
-## 10. Dependency posture (full audit on 2026-09-22, patch round on 2026-10-24)
+## 10. Dependency posture (full audit on 2026-09-22, patch rounds on 2026-10-24 and 2026-10-29)
 
 Vulnerability audit of the shipped artifact, performed with the official
 databases (OSV/Google, `govulncheck` and Trivy), separating what is compiled
 into the binary from test-only dependencies. The 2026-10-24 patch round re-ran
 `govulncheck` with the patched `go1.27.3` toolchain, `npm audit`, and a Trivy
-scan of a freshly built image.
+scan of a freshly built image. The 2026-10-29 round closed two `vue-i18n`
+advisories and one `go-jose` advisory, re-ran `govulncheck` and `npm audit`
+against the rebuilt `web/dist`, and repeated `check:i18n` and the smoke test.
 
 | Check | Tool | Result |
 |---|---|---|
 | Go modules reachable from `cmd/server` | `govulncheck ./...` (go1.27.3) | **0 vulnerabilities** affecting the code; 0 in imported packages |
-| Go modules required but not called | `govulncheck` / OSV | 1 informational: `GO-2026-5932` (`golang.org/x/crypto/openpgp`, unmaintained **by design**, `Fixed version: N/A`, package not imported - confirmed with `go mod why`) |
-| Frontend packages (`web/package-lock.json`, 106 packages) | OSV + `npm audit` | **0 advisories**; `vite` and `source-map-js` are dev-only and never embedded in the binary |
+| Go modules required but not called | `govulncheck` / OSV | 3 informational: `GO-2026-5932` (`golang.org/x/crypto/openpgp`, unmaintained **by design**, `Fixed version: N/A`, package not imported - confirmed with `go mod why`), `GO-2026-6866` (`CVE-2026-97045`) and `GO-2026-6860` (`CVE-2026-78661`), both in `golang.org/x/net/html`, which nothing imports (only `x/net/publicsuffix` is used) and both fixed in `x/net` v0.62.0 |
+| Frontend packages (`web/package-lock.json`, 106 packages) | OSV + `npm audit` (2026-10-29) | **0 advisories**; `vite` and `source-map-js` are dev-only and never embedded in the binary, while `vue-i18n` *is* shipped code and had to be patched (see below) |
 | Container image (`alpine` packages + Go binary) | `trivy image` (2026-10-24) | **0** HIGH/CRITICAL; 0 MEDIUM; 1 UNKNOWN (the same `openpgp` advisory above, no fix exists) |
 
 Remediations applied in the 2026-09-22 audit:
@@ -217,6 +219,31 @@ Patch round applied on 2026-10-24:
 | `vite` (dev only) | 8.3.0 | 8.3.5 | six advisories fixed in 8.3.3 (`GHSA-698v-4r3x-3vcv`, `GHSA-r825-w8mm-5pxw`, `GHSA-587h-7wmj-h5pm`, `GHSA-9jrq-w75r-8gcw`, `GHSA-rq7h-c2jc-7f22`, `GHSA-vfpm-58rq-9qcg`); 8.3.5 is the latest patch |
 | `source-map-js` (dev only, transitive) | 1.2.1 | 1.2.2 | `GHSA-68fv-2mgg-jv7q` (HIGH, event-loop DoS through indexed source-map section offsets) |
 | Build toolchain / base image | `go1.27.1`, `golang:1.27.1-alpine3.24` | `go1.27.3`, `golang:1.27.3-alpine3.24` | 11 standard-library advisories reported by `govulncheck` against go1.27.1; 10 are fixed in 1.27.2 and `GO-2026-6809` in 1.27.3. `go.mod` now pins `toolchain go1.27.3` |
+
+Patch round applied on 2026-10-29:
+
+| Item | From | To | Reason |
+|---|---|---|---|
+| `vue-i18n` and its pinned `@intlify/{core-base,devtools-types,message-compiler,shared}` (shipped in the embedded SPA) | 11.4.12 | 11.4.16 | `GHSA-83rm-6c8r-g728` (`CVE-2026-118257`, HIGH 7.2): the `escapeParameter` sanitizer escapes `<`/`>` inside quoted attributes but does not handle `<iframe srcdoc>`, whose value the browser decodes and re-parses, undoing the escaping (bypass of `CVE-2025-53892`); `GHSA-8rc2-428q-7ww3` (`CVE-2026-118256`, LOW): named values are left unescaped when a call also passes a list. Both fixed in 11.4.14; 11.4.16 is the latest patch of the v11 line |
+| `github.com/go-jose/go-jose/v4` (indirect, through `coreos/go-oidc`) | v4.1.5 | v4.1.6 | `GHSA-mgcc-cww5-fp2q` (`CVE-2026-116587`, HIGH): parsing a JWK that carries a crafted RSA key is cubic in the key size, and Up parses the issuer JWKS whenever the OIDC verifier checks an ID token (`internal/handlers/oidc.go`, `oidc_callback.go`). 4.1.6 also refuses RSA moduli above 4096 bits |
+
+Neither `vue-i18n` advisory is exploitable in Up as configured, and they were
+patched anyway because the library is compiled into `web/dist` and therefore into
+the binary that scanners inspect. `createI18n()` in `web/src/i18n.ts` leaves
+`escapeParameter` off, no component renders a translation as HTML (`v-html`,
+`innerHTML` and `<i18n-t>` do not appear in `web/src`), and the locale bundles are
+static files imported at build time, so a translated string can only ever be a
+text node. Do not turn `escapeParameter` on, nor start rendering HTML from a
+locale file, without sanitizing at that boundary first. The `go-jose` JWKS comes
+from the issuer an administrator configured, so that advisory needed a malicious
+or compromised IdP (or a TLS-stripped MITM) to be reachable at all.
+
+`govulncheck` on 2026-10-29 also lists two `x/net` advisories that are not
+reachable and are left for a later round, because clearing them means moving
+`x/net` to v0.62.0 together with `x/crypto` v0.58.0, `x/sys` v0.49.0, `x/term`
+v0.47.0 and `x/text` v0.43.0 - the same four-module cascade the 2026-10-24 round
+avoided. Both live in `golang.org/x/net/html`, which this repository never
+imports.
 
 How to reproduce the audit:
 
