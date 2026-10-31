@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Copy, ExternalLink, Pause, Pencil, Play, RefreshCw, Trash2 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
@@ -23,6 +23,14 @@ import type { Monitor } from '@/lib/types'
  * (lib/sort.ts, lib/monitor-sort.ts) and passes the rows already filtered and
  * ordered. The component only renders the columns, so a column or a badge
  * changes in one place.
+ *
+ * The rows are mounted in pages: an installation with 1822 monitors used to put
+ * every row (and its tags, badges and 25 sparkline bars) in the DOM in one go,
+ * which measured ~146 000 nodes and a single 1.7 s main thread task on a hard
+ * reload. Rendering the first PAGE rows and appending the next page when the
+ * sentinel scrolls into view keeps the same table with the same scroll: the
+ * list, the sort and the filters are still the caller's, only the mounting is
+ * incremental.
  */
 export type MonitorTableAction = 'detail' | 'edit' | 'clone' | 'check' | 'toggle' | 'remove'
 
@@ -66,6 +74,70 @@ const hasDomains = computed(() => props.monitors.some((monitor) => monitor.domai
 const hasHeartbeats = computed(() => props.monitors.some((monitor) => (monitor.heartbeat_bars ?? []).length > 0))
 
 const showActions = computed(() => props.actions.length > 0)
+
+/** How many rows are mounted on the first paint, and how many per scroll. */
+const PAGE = 100
+
+const visible = ref(PAGE)
+
+/** sentinel is the (empty) row at the bottom that asks for the next page. */
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+const visibleMonitors = computed(() => props.monitors.slice(0, visible.value))
+const hasMore = computed(() => visible.value < props.monitors.length)
+
+/** columnCount spans the sentinel cell over every rendered column. */
+const columnCount = computed(
+  () =>
+    7 + // name, type, group, tags, status, interval, uptime
+    (hasCertificates.value ? 1 : 0) +
+    (hasDomains.value ? 1 : 0) +
+    (hasHeartbeats.value ? 1 : 0) +
+    (showActions.value ? 1 : 0),
+)
+
+// A new array means a new filter, a new sort or a new listing: the window goes
+// back to the first page, which is the part of the table the operator expects to
+// see after touching a filter. A live update that only patches the values of the
+// same rows keeps the pages already scrolled to — collapsing them would jump the
+// scroll position back to the top on the first status change of the day.
+watch(
+  () => props.monitors,
+  (rows, previous) => {
+    const sameList =
+      previous !== undefined &&
+      rows.length === previous.length &&
+      rows[0]?.id === previous[0]?.id &&
+      rows[rows.length - 1]?.id === previous[previous.length - 1]?.id
+    if (!sameList) visible.value = PAGE
+  },
+)
+
+/**
+ * The observer is re-attached whenever the sentinel leaves or re-enters the
+ * template (the last page hides it) and preloads 600px ahead so the next page is
+ * already mounted by the time the operator reaches the bottom.
+ */
+watch(sentinel, (element) => {
+  observer?.disconnect()
+  observer = null
+  if (!element) return
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && hasMore.value) {
+        visible.value = Math.min(visible.value + PAGE, props.monitors.length)
+      }
+    },
+    { rootMargin: '600px' },
+  )
+  observer.observe(element)
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
+})
 
 function shows(action: MonitorTableAction): boolean {
   return props.actions.includes(action)
@@ -177,7 +249,7 @@ function tagList(monitor: Monitor): string[] {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="monitor in props.monitors" :key="monitor.id">
+          <tr v-for="monitor in visibleMonitors" :key="monitor.id">
             <td>
               <div class="flex flex-col">
                 <div class="flex flex-wrap items-center gap-1">
@@ -312,6 +384,15 @@ function tagList(monitor: Monitor): string[] {
                 </Button>
               </div>
             </td>
+          </tr>
+          <!--
+            The next page is mounted when this (invisible, empty) row gets close to
+            the viewport. It is a real row with a height on purpose: a zero sized
+            target never reports an intersection, so the table would stop at 100
+            rows instead of growing.
+          -->
+          <tr v-if="hasMore" ref="sentinel" aria-hidden="true">
+            <td :colspan="columnCount" class="h-8 p-0" />
           </tr>
         </tbody>
       </table>

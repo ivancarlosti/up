@@ -61,16 +61,18 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 		if err := s.saveStateDisplay(ctx, &state); err != nil {
 			return err
 		}
-		s.publish("monitor.status", map[string]any{
-			"monitor_id": monitor.ID,
-			"status":     status,
-			"previous":   previous,
-			"changed":    false,
-			"votes":      votes,
-			"message":    detail,
-			"latency_ms": latency,
-			"checked_at": now,
-		})
+		if publishStatus(previous, status) {
+			s.publish("monitor.status", map[string]any{
+				"monitor_id": monitor.ID,
+				"status":     status,
+				"previous":   previous,
+				"changed":    false,
+				"votes":      votes,
+				"message":    detail,
+				"latency_ms": latency,
+				"checked_at": now,
+			})
+		}
 		return nil
 	}
 
@@ -159,17 +161,33 @@ func (s *ClusterService) EvaluateAndNotify(ctx context.Context, monitorID uint) 
 		}
 	}
 
-	s.publish("monitor.status", map[string]any{
-		"monitor_id": monitor.ID,
-		"status":     status,
-		"previous":   previous,
-		"changed":    previous != status,
-		"votes":      votes,
-		"message":    detail,
-		"latency_ms": latency,
-		"checked_at": now,
-	})
+	if publishStatus(previous, status) {
+		s.publish("monitor.status", map[string]any{
+			"monitor_id": monitor.ID,
+			"status":     status,
+			"previous":   previous,
+			"changed":    previous != status,
+			"votes":      votes,
+			"message":    detail,
+			"latency_ms": latency,
+			"checked_at": now,
+		})
+	}
 	return nil
+}
+
+// publishStatus reports whether the live badge of a monitor has to be told about
+// this verdict at all.
+//
+// The dashboard builds its rows from the listing and only applies the events it
+// receives, so an event that repeats the status the page already shows changes
+// nothing while costing a message per check: one per check of every monitor, all
+// the time (30 events/s at 1822 monitors with a 60 s interval), each one making
+// the client re-derive its counters over the whole list. A verdict that differs
+// from the stored one is published, and so is the first verdict of a monitor,
+// where previous is empty or unknown.
+func publishStatus(previous, status models.AggregateStatus) bool {
+	return previous != status
 }
 
 // claimNotification implements the notification_sender strategy:

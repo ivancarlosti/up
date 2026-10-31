@@ -249,7 +249,9 @@ try {
   await page.evaluate('localStorage.clear()')
 
   // --- fixtures through the API ---------------------------------------------
-  for (const key of ['m1', 'm2']) {
+  // Three monitors: a monitor belongs to one group only, so the groups below need
+  // one each to reach three different member counts.
+  for (const key of ['m1', 'm2', 'm3']) {
     const monitor = await apiCall('/api/monitors', 'POST', {
       name: `${term} ${key}`,
       type: 'http',
@@ -260,7 +262,7 @@ try {
     })
     created.monitors.push(monitor.id)
   }
-  const [m1, m2] = created.monitors
+  const [m1, m2, m3] = created.monitors
 
   // Templates: three different intervals (the column the check sorts by).
   for (const [key, interval] of [
@@ -277,10 +279,13 @@ try {
     created.templates.push(template.id)
   }
 
-  // Groups: an explicit sort_order (0, 1, 2) and 2/1/0 monitors.
+  // Groups: an explicit sort_order (0, 1, 2) and 2/1/0 monitors. The single member
+  // of b is its own monitor: a monitor belongs to one group, so putting m1 in b as
+  // well would MOVE it out of a and leave both groups with one, which ties the
+  // Monitors column and makes the expected order unassertable.
   for (const [key, order, members] of [
     ['a', 0, [m1, m2]],
-    ['b', 1, [m1]],
+    ['b', 1, [m3]],
     ['c', 2, []],
   ]) {
     const group = await apiCall('/api/monitor-groups', 'POST', {
@@ -290,6 +295,15 @@ try {
     })
     created.groups.push(group.id)
   }
+
+  // The counts are checked against the API, not inferred from the payload: the
+  // single group rule is exactly the kind of fixture assumption that goes stale
+  // silently, and here the message points at the fixture instead of at the sort.
+  const memberCounts = (await apiCall('/api/monitor-groups'))
+    .filter((group) => group.name.startsWith(term))
+    .map((group) => group.monitor_count)
+    .sort()
+  check('groups fixture: the groups hold 0, 1 and 2 monitors', memberCounts.join(',') === '0,1,2', memberCounts.join(','))
 
   // Status pages: 2/1/0 monitors, so the Monitors column orders c, b, a.
   for (const [key, members] of [

@@ -202,7 +202,7 @@ sequenceDiagram
       CL->>NT: Dispatch(event, status, detail)
       NT->>DB: INSERT notification_logs
     end
-    CL->>WS: Publish("monitor.status")
+    CL->>WS: Publish("monitor.status") only on a change
 ```
 
 Key idea: **the checker never talks to the notifier**. The scheduler stores a
@@ -210,6 +210,17 @@ heartbeat, then the cluster service decides the aggregated status, and that
 transition triggers notifications. Single-node and cluster behaviour share the
 same code path, and the aggregated state lives in the shared database
 (`monitor_states`).
+
+The two live events have different rules on purpose:
+`heartbeat` is published after **every** check (it is what keeps the latency and
+the "last check" of a row current), while `monitor.status` is published only when
+the aggregated verdict **changes** the stored one (`ClusterService.publishStatus`).
+A monitor that stays down for a day used to announce it once per check: at 1 822
+monitors with a 60 second interval that was ~30 messages per second carrying no
+information, each one making every open dashboard recount its summary boxes. The
+browser side coalesces what does arrive: `stores/monitors.ts` buffers the events
+for 500 ms, applies the last value per monitor and recounts its counters once per
+flush.
 
 ## 6. Data ownership and synchronisation
 

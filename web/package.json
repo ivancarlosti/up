@@ -20,6 +20,7 @@
     "e2e:status-page-groups": "node scripts/e2e-status-page-groups.mjs",
     "e2e:templates": "node scripts/e2e-templates.mjs",
     "e2e:table-sort": "node scripts/e2e-table-sort.mjs",
+    "e2e:dashboard-load": "node scripts/e2e-dashboard-load.mjs",
     "e2e:certificates": "node scripts/e2e-certificates.mjs",
     "e2e:domain-expiry": "node scripts/e2e-domain-expiry.mjs",
     "e2e:backfill": "node scripts/e2e-backfill.mjs",

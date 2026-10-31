@@ -243,6 +243,27 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > Every script here drives Chrome over the DevTools Protocol through the
 > `WebSocket` client built into Node 22.12+ (`web/package.json` declares that
 > engine): on an older Node they fail with a bare `WebSocket is not defined`.
+>
+> `npm run e2e:dashboard-load` is the odd one out: it is not a pass/fail suite but
+> a **measurement**. It seeds (or, with `--reuse`, reuses) an installation with
+> `--monitors N`, waits for every monitor to have a verdict, then loads the
+> dashboard twice — once with the live feed and once with it taken away — and
+> prints the server TTFB, the gzip payload, the time to the first painted row, the
+> main-thread long tasks and the WebSocket event rate. It finishes by scrolling
+> from the top to the bottom and reporting how many rows it reached, which is what
+> keeps a paged table honest. Read
+> [../plans/2026-10-31-dashboard-render-performance.md](../plans/2026-10-31-dashboard-render-performance.md)
+> for the before/after numbers it produced at 1 822 monitors:
+>
+> ```bash
+> npm run e2e:dashboard-load -- --url http://localhost:3000 --monitors 1822 --keep
+> npm run e2e:dashboard-load -- --url http://localhost:3000 --monitors 1822 --reuse --label after
+> ```
+>
+> A fixture that was seeded in one batch checks in bursts (one per interval), so
+> an event rate of 0 in a short pass means "no burst landed inside it", not "the
+> feed is broken": raise `--settle` to cover a full burst, or spread the intervals
+> as the plan describes.
 
 
 ### 6.1 Screenshots and layout checks

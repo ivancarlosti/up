@@ -3,6 +3,8 @@ package services
 import (
 	"testing"
 	"time"
+
+	"github.com/ivancarlosti/up/internal/models"
 )
 
 // stateColumnIn reports whether a column list contains name.
@@ -49,6 +51,36 @@ func TestStateUpdateColumns(t *testing.T) {
 				if !stateColumnIn(columns, column) {
 					t.Errorf("column %q must always be refreshed", column)
 				}
+			}
+		})
+	}
+}
+
+// TestShouldResend pins the re-notification decision of an established incident: the
+// TestPublishStatus pins when the live feed is told about a verdict: only when it
+// changes what the dashboard already shows. A monitor that keeps failing used to
+// publish on every check - at 1822 monitors and a 60 second interval that is 30
+// events per second carrying no information, and each one made every open
+// dashboard re-derive its counters over the whole list.
+func TestPublishStatus(t *testing.T) {
+	cases := []struct {
+		name     string
+		previous models.AggregateStatus
+		status   models.AggregateStatus
+		want     bool
+	}{
+		{name: "unchanged down monitor is silent", previous: "down", status: "down", want: false},
+		{name: "unchanged up monitor is silent", previous: "up", status: "up", want: false},
+		{name: "unchanged degraded monitor is silent", previous: "degraded", status: "degraded", want: false},
+		{name: "recovery is published", previous: "down", status: "up", want: true},
+		{name: "failure is published", previous: "up", status: "down", want: true},
+		{name: "first verdict of a monitor is published", previous: "", status: "up", want: true},
+		{name: "first verdict after an unknown state is published", previous: "unknown", status: "down", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := publishStatus(tc.previous, tc.status); got != tc.want {
+				t.Errorf("publishStatus(%q, %q) = %t, want %t", tc.previous, tc.status, got, tc.want)
 			}
 		})
 	}

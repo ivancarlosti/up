@@ -116,23 +116,46 @@ function clearFilters(): void {
 
 const list = computed(() => monitors.monitors)
 
-/** certificatesExpiring counts the certificates that expire within the window. */
-const certificatesExpiring = computed(
-  () =>
-    list.value.filter(
-      (monitor) => typeof monitor.certificate?.days_left === 'number' && monitor.certificate.days_left <= certificateWarnDays,
-    ).length,
-)
-
-/** domainsExpiring counts the domains that expire within the window (or already did). */
-const domainsExpiring = computed(
-  () =>
-    list.value.filter((monitor) => {
-      if (monitor.domain?.status !== 'ok' || typeof monitor.domain.days_left !== 'number') return false
+/**
+ * counters is every summary number in one pass over the list.
+ *
+ * The boxes used to run one filter() per number (eight full scans of 1822 rows
+ * on every render of the header): the same data, eight times the work, on the
+ * same rows the table renders. A paused monitor is not counted as up or down but
+ * it is still counted by the two expiry boxes, exactly like before.
+ */
+const counters = computed(() => {
+  const counts = { up: 0, down: 0, degraded: 0, paused: 0, certificate: 0, domain: 0 }
+  for (const monitor of list.value) {
+    if (typeof monitor.certificate?.days_left === 'number' && monitor.certificate.days_left <= certificateWarnDays) {
+      counts.certificate += 1
+    }
+    if (
+      monitor.domain?.status === 'ok' &&
+      typeof monitor.domain.days_left === 'number' &&
       // A negative value is an expired domain: it must be counted too.
-      return monitor.domain.days_left <= domainWarnDays
-    }).length,
-)
+      monitor.domain.days_left <= domainWarnDays
+    ) {
+      counts.domain += 1
+    }
+    if (!monitor.active) {
+      counts.paused += 1
+      continue
+    }
+    switch (monitor.status) {
+      case 'up':
+        counts.up += 1
+        break
+      case 'down':
+        counts.down += 1
+        break
+      case 'degraded':
+        counts.degraded += 1
+        break
+    }
+  }
+  return counts
+})
 
 /** matchesBox applies the selected summary box to one monitor. */
 function matchesBox(monitor: Monitor): boolean {
@@ -167,42 +190,42 @@ const boxes = computed(() => [
   {
     key: 'up' as SummaryBox,
     label: t('dashboard.statUp'),
-    value: list.value.filter((m) => m.active && m.status === 'up').length,
+    value: counters.value.up,
     tone: 'text-status-up',
     caption: '',
   },
   {
     key: 'down' as SummaryBox,
     label: t('dashboard.statDown'),
-    value: list.value.filter((m) => m.active && m.status === 'down').length,
+    value: counters.value.down,
     tone: 'text-status-down',
     caption: '',
   },
   {
     key: 'degraded' as SummaryBox,
     label: t('dashboard.statDegraded'),
-    value: list.value.filter((m) => m.active && m.status === 'degraded').length,
+    value: counters.value.degraded,
     tone: 'text-status-degraded',
     caption: '',
   },
   {
     key: 'paused' as SummaryBox,
     label: t('dashboard.statPaused'),
-    value: list.value.filter((m) => !m.active).length,
+    value: counters.value.paused,
     tone: 'text-muted-foreground',
     caption: '',
   },
   {
     key: 'certificate' as SummaryBox,
     label: t('dashboard.statCertificates'),
-    value: certificatesExpiring.value,
+    value: counters.value.certificate,
     tone: 'text-status-degraded',
     caption: t('dashboard.statCertificatesHint', { days: certificateWarnDays }),
   },
   {
     key: 'domain' as SummaryBox,
     label: t('dashboard.statDomains'),
-    value: domainsExpiring.value,
+    value: counters.value.domain,
     tone: 'text-status-down',
     caption: t('dashboard.statDomainsHint', { days: domainWarnDays }),
   },
