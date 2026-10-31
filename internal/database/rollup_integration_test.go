@@ -199,6 +199,11 @@ func TestRollupLive(t *testing.T) {
 	if err := db.AutoMigrate(&models.Heartbeat{}, &models.HeartbeatRollup{}); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
+	// The retention purge, its preview and the settings card select by date
+	// alone: without this index each of them walks the whole history.
+	if !db.Migrator().HasIndex(&models.Heartbeat{}, "idx_hb_created_at") {
+		t.Fatal("idx_hb_created_at is missing from heartbeats after AutoMigrate")
+	}
 	if rows, err := db.Raw("SHOW CREATE TABLE heartbeat_rollups").Rows(); err == nil {
 		if rows.Next() {
 			var name, ddl string
@@ -332,6 +337,56 @@ func TestRollupLive(t *testing.T) {
 				windowHours, row.MonitorID, stat.Up, stat.Total, stat.Uptime, stat.AvgMS, stat.MinMS, stat.MaxMS,
 				row.Up30d, row.Total30d)
 		}
+
+		// The listing reads the same periods except for the two fixed percentages
+		// no listing renders: what it reports must be identical, and what it does
+		// not report must be zero rather than another period's counters.
+		listing, err := stats.HistoryForListing(ctx, monitors, windowHours)
+		if err != nil {
+			t.Fatalf("listing history(%d h): %v", windowHours, err)
+		}
+		for _, row := range rows {
+			got, ok := listing[row.MonitorID]
+			if !ok {
+				t.Fatalf("%d h: monitor %d missing from the listing history", windowHours, row.MonitorID)
+			}
+			stat := got.Window
+			if stat.Up != int(row.UpWindow) || stat.Total != int(row.TotalWindow) ||
+				stat.Down != int(row.Down24h) || stat.Pending != int(row.Pending24h) ||
+				!sameFloat(stat.Uptime, percentage(row.UpWindow, row.TotalWindow)) {
+				t.Errorf("%d h monitor %d listing window = %+v, want up=%d total=%d down=%d pending=%d",
+					windowHours, row.MonitorID, stat, row.UpWindow, row.TotalWindow, row.Down24h, row.Pending24h)
+			}
+			if !sameFloat(got.Uptime24h, percentage(row.Up24h, row.Total24h)) {
+				t.Errorf("%d h monitor %d listing uptime_24h = %v, want %v",
+					windowHours, row.MonitorID, got.Uptime24h, percentage(row.Up24h, row.Total24h))
+			}
+			want7d := 0.0
+			if windowHours == 7*24 {
+				want7d = percentage(row.Up7d, row.Total7d)
+			}
+			if !sameFloat(got.Uptime7d, want7d) {
+				t.Errorf("%d h monitor %d listing uptime_7d = %v, want %v",
+					windowHours, row.MonitorID, got.Uptime7d, want7d)
+			}
+			want30d := 0.0
+			if windowHours == models.HeartbeatRollupHorizonHours {
+				want30d = percentage(row.Up30d, row.Total30d)
+			}
+			if !sameFloat(got.Uptime30d, want30d) {
+				t.Errorf("%d h monitor %d listing uptime_30d = %v, want %v",
+					windowHours, row.MonitorID, got.Uptime30d, want30d)
+			}
+			// The latency figures of a listing are the 24 h ones, narrowed or not.
+			var wantAvg float64
+			if row.AvgMS24h != nil {
+				wantAvg = *row.AvgMS24h
+			}
+			if !sameFloat(stat.AvgMS, wantAvg) {
+				t.Errorf("%d h monitor %d listing avg = %v, want %v",
+					windowHours, row.MonitorID, stat.AvgMS, wantAvg)
+			}
+		}
 	}
 }
 
@@ -341,4 +396,105 @@ func percentage(part, total int64) float64 {
 		return 0
 	}
 	return float64(part) / float64(total) * 100
+}
+
+// TestRollupLivePurgeStats validates the retention path against a throwaway
+// MariaDB: the chunked purge must remove exactly the rows older than the cutoff
+// (more than one chunk of them), the rollups of the purged period with them, and
+// the settings card must then describe what is left.
+func TestRollupLivePurgeStats(t *testing.T) {
+	dsn := os.Getenv("UP_SCRATCH_DSN")
+	if dsn == "" {
+		t.Skip("UP_SCRATCH_DSN is not set")
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		NowFunc:                func() time.Time { return time.Now().UTC() },
+		SkipDefaultTransaction: true,
+		Logger:                 gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	for _, model := range []any{&models.Heartbeat{}, &models.HeartbeatRollup{}} {
+		if err := db.Migrator().DropTable(model); err != nil {
+			t.Fatalf("dropping %T: %v", model, err)
+		}
+	}
+	if err := db.AutoMigrate(&models.Heartbeat{}, &models.HeartbeatRollup{}); err != nil {
+		t.Fatalf("migrating: %v", err)
+	}
+
+	ctx := context.Background()
+	stats := services.NewStatsService(db)
+	base := time.Now().UTC().Truncate(time.Hour)
+
+	// Three chunks of purgeChunk (5 000) and a remainder, so the delete loop runs
+	// more than once.
+	const beats = 12_000
+	rows := make([]models.Heartbeat, 0, beats)
+	for i := 0; i < beats; i++ {
+		rows = append(rows, models.Heartbeat{
+			MonitorID: uint(1 + i%3),
+			Status:    models.StatusUp,
+			LatencyMS: int64(i % 500),
+			CreatedAt: base.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	if err := db.CreateInBatches(&rows, 1_000).Error; err != nil {
+		t.Fatalf("inserting the fixture: %v", err)
+	}
+	// One bucket of the period about to be purged, and one that has to survive.
+	old := models.HeartbeatRollup{MonitorID: 1, BucketAt: base.Add(-48 * time.Hour), Up: 60, Total: 60}
+	kept := models.HeartbeatRollup{MonitorID: 1, BucketAt: base, Up: 5, Total: 5}
+	if err := db.Create(&[]models.HeartbeatRollup{old, kept}).Error; err != nil {
+		t.Fatalf("inserting the rollups: %v", err)
+	}
+
+	cutoff := base.Add(-time.Hour)
+	// The fixture keeps the rows at minute 0..60 and loses the rest.
+	want, err := stats.CountOlderThan(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("counting the fixture: %v", err)
+	}
+	if want <= 5_000 {
+		t.Fatalf("the fixture holds %d rows older than the cutoff, the purge has to span chunks", want)
+	}
+
+	deleted, err := stats.Purge(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if deleted != want {
+		t.Errorf("purge deleted %d rows, want %d", deleted, want)
+	}
+	var remaining int64
+	if err := db.Model(&models.Heartbeat{}).Count(&remaining).Error; err != nil {
+		t.Fatalf("counting what is left: %v", err)
+	}
+	if remaining != beats-want {
+		t.Errorf("%d heartbeats left, want %d", remaining, beats-want)
+	}
+	var rollups int64
+	if err := db.Model(&models.HeartbeatRollup{}).Count(&rollups).Error; err != nil {
+		t.Fatalf("counting the rollups: %v", err)
+	}
+	if rollups != 1 {
+		t.Errorf("%d rollups left, want the one inside the retention", rollups)
+	}
+
+	// The settings card describes what the purge left: an exact size while the
+	// table is small, and the age range of the remaining rows.
+	info, err := stats.HeartbeatStats(ctx)
+	if err != nil {
+		t.Fatalf("heartbeat stats: %v", err)
+	}
+	if info.Total != remaining {
+		t.Errorf("heartbeat stats total = %d, want %d", info.Total, remaining)
+	}
+	if info.Newest == nil || !info.Newest.Equal(base) {
+		t.Errorf("heartbeat stats newest = %v, want %s", info.Newest, base)
+	}
+	if oldest := base.Add(-60 * time.Minute); info.Oldest == nil || !info.Oldest.Equal(oldest) {
+		t.Errorf("heartbeat stats oldest = %v, want %s", info.Oldest, oldest)
+	}
 }

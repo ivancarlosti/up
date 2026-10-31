@@ -168,6 +168,27 @@ func (s *MonitorService) List(ctx context.Context, filter MonitorFilter) ([]*mod
 
 // Get loads one monitor and decorates it.
 func (s *MonitorService) Get(ctx context.Context, id uint) (*models.Monitor, error) {
+	monitor, err := s.GetConfig(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	decorated := []*models.Monitor{monitor}
+	if err := s.Decorate(ctx, decorated); err != nil {
+		return nil, err
+	}
+	return monitor, nil
+}
+
+// GetConfig loads one monitor exactly as it is stored, without decorating it.
+//
+// It is the read of the probe path: the scheduler reloads a monitor before every
+// check only to read its configuration and its active flag. Get would decorate it
+// as well - the 24 h / 7 d / 30 d statistics, the heartbeat bars, the certificate,
+// the domain, the last web performance run, the notification links and the per node
+// votes of that monitor - a dozen queries and up to 720 rollup rows per check, all
+// of them discarded as soon as the check starts. At 1 000 monitors checked every
+// minute, that was the largest source of avoidable queries of the application.
+func (s *MonitorService) GetConfig(ctx context.Context, id uint) (*models.Monitor, error) {
 	var monitor models.Monitor
 	err := s.db.WithContext(ctx).First(&monitor, id).Error
 	if err == gorm.ErrRecordNotFound {
@@ -176,24 +197,32 @@ func (s *MonitorService) Get(ctx context.Context, id uint) (*models.Monitor, err
 	if err != nil {
 		return nil, ErrInternal(fmt.Errorf("loading monitor %d: %w", id, err))
 	}
-	decorated := []*models.Monitor{&monitor}
-	if err := s.Decorate(ctx, decorated); err != nil {
-		return nil, err
-	}
 	return &monitor, nil
 }
+
+// decorationHistory selects how much history a decoration reads.
+type decorationHistory int
+
+const (
+	// historyFull reads the fixed 7 d and 30 d percentages as well: the monitor
+	// detail payload and `GET /api/v1/monitors/:id` report them.
+	historyFull decorationHistory = iota
+	// historyListing reads only the selected period and the fixed 24 h one,
+	// which is all a listing renders and all it reports.
+	historyListing
+)
 
 // Decorate fills the runtime fields of the given monitors: aggregated status,
 // uptime over the configured window, latency of the last check, per node votes
 // and notification ids.
 func (s *MonitorService) Decorate(ctx context.Context, monitors []*models.Monitor) error {
-	return s.decorate(ctx, monitors, s.uptimeWindowHours(), true)
+	return s.decorate(ctx, monitors, s.uptimeWindowHours(), historyFull, true)
 }
 
 // DecorateWithWindow is Decorate with an explicit uptime window: the public
 // status pages override the global one per page.
 func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*models.Monitor, windowHours int) error {
-	return s.decorate(ctx, monitors, windowHours, true)
+	return s.decorate(ctx, monitors, windowHours, historyFull, true)
 }
 
 // DecorateList decorates a whole listing without the per node votes.
@@ -202,9 +231,11 @@ func (s *MonitorService) DecorateWithWindow(ctx context.Context, monitors []*mod
 // that renders them, so the listing endpoints (the dashboard, the monitors table
 // and the public API) ask for the aggregated status only. Everything else is
 // identical to Decorate, which keeps a row of the table and a card of the
-// dashboard showing the same values.
+// dashboard showing the same values, except for the two fixed percentages no
+// listing renders: the 7 d and the 30 d uptime are left at zero instead of being
+// aggregated for every monitor of the page (see StatsService.HistoryForListing).
 func (s *MonitorService) DecorateList(ctx context.Context, monitors []*models.Monitor) error {
-	return s.decorate(ctx, monitors, s.uptimeWindowHours(), false)
+	return s.decorate(ctx, monitors, s.uptimeWindowHours(), historyListing, false)
 }
 
 // decorateSources is the runtime data a listing needs. Every field is read with a
@@ -226,7 +257,7 @@ type decorateSources struct {
 }
 
 // decorate fills the runtime fields of a listing.
-func (s *MonitorService) decorate(ctx context.Context, monitors []*models.Monitor, windowHours int, withVotes bool) error {
+func (s *MonitorService) decorate(ctx context.Context, monitors []*models.Monitor, windowHours int, history decorationHistory, withVotes bool) error {
 	if len(monitors) == 0 {
 		return nil
 	}
@@ -237,7 +268,7 @@ func (s *MonitorService) decorate(ctx context.Context, monitors []*models.Monito
 	windowHours = models.NormalizeUptimeWindowHours(windowHours)
 
 	started := time.Now()
-	sources, err := s.gatherSources(ctx, monitors, ids, windowHours, withVotes)
+	sources, err := s.gatherSources(ctx, monitors, ids, windowHours, history, withVotes)
 	if err != nil {
 		return err
 	}
@@ -249,6 +280,7 @@ func (s *MonitorService) decorate(ctx context.Context, monitors []*models.Monito
 	s.log.Debug("monitors decorated",
 		"monitors", len(monitors),
 		"window_hours", windowHours,
+		"long_windows", history == historyFull,
 		"votes", withVotes,
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
@@ -261,11 +293,19 @@ func (s *MonitorService) decorate(ctx context.Context, monitors []*models.Monito
 // up: running them in parallel keeps a request close to its slowest query instead
 // of the sum of all of them. The connection pool (internal/database) bounds the
 // fan out, so a burst of listings back pressures instead of flooding the server.
-func (s *MonitorService) gatherSources(ctx context.Context, monitors []*models.Monitor, ids []uint, windowHours int, withVotes bool) (*decorateSources, error) {
+func (s *MonitorService) gatherSources(ctx context.Context, monitors []*models.Monitor, ids []uint, windowHours int, history decorationHistory, withVotes bool) (*decorateSources, error) {
 	sources := &decorateSources{}
 	group, gctx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
+		if history == historyListing {
+			// A listing renders one percentage per monitor and the 24 h column:
+			// asking for the 7 d and 30 d ones would aggregate 30 days of rollups
+			// for every monitor of the page to discard the result.
+			histories, err := s.stats.HistoryForListing(gctx, ids, windowHours)
+			sources.histories = histories
+			return err
+		}
 		histories, err := s.stats.History(gctx, ids, windowHours)
 		sources.histories = histories
 		return err

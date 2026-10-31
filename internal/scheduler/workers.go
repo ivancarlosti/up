@@ -12,7 +12,7 @@ func (s *Scheduler) upsert(ctx context.Context, monitorID uint) {
 	_, exists := s.workers[monitorID]
 	s.mu.RUnlock()
 
-	monitor, err := s.monitors.Get(ctx, monitorID)
+	monitor, err := s.monitors.GetConfig(ctx, monitorID)
 	if err != nil {
 		s.log.Warn("could not configure the monitor worker", "monitor_id", monitorID, "error", err)
 		return

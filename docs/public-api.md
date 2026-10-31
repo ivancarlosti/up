@@ -72,9 +72,11 @@ Query: `search`, `type`, `tag`, `active`, `include_secrets`.
   "notification_ids":[1]}]
 ```
 
-`uptime`/`uptime_hours` follow the configured window (Admin > Settings);
-`uptime_24h`, `uptime_7d` and `uptime_30d` remain the fixed windows, so existing
-consumers keep working.
+`uptime`/`uptime_hours` follow the configured window (Admin > Settings) and
+`uptime_24h` is the fixed 24 h window. This listing leaves `uptime_7d` and
+`uptime_30d` at `0`; `GET /api/v1/monitors/:id` still reports all four fixed
+windows, which is where they are worth reading (the fields stay in the payload, so
+a consumer that decodes them keeps working).
 
 Credentials are masked with `***` unless `include_secrets=true`. The payload is
 the same decorated monitor the dashboard uses, so a monitor that watches its

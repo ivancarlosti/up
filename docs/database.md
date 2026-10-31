@@ -256,7 +256,8 @@ CREATE TABLE `heartbeats` (
   PRIMARY KEY (`id`),
   KEY `idx_hb_monitor_time` (`monitor_id`,`created_at`),
   KEY `idx_hb_monitor_node` (`monitor_id`,`node_id`,`created_at`),
-  KEY `idx_hb_stats` (`monitor_id`,`created_at`,`status`,`latency_ms`)
+  KEY `idx_hb_stats` (`monitor_id`,`created_at`,`status`,`latency_ms`),
+  KEY `idx_hb_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 
 CREATE TABLE `heartbeat_rollups` (
@@ -275,7 +276,18 @@ CREATE TABLE `heartbeat_rollups` (
   PRIMARY KEY (`monitor_id`,`bucket_at`),
   KEY `idx_rollup_bucket` (`bucket_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+```
 
+`idx_hb_created_at` is the only index of `heartbeats` that does not start with
+the monitor, and it exists for the three reads that cross every monitor: the
+retention purge and its preview (`WHERE created_at < ?`), and the Admin >
+Settings card (`MIN`/`MAX(created_at)`). Without it each of them walked the whole
+retained history. `AutoMigrate` adds it on an existing installation with an
+online `ALTER TABLE ... ADD INDEX`, which does not block the writes of a running
+cluster but reads the whole table once: expect the first boot after the upgrade
+to wait for it on a multi-gigabyte history.
+
+```sql
 CREATE TABLE `ip_rules` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `cidr` varchar(64) NOT NULL,
@@ -751,14 +763,29 @@ more: the hourly `heartbeat_rollups` hold the reduction of every elapsed hour,
 and only the two partial hours of each window - the hour the window starts in
 and the hour in progress - are read from the raw table.
 
-The rollups, at most 720 rows per monitor for 30 days:
+The rollups, at most 720 rows per monitor for 30 days, reduced by the server
+before they leave it: one aggregate per period of the call, each over its own
+index range (the whole hours inside the period - the partial hour it starts in is
+completed by the boundary query below, so its bucket is not read twice):
 
 ```sql
-SELECT monitor_id, bucket_at, up, down, pending, maintenance, total,
-       up_latency_sum, up_latency_count, latency_min, latency_max
+SELECT monitor_id, SUM(up) AS up, SUM(total) AS total
 FROM heartbeat_rollups
-WHERE monitor_id IN (?) AND bucket_at >= ? AND bucket_at < ?;
+WHERE monitor_id IN (?) AND bucket_at >= ? AND bucket_at < ?
+GROUP BY monitor_id;
 ```
+
+The fixed 24 h period asks for its failure counters and latency figures in the
+same pass (`SUM(down)`, `SUM(pending)`, the inputs of the average and
+`MIN/MAX(latency_min/max)`), because it is the only period the payload reports
+them for.
+
+One query per period is deliberate. A single query with a conditional sum per
+period (`SUM(CASE WHEN bucket_at >= ? THEN up ELSE 0 END)`) scans once, but the
+server re-converts that bound for every row: on a 1 000 monitor installation with
+720 000 buckets the conditional form measured **700 ms** where the same range with
+plain aggregates takes **30 ms**. Two to four short index ranges are far cheaper
+than one that compares a `DATETIME` parameter hundreds of thousands of times.
 
 The boundary hours, whose ranges are disjoint by construction so a heartbeat can
 never be counted twice (one range per window for the hour it starts in, plus the
@@ -777,7 +804,8 @@ WHERE monitor_id IN (?) AND created_at >= ? AND created_at < ?   -- the hour a w
 GROUP BY monitor_id;
 ```
 
-The counters are then summed in Go. The latency figures keep the shape of the
+The periods and the boundary ranges are folded in Go into one row per monitor -
+sums of at most four rows of each - and the latency figures keep the shape of the
 aggregate they replace: the average is the one of the `up` checks, rounded to the
 four fractional digits MySQL returns for a division, and the minimum and the
 maximum cover every heartbeat of the window.
@@ -806,7 +834,8 @@ time, so the numbers do not depend on the buffer pool):
 |---|---|---|
 | Before: raw aggregate, no covering index | `type=ALL` | 86 401 clustered rows (`Handler_read_rnd_next`) |
 | Raw aggregate on `idx_hb_stats` | `type=range`, `Using index` | 43 199 index entries, zero row fetch |
-| Rollup read | `type=range`, `key=PRIMARY` | 720 index entries |
+| Rollup read, per period (this release) | `type=range`, `key=PRIMARY` | 720 index entries, reduced to one row per monitor |
+| Rollup read, before this release (720 rows per monitor to Go) | `type=range`, `key=PRIMARY` | 720 index entries, 720 rows over the wire |
 | Boundary hour read | `type=range` | 119 index entries |
 
 **Keeping the rollups true.** Every stored heartbeat folds itself into its
@@ -877,14 +906,19 @@ GROUP BY monitor_id, bucket;
 a deployment that never opened Admin > Settings):
 
 ```sql
-DELETE FROM heartbeat_rollups WHERE bucket_at < ?;
-DELETE FROM heartbeats WHERE created_at < ?;
+DELETE FROM heartbeat_rollups WHERE bucket_at < ? LIMIT 5000;   -- repeated
+DELETE FROM heartbeats WHERE created_at < ? LIMIT 5000;         -- repeated
 ```
 
 The two statements carry the same cut-off, and the rollups are deleted first: a
 rollup outliving the heartbeats it was computed from would keep reporting a
-period the retention policy already dropped. Deleting a monitor removes its
-rollups with everything else it owns.
+period the retention policy already dropped. Both are repeated until they return
+fewer rows than the chunk size. A single `DELETE` looked simpler and was the
+wrong shape: on a history that had never been pruned (the first boot after an
+upgrade, or a deployment whose retention had been disabled for a while) it is
+hundreds of millions of rows in one statement - minutes of undo log growth, one
+very long lock, and every probe of every monitor queuing behind it. Deleting a
+monitor removes its rollups with everything else it owns.
 
 **Web performance retention** (`settings.lighthouse_retention_days`, executed by
 the same boot + every 6 h pass; `LIGHTHOUSE_RETENTION_DAYS` is the fallback and
@@ -902,6 +936,13 @@ The retention defaults to **180 days** (`0` disables the purge and keeps every
 row). Admin > Settings shows the stored count, the age of the oldest heartbeat and
 what the current policy would delete, and offers an explicit *purge now* action
 (`POST /api/admin/maintenance/heartbeats/purge`).
+
+That card reads `MIN(created_at)` and `MAX(created_at)` (an index seek on
+`idx_hb_created_at`) and the number of stored rows. The count is exact while the
+table holds fewer than two million rows and InnoDB's own estimate
+(`information_schema.TABLES.TABLE_ROWS`) above it: `COUNT(*)` has no index that
+answers it without walking the whole table, which is tens of seconds on a
+180 day history at 1 000 monitors.
 
 Choosing the window: a monitor stores one row per check **per node**, so a 60 s
 interval produces ~1 440 rows/day and a cluster of two nodes doubles that.

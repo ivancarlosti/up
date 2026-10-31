@@ -102,8 +102,11 @@ func (w *worker) executeOnce(ctx context.Context, singleShot bool) bool {
 		return false
 	}
 	// Reload from the database so a paused monitor stops immediately and a
-	// changed configuration takes effect without restarting the worker.
-	fresh, err := w.scheduler.monitors.Get(ctx, monitor.ID)
+	// changed configuration takes effect without restarting the worker. Only the
+	// stored configuration is needed: GetConfig skips the decoration, which would
+	// read the statistics, the certificate, the domain, the lighthouse runs and
+	// the links of the monitor on every check of every monitor.
+	fresh, err := w.scheduler.monitors.GetConfig(ctx, monitor.ID)
 	if err != nil {
 		w.scheduler.log.Warn("could not reload the monitor before checking",
 			"monitor_id", monitor.ID, "error", err)

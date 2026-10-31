@@ -110,8 +110,11 @@ func TestHistoryWindowSetLayout(t *testing.T) {
 	if got := selected.endHour; !got.Equal(time.Date(2026, 9, 26, 21, 0, 0, 0, time.UTC)) {
 		t.Errorf("endHour = %s", got)
 	}
-	if got := selected.rollupStart; !got.Equal(time.Date(2026, 8, 27, 21, 0, 0, 0, time.UTC)) {
-		t.Errorf("rollupStart = %s", got)
+	// The widest period is the 30 day one, and its aggregate starts at the first
+	// whole hour inside it: the hour it starts in is read from the raw table.
+	if got, want := selected.windows[selected.indexOf[models.HeartbeatRollupHorizonHours]].leadEnd,
+		time.Date(2026, 8, 27, 22, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("30 d leadEnd = %s, want %s", got, want)
 	}
 
 	// The 24 h window starts mid hour, so that hour is read raw and the rollups
@@ -170,8 +173,11 @@ func TestHistoryWindowSetLayout(t *testing.T) {
 	if len(fourteen.windows) != 4 {
 		t.Fatalf("336 h selected: %d windows, want 4", len(fourteen.windows))
 	}
-	if got := fourteen.rollupStart; !got.Equal(selected.rollupStart) {
-		t.Errorf("336 h rollupStart = %s, want %s", got, selected.rollupStart)
+	horizon := func(set historyWindowSet) time.Time {
+		return set.windows[set.indexOf[models.HeartbeatRollupHorizonHours]].leadEnd
+	}
+	if got, want := horizon(fourteen), horizon(selected); !got.Equal(want) {
+		t.Errorf("336 h selected: the 30 d period starts at %s, want %s", got, want)
 	}
 }
 
@@ -415,5 +421,124 @@ func TestHistorySplitMatchesRawAggregate(t *testing.T) {
 	}
 	if *row.MinMS24h != day.minMS || *row.MaxMS24h != day.maxMS {
 		t.Errorf("min/max = %d/%d, want %d/%d", *row.MinMS24h, *row.MaxMS24h, day.minMS, day.maxMS)
+	}
+}
+
+// TestListingWindowSetKeepsThePeriodsItReports pins the property
+// newListingWindowSet relies on: dropping the 7 day and 30 day periods must not
+// move the periods that stay, or the dashboard would show a 24 h percentage
+// computed over another range than the one the detail page shows.
+func TestListingWindowSetKeepsThePeriodsItReports(t *testing.T) {
+	now := time.Date(2026, 10, 30, 9, 41, 12, 0, time.UTC)
+	for _, selected := range []int{
+		models.DefaultUptimeWindowHours, 7 * 24, 336, models.HeartbeatRollupHorizonHours,
+	} {
+		full := newHistoryWindowSet(now, selected)
+		listing := newListingWindowSet(now, selected)
+
+		// The selected window and the fixed 24 h one, deduplicated.
+		want := 2
+		if selected == models.DefaultUptimeWindowHours {
+			want = 1
+		}
+		if len(listing.windows) != want {
+			t.Fatalf("%d h selected: %d periods in the listing set, want %d", selected, len(listing.windows), want)
+		}
+		for _, hours := range []int{models.DefaultUptimeWindowHours, selected} {
+			if _, ok := listing.indexOf[hours]; !ok {
+				t.Fatalf("%d h selected: the listing set dropped the %d h period", selected, hours)
+			}
+			kept := listing.windows[listing.indexOf[hours]]
+			reference := full.windows[full.indexOf[hours]]
+			if kept.hours != reference.hours || !kept.start.Equal(reference.start) || !kept.leadEnd.Equal(reference.leadEnd) {
+				t.Errorf("%d h selected: the %d h period moved: %+v, want %+v", selected, hours, kept, reference)
+			}
+		}
+		if _, ok := listing.indexOf[7*24]; ok && selected != 7*24 {
+			t.Errorf("%d h selected: the listing set kept the 7 d period", selected)
+		}
+		if _, ok := listing.indexOf[models.HeartbeatRollupHorizonHours]; ok && selected != models.HeartbeatRollupHorizonHours {
+			t.Errorf("%d h selected: the listing set kept the 30 d period", selected)
+		}
+		// Every aggregate the listing runs starts at the first whole hour inside its
+		// period, and never before the oldest period it reports: with the 24 h window
+		// selected that is one day of rollups, not the 30 day horizon.
+		oldest := listing.windows[listing.indexOf[models.DefaultUptimeWindowHours]].leadEnd
+		for _, spec := range listing.windows {
+			if spec.leadEnd.Before(oldest) {
+				oldest = spec.leadEnd
+			}
+		}
+		for _, spec := range listing.windows {
+			if spec.leadEnd.Before(oldest) || spec.leadEnd.After(listing.endHour) {
+				t.Errorf("%d h selected: the %d h aggregate reads [%s, %s)",
+					selected, spec.hours, spec.leadEnd, listing.endHour)
+			}
+		}
+		if selected == models.DefaultUptimeWindowHours && !oldest.Equal(
+			full.windows[full.indexOf[models.DefaultUptimeWindowHours]].leadEnd) {
+			t.Errorf("24 h selected: the listing reads from %s, want one day of rollups (%s)",
+				oldest, full.windows[full.indexOf[models.DefaultUptimeWindowHours]].leadEnd)
+		}
+		if !listing.endHour.Equal(full.endHour) {
+			t.Errorf("%d h selected: endHour = %s, want %s", selected, listing.endHour, full.endHour)
+		}
+	}
+}
+
+// TestListingRowReportsNoLongWindows pins what a narrowed listing reports: the
+// columns of the periods it computed, and zeros - not the 24 h counters, which is
+// what an index lookup missing from the map would have returned before totalsOf -
+// for the 7 day and 30 day percentages. A listing whose selected window *is* the
+// 7 day one keeps reporting it, because it is the same period.
+func TestListingRowReportsNoLongWindows(t *testing.T) {
+	now := time.Date(2026, 10, 30, 9, 41, 12, 0, time.UTC)
+	listing := newListingWindowSet(now, 336)
+	day := historyTotals{up: 10, down: 1, pending: 2, total: 13, upLatSum: 130, upLatCnt: 10}
+	day.observe(5, 40)
+	fortnight := historyTotals{up: 90, down: 3, total: 100, upLatSum: 900, upLatCnt: 90}
+	fortnight.observe(4, 41)
+
+	row := listing.row(7, []historyTotals{day, fortnight})
+	if row.MonitorID != 7 || row.Up24h != 10 || row.Total24h != 13 || row.Down24h != 1 || row.Pending24h != 2 {
+		t.Errorf("24 h columns = %+v, want the day counters", row)
+	}
+	if row.UpWindow != 90 || row.TotalWindow != 100 {
+		t.Errorf("selected window columns = %d/%d, want 90/100", row.UpWindow, row.TotalWindow)
+	}
+	if row.Up7d != 0 || row.Total7d != 0 || row.Up30d != 0 || row.Total30d != 0 {
+		t.Errorf("7 d/30 d columns = %d/%d and %d/%d, want zeros",
+			row.Up7d, row.Total7d, row.Up30d, row.Total30d)
+	}
+	if row.AvgMS24h == nil || *row.AvgMS24h != 13 || row.MinMS24h == nil || *row.MinMS24h != 5 ||
+		row.MaxMS24h == nil || *row.MaxMS24h != 40 {
+		t.Errorf("24 h latency = %v/%v/%v, want 13/5/40", row.AvgMS24h, row.MinMS24h, row.MaxMS24h)
+	}
+
+	// A seven day selection is the 7 d column: it must be reported, not zeroed.
+	week := newListingWindowSet(now, 7*24).row(8, []historyTotals{
+		{up: 10, total: 13},
+		{up: 90, total: 100},
+	})
+	if week.Up7d != 90 || week.Total7d != 100 || week.UpWindow != 90 || week.TotalWindow != 100 {
+		t.Errorf("7 d selection: columns = %d/%d (window %d/%d), want 90/100",
+			week.Up7d, week.Total7d, week.UpWindow, week.TotalWindow)
+	}
+	if week.Up30d != 0 || week.Total30d != 0 {
+		t.Errorf("7 d selection: 30 d columns = %d/%d, want zeros", week.Up30d, week.Total30d)
+	}
+}
+
+// TestCountedPeriods pins the rule that decides whether a monitor is reported at
+// all: a monitor whose periods hold no heartbeat has nothing to show.
+func TestCountedPeriods(t *testing.T) {
+	if counted(nil) {
+		t.Error("no periods at all must not count as data")
+	}
+	if counted([]historyTotals{{}, {}}) {
+		t.Error("periods without a heartbeat must not count as data")
+	}
+	if !counted([]historyTotals{{}, {down: 2, total: 2}}) {
+		t.Error("a failed heartbeat is data: the period must count")
 	}
 }

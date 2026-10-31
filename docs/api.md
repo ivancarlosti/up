@@ -5,6 +5,12 @@
 > `{"code":"ERR_...","message":"..."}` where `code` is stable and translated by
 > the frontend.
 
+Every JSON response is gzip-compressed when the request carries
+`Accept-Encoding: gzip` (the middleware also answers `Vary: Accept-Encoding`, so a
+shared cache keeps the two variants apart). A listing of 1 000 monitors is
+megabytes of JSON and arrives at about a tenth of its size. The websocket
+handshake and the binary badge are never compressed.
+
 ## 1. Authentication summary
 
 | Surface | Credential |
@@ -186,8 +192,12 @@ Query: `search`, `type`, `tag`, `active`.
 ```
 
 `uptime` / `uptime_hours` cover the configured window (Admin > Settings or the
-status page override); `uptime_24h`, `uptime_7d` and `uptime_30d` stay as the
-fixed windows of the public API. `heartbeat_bars` is the bucketed history drawn
+status page override) and `uptime_24h` is the fixed 24 h window. A listing does
+not report `uptime_7d` and `uptime_30d`: they stay `0` there, because aggregating
+30 days of rollups for every monitor of the page to render none of it was the
+largest read of a dashboard load. The single-monitor payloads
+(`GET /api/monitors/:id` and `GET /api/v1/monitors/:id`) still report all four
+fixed windows. `heartbeat_bars` is the bucketed history drawn
 in the monitors table: one status per slot, oldest first, `""` for a slot with no
 heartbeat (it is a snapshot, never a live feed). Each slot covers a whole hour of
 the selected window - at most 30 of them - plus the hour in progress, and the

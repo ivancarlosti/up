@@ -835,9 +835,10 @@ The uptime percentage follows one window: `24`, `168` (7 d), `336` (14 d) or
 `720` (30 d) hours. Admin > Settings holds the global value (it applies to the
 dashboard, the table, the detail page and the compact heartbeat column); a public
 status page can override it per page, and the monitor detail page offers a period
-selector. The backend fills both `uptime`/`uptime_hours` (the selected window) and
-the fixed `uptime_24h`/`uptime_7d`/`uptime_30d` columns of the public API, with a
-single grouped query (`StatsService.History`).
+selector. The backend fills `uptime`/`uptime_hours` (the selected window) and
+`uptime_24h`, with one reduced query per period (`StatsService.History` for the
+single-monitor payloads, which also report the fixed `uptime_7d`/`uptime_30d`, and
+`StatsService.HistoryForListing` for the listings, which render neither).
 
 The *Heartbeat* column draws a bucketed snapshot of the same window
 (`StatsService.RecentBars`: one grouped query over the hourly rollups, bounded by

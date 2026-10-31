@@ -237,6 +237,12 @@ export interface Monitor {
   last_check_at: string | null
   last_latency_ms: number
   uptime_24h: number
+  /**
+   * The 7 day and 30 day uptimes are only reported by the single-monitor
+   * payloads (`GET /api/monitors/:id`): a listing leaves them at 0, because
+   * aggregating 30 days of history for every row of the table to render none of
+   * it was the most expensive read of a dashboard load.
+   */
   uptime_7d: number
   uptime_30d: number
   /** Uptime over the configured window (see `uptime_hours`). */

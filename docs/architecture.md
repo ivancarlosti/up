@@ -51,7 +51,7 @@ internal/
   handlers/          HTTP layer: routes, payload binding, JSON responses
   i18n/              stable error codes returned by the API
   middleware/        request id, real IP, logging, security headers, CORS,
-                     recovery, IP rules, rate limit, session/token auth
+                     recovery, gzip, IP rules, rate limit, session/token auth
   models/            GORM entities, enums, monitor configuration structs
   notify/            shoutrrr wrapper: SMTP + Webhook + Slack/Discord/Telegram
   scheduler/         per monitor goroutines, retries, maintenance loops
@@ -331,10 +331,21 @@ Every failure answers with a stable code that the frontend translates:
   slow once the history grew. The listing reads the `monitor_states` row the
   evaluator upserts on every check, and the list endpoints ask for the aggregated
   status without the per-node votes (`DecorateList`).
+- A listing also asks for fewer periods than a single-monitor payload
+  (`StatsService.HistoryForListing`): the dashboard renders the selected window
+  and the 24 h column, so the 7 d and 30 d figures are left at zero instead of
+  being aggregated for every monitor of the page.
+- The worker reloads a monitor before every check to read its configuration and
+  its `active` flag (`MonitorService.GetConfig`), never the decorated monitor:
+  decorating it would read its statistics, bars, certificate, domain, web
+  performance runs and links - a dozen queries per check, ~280 per second at 1 000
+  monitors checked every minute - to discard them as soon as the probe starts.
 - The 24 h/7 d/30 d uptime figures and the window selected in Admin > Settings
-  are computed in one pass over the hourly `heartbeat_rollups` — at most 720 rows
-  per monitor for 30 days — plus the two partial hours of each window (the hour
-  the window starts in and the hour in progress), read from the raw table. The
+  are computed from the hourly `heartbeat_rollups` — at most 720 rows per monitor
+  for 30 days — plus the two partial hours of each window (the hour the window
+  starts in and the hour in progress), read from the raw table. The server reduces
+  the rollups: one plain aggregate per period, one row per monitor, instead of the
+  720 rows per monitor the client used to fold (see `docs/database.md` §5). The
   counters, the average of the `up` checks and the min/max are identical to the
   single `SUM(CASE ...)` aggregate this replaces; the rollups are reconciled at
   boot (`database.BackfillHeartbeatRollups`) and purged together with the

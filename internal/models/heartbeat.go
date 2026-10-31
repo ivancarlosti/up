@@ -12,13 +12,21 @@ const MaxHeartbeatMessageLen = 500
 
 // Heartbeat is a single check result produced by one node.
 //
-// The indexes are chosen around the two reads the application actually makes.
+// The indexes are chosen around the reads the application actually makes.
 // idx_hb_monitor_time serves the newest-first listings; idx_hb_monitor_node
 // serves the per-node voting (MAX(id) per monitor and node); idx_hb_stats is a
 // covering index for the window statistics (monitor_id + created_at select the
 // rows, status and latency_ms are read from the index without touching the
 // clustered row), which is what used to cost one random row fetch per heartbeat
 // on every dashboard load.
+//
+// idx_hb_created_at is the only index that does not start with the monitor: it
+// serves the reads that cross every monitor. The retention purge
+// (StatsService.Purge) and its preview (CountOlderThan) select by date alone, and
+// the Admin > Settings card (HeartbeatStats) reads MIN(created_at) and
+// MAX(created_at). Without it each of them walked the whole retained history -
+// hundreds of millions of rows at the shipped defaults - every six hours and on
+// every visit to Admin > Settings.
 type Heartbeat struct {
 	ID        uint `gorm:"primaryKey" json:"id"`
 	MonitorID uint `gorm:"not null;index:idx_hb_monitor_time,priority:1;index:idx_hb_monitor_node,priority:1;index:idx_hb_stats,priority:1" json:"monitor_id"`
@@ -42,7 +50,7 @@ type Heartbeat struct {
 	// does not alert while the monitor's own policy would still be retrying.
 	Important bool `gorm:"not null;default:false" json:"important"`
 
-	CreatedAt time.Time `gorm:"index:idx_hb_monitor_time,priority:2;index:idx_hb_monitor_node,priority:3;index:idx_hb_stats,priority:2" json:"created_at"`
+	CreatedAt time.Time `gorm:"index:idx_hb_monitor_time,priority:2;index:idx_hb_monitor_node,priority:3;index:idx_hb_stats,priority:2;index:idx_hb_created_at" json:"created_at"`
 }
 
 // MarshalJSON keeps the integer status in the database while exposing the

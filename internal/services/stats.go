@@ -106,8 +106,6 @@ type historyWindowSet struct {
 	windows []historyWindowSpec
 	// indexOf maps an hour count to its position in windows.
 	indexOf map[int]int
-	// rollupStart is the oldest bucket a rollup query may read.
-	rollupStart time.Time
 	// endHour is the start of the hour in progress: the rollups only hold
 	// complete hours, so this hour is read from the raw table.
 	endHour time.Time
@@ -120,18 +118,40 @@ type historyWindowSet struct {
 // usable as an index range (see queryTime). Doing it here and not at the call
 // site means no caller can hand the query a nanosecond bound by accident.
 func newHistoryWindowSet(now time.Time, windowHours int) historyWindowSet {
+	return buildHistoryWindowSet(now, windowHours, []int{
+		models.DefaultUptimeWindowHours,
+		7 * 24,
+		models.HeartbeatRollupHorizonHours,
+	})
+}
+
+// newListingWindowSet lays out the periods a listing reports: the selected
+// window and the fixed 24 h one, and nothing else.
+//
+// The dashboard, the monitors table and the public API listing render one
+// percentage per monitor - the selected window - plus the 24 h column; the 7 day
+// and 30 day ones are only published by the single-monitor payloads (the detail
+// page and `GET /api/v1/monitors/:id`). Reading them for a listing meant
+// aggregating 30 days of rollups per monitor to throw the result away: 720 000
+// bucket rows for 1 000 monitors, the single largest allocation of a dashboard
+// load. A window that is not in the set reports zero (see totalsOf).
+func newListingWindowSet(now time.Time, windowHours int) historyWindowSet {
+	return buildHistoryWindowSet(now, windowHours, []int{models.DefaultUptimeWindowHours})
+}
+
+// buildHistoryWindowSet lays out the selected period, the fixed periods given by
+// the caller, and their hour boundaries.
+func buildHistoryWindowSet(now time.Time, windowHours int, fixed []int) historyWindowSet {
 	now = queryTime(now)
 	set := historyWindowSet{
 		selected: windowHours,
 		indexOf:  map[int]int{},
 		endHour:  now.Truncate(time.Hour),
 	}
-	for _, hours := range []int{
-		models.DefaultUptimeWindowHours,
-		7 * 24,
-		models.HeartbeatRollupHorizonHours,
-		windowHours,
-	} {
+	periods := make([]int, 0, len(fixed)+1)
+	periods = append(periods, fixed...)
+	periods = append(periods, windowHours)
+	for _, hours := range periods {
 		if _, ok := set.indexOf[hours]; ok {
 			continue
 		}
@@ -143,17 +163,13 @@ func newHistoryWindowSet(now time.Time, windowHours int) historyWindowSet {
 			leadEnd: ceilHour(start),
 		})
 	}
-	set.rollupStart = set.windows[0].start.Truncate(time.Hour)
-	for _, spec := range set.windows {
-		if oldest := spec.start.Truncate(time.Hour); oldest.Before(set.rollupStart) {
-			set.rollupStart = oldest
-		}
-	}
 	return set
 }
 
-// rollupInside reports whether a rollup bucket is wholly inside the window, so
-// its counters can be added as they are.
+// rollupInside reports whether a rollup bucket is wholly inside the period, so its
+// counters can be added as they are. It is the condition every rollup aggregate
+// binds (`bucket_at >= leadEnd`, with the hour in progress excluded by the upper
+// bound) and what the equivalence test of the split reproduces.
 func (s historyWindowSet) rollupInside(window int, bucket time.Time) bool {
 	spec := s.windows[window]
 	return !bucket.Before(spec.leadEnd) && bucket.Before(s.endHour)
@@ -258,10 +274,10 @@ func (t *historyTotals) observe(minMS, maxMS int64) {
 // row shapes the accumulated periods like the aggregate the rest of the function
 // already consumed.
 func (s historyWindowSet) row(monitorID uint, totals []historyTotals) windowRow {
-	day := totals[s.indexOf[models.DefaultUptimeWindowHours]]
-	week := totals[s.indexOf[7*24]]
-	month := totals[s.indexOf[models.HeartbeatRollupHorizonHours]]
-	chosen := totals[s.indexOf[s.selected]]
+	day := s.totalsOf(totals, models.DefaultUptimeWindowHours)
+	week := s.totalsOf(totals, 7*24)
+	month := s.totalsOf(totals, models.HeartbeatRollupHorizonHours)
+	chosen := s.totalsOf(totals, s.selected)
 
 	row := windowRow{
 		MonitorID:   monitorID,
@@ -292,25 +308,76 @@ func (s historyWindowSet) row(monitorID uint, totals []historyTotals) windowRow 
 	return row
 }
 
+// totalsOf returns the counters of one period, or zero when the call did not
+// compute it. A listing asks for the selected window and the 24 h one only (see
+// newListingWindowSet), so its rows report no 7 day and no 30 day percentage
+// instead of reporting a wrong one.
+func (s historyWindowSet) totalsOf(totals []historyTotals, hours int) historyTotals {
+	index, ok := s.indexOf[hours]
+	if !ok {
+		return historyTotals{}
+	}
+	return totals[index]
+}
+
+// counted reports whether any period of a monitor counted a heartbeat.
+func counted(totals []historyTotals) bool {
+	for _, period := range totals {
+		if period.total > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // History returns the aggregated history of a set of monitors for the given
-// window.
+// window: the selected period plus the fixed 24 h / 7 d / 30 d percentages of the
+// public API.
 //
-// The fixed 24 h / 7 d / 30 d percentages and the selected window are still
-// computed together (one scan of the rollup table plus the boundary hours of
-// every period), but the bulk of the data now comes from the hourly rollups
-// instead of the heartbeats: at most 720 rollup rows per monitor for 30 days
-// plus at most two hours of raw checks per period, where the single raw query
-// read every heartbeat of the last 30 days (43 200 rows per monitor at a 60 s
-// interval, 518 400 at 5 s, and twice that on a two node cluster).
+// The numbers come from the hourly rollups instead of the heartbeats (at most 720
+// buckets per monitor for the 30 day horizon, plus at most two hours of raw checks
+// per period, where the single raw query read every heartbeat of the last 30
+// days: 43 200 rows per monitor at a 60 s interval, 518 400 at 5 s, and twice that
+// on a two node cluster), and the database reduces those buckets before anything
+// crosses the wire: one row per monitor per period, whatever the size of the
+// history.
 func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHours int) (map[uint]MonitorHistory, error) {
+	return s.history(ctx, monitorIDs, windowHours, true)
+}
+
+// HistoryForListing is History for a listing: the selected window and the fixed
+// 24 h percentage, without the 7 day and 30 day ones.
+//
+// The two percentages it leaves out are the ones only a listing paid for: they
+// need the whole 30 day horizon of rollups aggregated for every monitor of the
+// page, and nothing the dashboard, the monitors table, the pickers or the public
+// API listing renders reads them (see newListingWindowSet). The single-monitor
+// payloads - the detail page and `GET /api/v1/monitors/:id` - keep calling
+// History and keep reporting all four.
+func (s *StatsService) HistoryForListing(ctx context.Context, monitorIDs []uint, windowHours int) (map[uint]MonitorHistory, error) {
+	return s.history(ctx, monitorIDs, windowHours, false)
+}
+
+// history computes the aggregated history of a set of monitors.
+//
+// Both the counters of the periods and their latency figures are reduced by the
+// database, so a listing folds monitors x periods rows, never monitors x 720
+// buckets. longWindows selects the fixed 7 day and 30 day periods as well.
+func (s *StatsService) history(ctx context.Context, monitorIDs []uint, windowHours int, longWindows bool) (map[uint]MonitorHistory, error) {
 	out := map[uint]MonitorHistory{}
 	if len(monitorIDs) == 0 {
 		return out, nil
 	}
 	windowHours = models.NormalizeUptimeWindowHours(windowHours)
-	set := newHistoryWindowSet(time.Now().UTC(), windowHours)
+	now := time.Now().UTC()
+	var set historyWindowSet
+	if longWindows {
+		set = newHistoryWindowSet(now, windowHours)
+	} else {
+		set = newListingWindowSet(now, windowHours)
+	}
 
-	rollups, err := s.historyRollups(ctx, monitorIDs, set)
+	totals, err := s.historyRollupTotals(ctx, monitorIDs, set)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +387,6 @@ func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHou
 		return nil, err
 	}
 
-	totals := map[uint][]historyTotals{}
 	accumulate := func(monitorID uint) []historyTotals {
 		list, ok := totals[monitorID]
 		if !ok {
@@ -328,14 +394,6 @@ func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHou
 			totals[monitorID] = list
 		}
 		return list
-	}
-	for _, bucket := range rollups {
-		list := accumulate(bucket.MonitorID)
-		for i := range set.windows {
-			if set.rollupInside(i, bucket.BucketAt) {
-				list[i].addRollup(bucket)
-			}
-		}
 	}
 	// Every boundary range arrives reduced to one row per monitor, so folding it
 	// into the periods is a handful of additions instead of one per heartbeat.
@@ -355,10 +413,11 @@ func (s *StatsService) History(ctx context.Context, monitorIDs []uint, windowHou
 	rows := make([]windowRow, 0, len(monitorIDs))
 	for _, monitorID := range monitorIDs {
 		list, ok := totals[monitorID]
-		if !ok || list[set.indexOf[models.HeartbeatRollupHorizonHours]].total == 0 {
-			// A monitor is reported only when it has a heartbeat inside the
-			// widest window: the grouped query bounded its scan to 30 days, so
-			// its COUNT(*) was never zero for a monitor without data in it.
+		if !ok || !counted(list) {
+			// A monitor is reported only when it has a heartbeat inside one of
+			// the periods of the call: the aggregate bounded its scan to the
+			// widest of them, so a monitor without data in it has no counters to
+			// report and no uptime to show.
 			continue
 		}
 		rows = append(rows, set.row(monitorID, list))
@@ -444,18 +503,110 @@ func (r historyBoundaryRow) rollup() historyRollupRow {
 	}
 }
 
-// historyRollups reads the hourly buckets the periods of the call cover.
-func (s *StatsService) historyRollups(ctx context.Context, monitorIDs []uint, set historyWindowSet) ([]historyRollupRow, error) {
-	var rows []historyRollupRow
-	if err := s.db.WithContext(ctx).Model(&models.HeartbeatRollup{}).
-		Select("monitor_id, bucket_at, up, down, pending, maintenance, total, "+
-			"up_latency_sum, up_latency_count, latency_min, latency_max").
-		Where("monitor_id IN ? AND bucket_at >= ? AND bucket_at < ?",
-			monitorIDs, set.rollupStart, set.endHour).
-		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("loading the heartbeat rollups: %w", err)
+// historyRollupPeriodAggregate reduces the buckets of one period: the whole hours
+// between the first one inside the period (its leadEnd) and the hour in progress,
+// reduced to the two counters every period reports.
+//
+// One query per period, each over its own index range, instead of one query with a
+// conditional sum per period. The conditional sums looked cheaper (one scan for
+// everything) and measured 20 times slower: the server re-converts the bound of
+// every `bucket_at >= ?` for every row, so a 1 000 monitor installation with 720 000
+// buckets spent 700 ms summing two periods this way and 30 ms summing the same
+// range with plain aggregates. Four short queries on (monitor_id, bucket_at) cost
+// less than one that compares a DATETIME parameter 720 000 times.
+const historyRollupPeriodAggregate = `
+	SELECT monitor_id,
+	       SUM(up)    AS up,
+	       SUM(total) AS total
+	FROM heartbeat_rollups
+	WHERE monitor_id IN ? AND bucket_at >= ? AND bucket_at < ?
+	GROUP BY monitor_id`
+
+// historyRollupDayAggregate is the reduction of the fixed 24 h period, the only one
+// whose failure counters and latency figures windowRow reports: one more pass over
+// the same range, kept separate so the other periods do not pay for it.
+const historyRollupDayAggregate = `
+	SELECT monitor_id,
+	       SUM(up)               AS up,
+	       SUM(total)            AS total,
+	       SUM(down)             AS down,
+	       SUM(pending)          AS pending,
+	       SUM(up_latency_sum)   AS up_latency_sum,
+	       SUM(up_latency_count) AS up_latency_count,
+	       COALESCE(MIN(CASE WHEN total > 0 THEN latency_min END), 0) AS latency_min,
+	       COALESCE(MAX(CASE WHEN total > 0 THEN latency_max END), 0) AS latency_max
+	FROM heartbeat_rollups
+	WHERE monitor_id IN ? AND bucket_at >= ? AND bucket_at < ?
+	GROUP BY monitor_id`
+
+// historyRollupPeriodRow is one monitor's reduction of one period: the two
+// counters every period reports, plus the ones only the 24 h period selects (they
+// stay NULL and are read as zero elsewhere).
+type historyRollupPeriodRow struct {
+	MonitorID      uint  `gorm:"column:monitor_id"`
+	Up             int64 `gorm:"column:up"`
+	Total          int64 `gorm:"column:total"`
+	Down           int64 `gorm:"column:down"`
+	Pending        int64 `gorm:"column:pending"`
+	UpLatencySum   int64 `gorm:"column:up_latency_sum"`
+	UpLatencyCount int64 `gorm:"column:up_latency_count"`
+	LatencyMin     int64 `gorm:"column:latency_min"`
+	LatencyMax     int64 `gorm:"column:latency_max"`
+}
+
+// historyRollupTotals reads the hourly buckets the periods of the call cover, one
+// reduced query per period.
+//
+// The reduction used to happen here: the previous version of this function
+// returned every bucket - 720 rows per monitor for the 30 day horizon, 720 000 rows
+// for the 1 000 monitors of a dashboard - so the caller could fold them, which cost
+// an allocation of roughly 100 MB per listing on top of the scan the server had
+// already done. The server now does the same sums while it walks the index, so what
+// crosses the wire is at most one row per monitor per period.
+func (s *StatsService) historyRollupTotals(ctx context.Context, monitorIDs []uint, set historyWindowSet) (map[uint][]historyTotals, error) {
+	totals := make(map[uint][]historyTotals, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return totals, nil
 	}
-	return rows, nil
+	for i, spec := range set.windows {
+		// The fixed 24 h period is the only one whose failure counters and latency
+		// figures are reported (windowRow has no column for them elsewhere).
+		query := historyRollupPeriodAggregate
+		day := spec.hours == models.DefaultUptimeWindowHours
+		if day {
+			query = historyRollupDayAggregate
+		}
+		var rows []historyRollupPeriodRow
+		// The range starts at the first whole hour inside the period: the partial
+		// hour it starts in is completed by the boundary heartbeats, so reading its
+		// bucket here would count it twice.
+		if err := s.db.WithContext(ctx).
+			Raw(query, monitorIDs, spec.leadEnd, set.endHour).
+			Scan(&rows).Error; err != nil {
+			return nil, fmt.Errorf("aggregating the %d h heartbeat period: %w", spec.hours, err)
+		}
+		for _, row := range rows {
+			list, ok := totals[row.MonitorID]
+			if !ok {
+				list = make([]historyTotals, len(set.windows))
+				totals[row.MonitorID] = list
+			}
+			list[i] = historyTotals{up: row.Up, total: row.Total}
+			if !day {
+				continue
+			}
+			list[i].down = row.Down
+			list[i].pending = row.Pending
+			list[i].upLatSum = row.UpLatencySum
+			list[i].upLatCnt = row.UpLatencyCount
+			if list[i].total > 0 {
+				// The buckets that counted a heartbeat are the only ones that widen
+				// the range, exactly like addRollup does bucket by bucket.
+				list[i].observe(row.LatencyMin, row.LatencyMax)
+			}
+		}
+	}
+	return totals, nil
 }
 
 // historyBoundaryAggregate is one branch of the boundary query: the counters of

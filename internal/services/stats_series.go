@@ -111,20 +111,59 @@ func (s *StatsService) List(ctx context.Context, monitorID uint, hours, limit in
 	return heartbeats, err
 }
 
+// purgeChunk is how many rows one DELETE of the retention job removes.
+//
+// The purge used to be a single DELETE over everything the policy had to drop.
+// On an installation that had never purged - the first boot after an upgrade, or
+// a deployment whose retention had been disabled for a while - that is hundreds
+// of millions of rows in one statement: minutes of undo log growth, one very long
+// lock, and the probes of every monitor queuing behind it. Deleting the same rows
+// in short statements keeps the lock of each one bounded and lets the probes
+// write. Note that GORM only builds the LIMIT of a DELETE when the dialector
+// declares it (the MySQL one does, see driver/mysql.DeleteClauses), so the
+// statement really is `DELETE ... LIMIT 5000`.
+const purgeChunk = 5000
+
 // Purge deletes heartbeats older than the given date (retention job) together
 // with the hourly rollups of the same period: History reads the rollups, so a
 // rollup that outlives the heartbeats it was computed from would keep reporting
 // a period the retention policy already dropped.
+//
+// Both tables are pruned in chunks of purgeChunk rows. The function returns the
+// number of heartbeats it deleted, and stops early when the context is cancelled,
+// so a shutdown never waits for a purge that has hours of work left (the next one
+// resumes where this one stopped).
 func (s *StatsService) Purge(ctx context.Context, before time.Time) (int64, error) {
-	if err := s.db.WithContext(ctx).
-		Where("bucket_at < ?", before).
-		Delete(&models.HeartbeatRollup{}).Error; err != nil {
+	before = queryTime(before)
+	// Rollups first: a heartbeat deleted while its bucket is still readable would
+	// leave the rollup reporting a period the retention policy already dropped.
+	if _, err := s.deleteInChunks(ctx, &models.HeartbeatRollup{}, "bucket_at < ?", before); err != nil {
 		return 0, fmt.Errorf("purging the heartbeat rollups: %w", err)
 	}
-	result := s.db.WithContext(ctx).
-		Where("created_at < ?", before).
-		Delete(&models.Heartbeat{})
-	return result.RowsAffected, result.Error
+	deleted, err := s.deleteInChunks(ctx, &models.Heartbeat{}, "created_at < ?", before)
+	if err != nil {
+		return deleted, fmt.Errorf("purging the heartbeats: %w", err)
+	}
+	return deleted, nil
+}
+
+// deleteInChunks removes the rows matching a condition purgeChunk at a time and
+// returns how many it deleted.
+func (s *StatsService) deleteInChunks(ctx context.Context, model any, condition string, args ...any) (int64, error) {
+	var deleted int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return deleted, err
+		}
+		result := s.db.WithContext(ctx).Where(condition, args...).Limit(purgeChunk).Delete(model)
+		if result.Error != nil {
+			return deleted, result.Error
+		}
+		deleted += result.RowsAffected
+		if result.RowsAffected < purgeChunk {
+			return deleted, nil
+		}
+	}
 }
 
 // HeartbeatWindowStats is the operator facing summary of the history table used
@@ -135,20 +174,64 @@ type HeartbeatWindowStats struct {
 	Newest *time.Time `json:"newest"`
 }
 
-// HeartbeatStats reads the size and the age range of the heartbeat history with
-// a single aggregate query (COUNT/MIN/MAX over the primary key and the index on
-// created_at).
+// heartbeatExactCountLimit is the largest history whose size is counted exactly.
+//
+// There is no index that answers COUNT(*) without walking it: the server reads
+// every entry of the narrowest index of the table, from the first row to the last.
+// At the shipped retention and 1 000 monitors that is hundreds of millions of
+// entries - tens of seconds on the deployment that reported the problem. Above
+// this many rows the card reports InnoDB's own estimate instead
+// (information_schema.TABLES.TABLE_ROWS, refreshed with the index statistics), and
+// below it the exact count, which is instant.
+const heartbeatExactCountLimit = 2_000_000
+
+// HeartbeatStats reads the size and the age range of the heartbeat history, with
+// one aggregate query over the indexes.
+//
+// The age range is exact: MIN and MAX of an indexed column are an index seek, so
+// that part of the query stays instant at any size (it is the reason
+// idx_hb_created_at exists, see models.Heartbeat). The size is exact while the
+// table is small and an estimate above heartbeatExactCountLimit - see the
+// constant - because the exact number is what made Admin > Settings one of the
+// slowest pages of a large installation.
 func (s *StatsService) HeartbeatStats(ctx context.Context) (HeartbeatWindowStats, error) {
 	row := struct {
-		Total  int64      `gorm:"column:total"`
 		Oldest *time.Time `gorm:"column:oldest"`
 		Newest *time.Time `gorm:"column:newest"`
 	}{}
-	query := "SELECT COUNT(*) AS total, MIN(created_at) AS oldest, MAX(created_at) AS newest FROM heartbeats"
+	query := "SELECT MIN(created_at) AS oldest, MAX(created_at) AS newest FROM heartbeats"
 	if err := s.db.WithContext(ctx).Raw(query).Scan(&row).Error; err != nil {
 		return HeartbeatWindowStats{}, fmt.Errorf("summarising the heartbeat history: %w", err)
 	}
-	return HeartbeatWindowStats{Total: row.Total, Oldest: row.Oldest, Newest: row.Newest}, nil
+	total, err := s.heartbeatCount(ctx)
+	if err != nil {
+		return HeartbeatWindowStats{}, err
+	}
+	return HeartbeatWindowStats{Total: total, Oldest: row.Oldest, Newest: row.Newest}, nil
+}
+
+// heartbeatCount counts the stored heartbeats, exactly while that is cheap and
+// from the table statistics when it is not.
+func (s *StatsService) heartbeatCount(ctx context.Context) (int64, error) {
+	estimate := struct {
+		Rows int64 `gorm:"column:table_rows"`
+	}{}
+	// TABLE_SCHEMA = DATABASE() keeps the lookup on the schema the DSN selected.
+	query := `
+		SELECT COALESCE(TABLE_ROWS, 0) AS table_rows
+		FROM information_schema.TABLES
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'heartbeats'`
+	if err := s.db.WithContext(ctx).Raw(query).Scan(&estimate).Error; err != nil {
+		return 0, fmt.Errorf("reading the size of the heartbeat history: %w", err)
+	}
+	if estimate.Rows >= heartbeatExactCountLimit {
+		return estimate.Rows, nil
+	}
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&models.Heartbeat{}).Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("counting the heartbeat history: %w", err)
+	}
+	return count, nil
 }
 
 // CountOlderThan counts the heartbeats a purge would delete: it is the preview

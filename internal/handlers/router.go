@@ -69,6 +69,7 @@ func (h *Container) Register(engine *gin.Engine) {
 		middleware.SecurityHeaders(),
 		middleware.Recovery(h.Log),
 		middleware.CORS(h.Cfg),
+		middleware.Gzip(),
 	)
 	middleware.TrustedProxyConfig(h.Cfg, engine)
 

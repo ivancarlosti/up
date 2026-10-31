@@ -86,8 +86,15 @@ func Connect(ctx context.Context, cfg *config.Config, log *slog.Logger, state *b
 				err = sqlDB.Ping()
 			}
 			if err == nil {
+				// The dashboard decoration runs its reads concurrently (see
+				// MonitorService.gatherSources) and a listing uses about ten of
+				// them. Keeping only five connections idle made a burst of
+				// listings - a reload, two browser tabs - pay the handshake and the
+				// authentication of a new connection for each read while the probes
+				// were writing. Idle connections are cheap; the cap still bounds the
+				// server.
 				sqlDB.SetMaxOpenConns(30)
-				sqlDB.SetMaxIdleConns(5)
+				sqlDB.SetMaxIdleConns(20)
 				sqlDB.SetConnMaxLifetime(30 * time.Minute)
 				log.Info("database connection established",
 					"dsn", cfg.SafeDSN(), "attempts", attempt,
