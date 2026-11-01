@@ -686,7 +686,7 @@
     "subscriptionChannelHelp": "Somente canais SMTP podem enviar as mensagens de assinatura. O canal precisa existir em todos os nós do cluster.",
     "subscriptionNoChannels": "Crie um canal SMTP ativo em Notificações primeiro.",
     "subscriptionDelay": "Atraso de indisponibilidade (minutos)",
-    "subscriptionDelayHelp": "Quanto tempo um monitor precisa ficar fora do ar antes do primeiro e-mail. De 5 a 1440 minutos, em passos de 5.",
+    "subscriptionDelayHelp": "Quanto tempo um monitor precisa ficar fora do ar antes do primeiro e-mail. De 5 a 1440 minutos, em passos de 5. Uma queda mais curta não envia nenhum e-mail.",
     "subscribers": "Assinantes",
     "subscribersTitle": "Assinantes de {page}",
     "subscribersHelp": "Os endereços que aceitaram receber os e-mails de incidentes desta página. As linhas canceladas são mantidas para preservar o histórico.",

@@ -686,7 +686,7 @@
     "subscriptionChannelHelp": "Only SMTP channels can send the subscription mails. The channel must exist on every node of the cluster.",
     "subscriptionNoChannels": "Create an active SMTP channel in Notifications first.",
     "subscriptionDelay": "Downtime delay (minutes)",
-    "subscriptionDelayHelp": "How long a monitor must stay down before the first e-mail leaves. 5 to 1440 minutes, in steps of 5.",
+    "subscriptionDelayHelp": "How long a monitor must stay down before the first e-mail leaves. 5 to 1440 minutes, in steps of 5. A shorter outage sends no e-mail at all.",
     "subscribers": "Subscribers",
     "subscribersTitle": "Subscribers of {page}",
     "subscribersHelp": "The addresses that opted in to the incident mails of this page. Unsubscribed rows are kept so the history is not lost.",

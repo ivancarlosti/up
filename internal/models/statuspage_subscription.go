@@ -135,6 +135,11 @@ func StatusPageSubscriberUUID(pageUUID, email string) string {
 // SubscriptionIncident is one open (or closed) outage of one monitor on one
 // status page. Its unique open key enforces a single open incident per
 // (page, monitor) even when two nodes observe the same transition.
+//
+// Closing an incident never produces a mail by itself: a recovery mail is only
+// queued for the subscribers that received (or were owed) the outage mail of the
+// same incident, so an outage shorter than the page's delay ends in silence
+// instead of a "back up" announcement nobody can place.
 type SubscriptionIncident struct {
 	ID uint `gorm:"primaryKey" json:"id"`
 
@@ -159,6 +164,11 @@ func (SubscriptionIncident) TableName() string { return "status_page_subscriptio
 // SubscriptionNotice is one queued incident mail. The unique key over
 // (incident, subscriber, kind) is what makes "exactly one down and one up per
 // incident" true under retries, concurrent scheduler passes and a cluster.
+//
+// The two kinds are a pair: "up" exists to close the story opened by "down", so
+// it is only queued for the subscribers whose outage mail was sent (or whose
+// delay had already elapsed when the incident closed) and it never leaves before
+// its outage mail did.
 type SubscriptionNotice struct {
 	ID uint `gorm:"primaryKey" json:"id"`
 
@@ -173,7 +183,9 @@ type SubscriptionNotice struct {
 
 	Status string `gorm:"size:12;not null;default:pending;index" json:"status"`
 	// ScheduledAt is when the mail may leave: opened_at + delay for a down mail,
-	// immediately for the recovery.
+	// immediately for the recovery. On a down mail it is also the cut-off used
+	// when the incident closes: a delay that already elapsed is still owed, one
+	// that had not is cancelled without ever reaching the subscriber.
 	ScheduledAt   time.Time  `json:"scheduled_at"`
 	NextAttemptAt *time.Time `gorm:"index" json:"next_attempt_at"`
 	ClaimedAt     *time.Time `json:"claimed_at"`

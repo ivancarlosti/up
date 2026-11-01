@@ -165,9 +165,14 @@ says `subscription_available: true` (switch on + channel present and active).
   receives incident mails. The endpoint answers the same way for a new, a pending
   and an existing address, so it cannot be used to enumerate subscribers.
 - **One down and one up per incident.** A transition into `down`/`degraded` opens
-  an incident per page+monitor. The down mail is scheduled after
-  `subscription_delay_minutes`; if the monitor recovers first, the down mail is
-  cancelled and only the recovery mail is sent. The unique
+  an incident per page+monitor and schedules the down mail after
+  `subscription_delay_minutes`. The delay is a floor, not a sample: an outage
+  shorter than it ends in **silence** — the down mail is cancelled and no
+  recovery mail is queued either, because a "back up" mail nobody can place is
+  worse than saying nothing. A recovery mail is queued only for the subscribers
+  whose down mail actually left; the ones whose delay had already elapsed when
+  the monitor recovered are still owed that mail, so it is delivered and the
+  recovery follows it, in that order. The unique
   `(incident, subscriber, kind)` key makes the rule hold under retries and
   concurrent scheduler passes.
 - **Unsubscribe in every mail.** The link is a signed, deterministic token; the

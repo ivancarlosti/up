@@ -113,7 +113,8 @@ func (s *StatusPageSubscriptionService) observePageTransition(ctx context.Contex
 				return nil
 			}
 			delay := models.NormalizeSubscriptionDelayMinutes(page.SubscriptionDelayMinutes)
-			return s.createSubscriptionNotices(ctx, tx, &page, &incident, models.SubscriptionNoticeDown, at.Add(time.Duration(delay)*time.Minute))
+			return s.createSubscriptionNotices(ctx, tx, &page, &incident, models.SubscriptionNoticeDown,
+				at.Add(time.Duration(delay)*time.Minute), nil)
 		}
 
 		if !open {
@@ -127,7 +128,7 @@ func (s *StatusPageSubscriptionService) observePageTransition(ctx context.Contex
 			return err
 		}
 		if status == models.AggregateUp {
-			return s.createSubscriptionNotices(ctx, tx, &page, &incident, models.SubscriptionNoticeUp, at)
+			return s.createRecoveryNotices(ctx, tx, &page, &incident, at)
 		}
 		// A recovery that is not "up" (maintenance, pending, unknown) closes the
 		// incident without sending a recovery mail, and cancels the down mail that
@@ -147,16 +148,23 @@ func (s *StatusPageSubscriptionService) observePageTransition(ctx context.Contex
 	return nil
 }
 
-// createSubscriptionNotices queues one kind of mail for every active subscriber
-// of a page. The unique key over (incident, subscriber, kind) makes the call
-// idempotent.
+// createSubscriptionNotices queues one kind of mail for the active subscribers
+// of a page, or only for subscriberIDs when that list is not nil. The unique key
+// over (incident, subscriber, kind) makes the call idempotent.
 func (s *StatusPageSubscriptionService) createSubscriptionNotices(ctx context.Context, tx *gorm.DB,
-	page *models.StatusPage, incident *models.SubscriptionIncident, kind string, scheduledAt time.Time) error {
+	page *models.StatusPage, incident *models.SubscriptionIncident, kind string, scheduledAt time.Time,
+	subscriberIDs []uint) error {
 
+	query := tx.WithContext(ctx).
+		Where("status_page_id = ? AND confirmed_at IS NOT NULL AND unsubscribed_at IS NULL", page.ID)
+	if subscriberIDs != nil {
+		if len(subscriberIDs) == 0 {
+			return nil
+		}
+		query = query.Where("id IN ?", subscriberIDs)
+	}
 	var subscribers []models.StatusPageSubscriber
-	if err := tx.WithContext(ctx).
-		Where("status_page_id = ? AND confirmed_at IS NOT NULL AND unsubscribed_at IS NULL", page.ID).
-		Find(&subscribers).Error; err != nil {
+	if err := query.Find(&subscribers).Error; err != nil {
 		return err
 	}
 	now := time.Now().UTC()
@@ -177,6 +185,101 @@ func (s *StatusPageSubscriptionService) createSubscriptionNotices(ctx context.Co
 		}
 	}
 	return nil
+}
+
+// createRecoveryNotices queues the recovery mail of an incident that just closed.
+//
+// Only a subscriber that was told about the outage may be told that it is over:
+// the recovery mail exists to close a story the outage mail opened. Queueing it
+// for everybody (which is what used to happen) produced the reported symptom of a
+// visitor receiving "back up" for an outage nobody ever announced, and made the
+// whole delay pointless for blips shorter than it. A short outage now ends in
+// complete silence, which is exactly what the delay promises.
+func (s *StatusPageSubscriptionService) createRecoveryNotices(ctx context.Context, tx *gorm.DB,
+	page *models.StatusPage, incident *models.SubscriptionIncident, closedAt time.Time) error {
+
+	subscriberIDs, err := s.recoverySubscriberIDs(ctx, tx, incident.ID, closedAt)
+	if err != nil {
+		return err
+	}
+	if len(subscriberIDs) == 0 {
+		return nil
+	}
+	return s.createSubscriptionNotices(ctx, tx, page, incident, models.SubscriptionNoticeUp, closedAt, subscriberIDs)
+}
+
+// recoverySubscriberIDs lists the subscribers that are due the recovery mail of
+// an incident: those whose outage mail was sent (or is on its way), plus those
+// whose outage mail was still queued when the incident closed but whose delay had
+// already elapsed.
+//
+// The second group is a mail the scheduler had not picked up yet (it wakes every
+// 30 seconds). Its delay was over, so it was promised to the subscriber: it keeps
+// its place and the recovery mail follows it, in order (see recoveryMailActionFor).
+// Nothing is lost if that mail never leaves: the delivery gate of the recovery
+// looks at it again and gives up when it is skipped or failed.
+func (s *StatusPageSubscriptionService) recoverySubscriberIDs(ctx context.Context, tx *gorm.DB,
+	incidentID uint, closedAt time.Time) ([]uint, error) {
+
+	var subscriberIDs []uint
+	if err := tx.WithContext(ctx).Model(&models.SubscriptionNotice{}).
+		Where("incident_id = ? AND kind = ?", incidentID, models.SubscriptionNoticeDown).
+		// The parentheses are load-bearing: clauses are joined with AND and the OR
+		// would otherwise match the queued outage mails of every other incident.
+		Where("(status IN ? OR (status = ? AND scheduled_at <= ?))",
+			[]string{models.SubscriptionNoticeSent, models.SubscriptionNoticeSending},
+			models.SubscriptionNoticePending, closedAt).
+		Distinct().Pluck("subscriber_id", &subscriberIDs).Error; err != nil {
+		return nil, err
+	}
+	return subscriberIDs, nil
+}
+
+// outageMailStillOwed reports whether an outage mail still has to leave when its
+// incident closed at closedAt. A mail that was due before the incident closed was
+// promised to the subscriber — the delay had elapsed and only the scheduler pass
+// was late — so it is delivered; a mail that was not due yet is cancelled by the
+// transition (see observePageTransition). A nil closedAt means the incident is
+// still open.
+//
+// It only decides for the "back up" close: every other close cancels the queued
+// outage mail outright, because no recovery mail follows it and a late "down"
+// with no resolution would be worse than saying nothing.
+func outageMailStillOwed(closedAt *time.Time, scheduledAt time.Time) bool {
+	if closedAt == nil {
+		return true
+	}
+	return !scheduledAt.After(*closedAt)
+}
+
+// recoveryMailAction is what the delivery of a recovery mail does after looking
+// at the outage mail of the same incident and subscriber.
+type recoveryMailAction int
+
+const (
+	// recoveryDeliver sends the recovery mail: the outage mail was delivered.
+	recoveryDeliver recoveryMailAction = iota
+	// recoveryWaitForOutage leaves the recovery mail pending until the outage
+	// mail leaves (or is given up).
+	recoveryWaitForOutage
+	// recoveryAbandon skips the recovery mail: the outage mail never left, so the
+	// subscriber has no outage to be recovered from.
+	recoveryAbandon
+)
+
+// recoveryMailActionFor maps the state of the outage mail onto the recovery mail.
+// An unknown or missing outage mail (the subscriber confirmed during the outage,
+// or the page learned about the outage late) also ends in silence: there is no
+// story to close.
+func recoveryMailActionFor(outageStatus string) recoveryMailAction {
+	switch outageStatus {
+	case models.SubscriptionNoticeSent:
+		return recoveryDeliver
+	case models.SubscriptionNoticePending, models.SubscriptionNoticeSending:
+		return recoveryWaitForOutage
+	default:
+		return recoveryAbandon
+	}
 }
 
 // RunDue delivers the subscription mails whose scheduled moment has arrived.
@@ -247,8 +350,27 @@ func (s *StatusPageSubscriptionService) deliverSubscriptionNotice(ctx context.Co
 			}
 			return err
 		}
-		if incident.ClosedAt != nil {
+		if !outageMailStillOwed(incident.ClosedAt, notice.ScheduledAt) {
 			return s.finishSubscriptionNotice(ctx, notice.ID, models.SubscriptionNoticeSkipped, now, "the incident recovered before the delay elapsed", 0)
+		}
+	}
+	if notice.Kind == models.SubscriptionNoticeUp {
+		// The recovery mail closes the story of the outage mail: it may only leave
+		// after that one did. A subscriber who never saw "down" is not told "up".
+		outage, err := s.outageNoticeOf(ctx, notice)
+		if err != nil {
+			return err
+		}
+		status := ""
+		if outage != nil {
+			status = outage.Status
+		}
+		switch recoveryMailActionFor(status) {
+		case recoveryWaitForOutage:
+			return s.postponeRecoveryNotice(ctx, notice, outage, now)
+		case recoveryAbandon:
+			return s.finishSubscriptionNotice(ctx, notice.ID, models.SubscriptionNoticeSkipped, now,
+				"the outage mail was never delivered", 0)
 		}
 	}
 	if s.cluster != nil {
@@ -348,6 +470,56 @@ func (s *StatusPageSubscriptionService) finishSubscriptionNotice(ctx context.Con
 	}
 	if err := s.db.WithContext(ctx).Model(&models.SubscriptionNotice{}).Where("id = ?", id).
 		Updates(updates).Error; err != nil {
+		return ErrInternal(err)
+	}
+	return nil
+}
+
+// recoveryNoticeWait is how long a recovery mail steps aside before it looks at
+// its outage mail again. The outage mail sorts first in RunDue, so the two leave
+// in the same pass in the common case and the wait is never observed.
+const recoveryNoticeWait = time.Minute
+
+// outageNoticeOf returns the outage mail of the same incident and subscriber, or
+// nil when there is none: the subscriber confirmed while the monitor was already
+// down, or this node never queued it.
+func (s *StatusPageSubscriptionService) outageNoticeOf(ctx context.Context, recovery *models.SubscriptionNotice) (*models.SubscriptionNotice, error) {
+	var outage models.SubscriptionNotice
+	err := s.db.WithContext(ctx).
+		Where("incident_id = ? AND subscriber_id = ? AND kind = ?",
+			recovery.IncidentID, recovery.SubscriberID, models.SubscriptionNoticeDown).
+		First(&outage).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &outage, nil
+}
+
+// postponeRecoveryNotice defers a recovery mail whose outage mail has not left
+// yet, so the two are read in the order they happened. It is not an attempt: the
+// notice stays pending without consuming one of the retries, and the wait is the
+// outage mail's own next attempt (or a minute) rather than a fixed schedule.
+func (s *StatusPageSubscriptionService) postponeRecoveryNotice(ctx context.Context,
+	notice *models.SubscriptionNotice, outage *models.SubscriptionNotice, now time.Time) error {
+
+	next := now.Add(recoveryNoticeWait)
+	if outage != nil {
+		if outage.ScheduledAt.After(next) {
+			next = outage.ScheduledAt
+		}
+		if outage.NextAttemptAt != nil && outage.NextAttemptAt.After(next) {
+			next = *outage.NextAttemptAt
+		}
+	}
+	if err := s.db.WithContext(ctx).Model(&models.SubscriptionNotice{}).
+		Where("id = ? AND status = ?", notice.ID, models.SubscriptionNoticePending).
+		Updates(map[string]any{
+			"next_attempt_at": next,
+			"updated_at":      now,
+		}).Error; err != nil {
 		return ErrInternal(err)
 	}
 	return nil

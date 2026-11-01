@@ -686,7 +686,7 @@
     "subscriptionChannelHelp": "只有 SMTP 通道可以发送订阅邮件。集群中的每个节点都必须存在该通道。",
     "subscriptionNoChannels": "请先在“通知”中创建一个启用的 SMTP 通道。",
     "subscriptionDelay": "故障延迟（分钟）",
-    "subscriptionDelayHelp": "监控持续故障多久后发送第一封邮件。5 到 1440 分钟，以 5 为步长。",
+    "subscriptionDelayHelp": "监控持续故障多久后发送第一封邮件。5 到 1440 分钟，以 5 为步长。更短的故障不会发送任何邮件。",
     "subscribers": "订阅者",
     "subscribersTitle": "{page} 的订阅者",
     "subscribersHelp": "已同意接收此页面故障邮件的邮箱地址。已取消订阅的记录会保留以保留历史。",

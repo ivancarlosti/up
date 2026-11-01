@@ -686,7 +686,7 @@
     "subscriptionChannelHelp": "Seuls les canaux SMTP peuvent envoyer les e-mails d’abonnement. Le canal doit exister sur chaque nœud du cluster.",
     "subscriptionNoChannels": "Créez d’abord un canal SMTP actif dans Notifications.",
     "subscriptionDelay": "Délai d’indisponibilité (minutes)",
-    "subscriptionDelayHelp": "Durée pendant laquelle un moniteur doit rester indisponible avant le premier e-mail. De 5 à 1440 minutes, par pas de 5.",
+    "subscriptionDelayHelp": "Durée pendant laquelle un moniteur doit rester indisponible avant le premier e-mail. De 5 à 1440 minutes, par pas de 5. Une panne plus courte n'envoie aucun e-mail.",
     "subscribers": "Abonnés",
     "subscribersTitle": "Abonnés de {page}",
     "subscribersHelp": "Les adresses qui ont accepté les e-mails d’incident de cette page. Les lignes désabonnées sont conservées pour ne pas perdre l’historique.",
