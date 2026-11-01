@@ -380,6 +380,29 @@ func (s *MonitorService) Update(ctx context.Context, monitor *models.Monitor, no
 }
 
 // Delete removes a monitor together with its heartbeats, state and links.
+//
+// The deletion has two phases, and the split is the point.
+//
+// Phase one is one short transaction: the identity and the links are read (the
+// tombstones have to name them), the per monitor rows that are bounded by design
+// are deleted - one per node, per group, per channel, per certificate - and the
+// monitor row goes with them. The monitor is gone from every listing at once and
+// no read can reach the rest of its data.
+//
+// Phase two is the HISTORY: heartbeats, hourly rollups and web performance runs,
+// whose row count grows with the age of the monitor and not with the monitor. It
+// used to run inside the same transaction, as a single unbounded
+// `DELETE FROM heartbeats WHERE monitor_id = ?`: hundreds of thousands of rows in
+// one statement, minutes of undo log, one lock that the probes (and every
+// concurrent dashboard read) queued behind. The HTTP request waited for it and
+// died at the driver's 30 s readTimeout, so the operator saw a 500 while the
+// server kept deleting.
+//
+// It now runs after the commit, in chunks (see purgeMonitorHistory), so no
+// transaction outlives a chunk and the statement that timed out is gone. No
+// foreign keys tie the two phases together (the schema has none), and the chunked
+// deletion is resumable: rows that survive a crash belong to a monitor that no
+// longer exists, and the retention policy collects them like any other old row.
 func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// The identity and the relations are read BEFORE the cascade: once the rows
@@ -392,7 +415,7 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 		if err != nil {
 			return err
 		}
-		if err := deleteMonitorCascade(tx, id); err != nil {
+		if err := deleteMonitorRow(tx, id); err != nil {
 			return err
 		}
 		return s.tombstoneMonitor(ctx, tx, monitorUUID, before)
@@ -401,35 +424,118 @@ func (s *MonitorService) Delete(ctx context.Context, id uint) error {
 		return ErrInternal(fmt.Errorf("deleting monitor %d: %w", id, err))
 	}
 	s.log.Info("monitor deleted", "id", id)
+	// The response does not wait for the history: it is the part that used to
+	// exceed every timeout involved, and it is invisible to the API either way.
+	go s.purgeMonitorHistory(ctx, id)
 	s.publish("monitor.deleted", map[string]any{"id": id})
 	return nil
 }
 
-// deleteMonitorCascade removes everything that belongs to a monitor.
+// monitorLinkModels are the per monitor rows whose count is bounded by design:
+// one per cluster node, per notification channel, per group, per status page item,
+// per certificate, per domain, per lighthouse strategy. Deleting them costs the
+// same on a monitor created a minute ago and on one created a year ago, so they
+// stay inside the transaction of the deletion.
+var monitorLinkModels = []any{
+	&models.MonitorNodeState{},
+	&models.MonitorState{},
+	&models.MonitorNotification{},
+	&models.MonitorGroupMember{},
+	&models.MonitorCertificate{},
+	&models.MonitorDomain{},
+	&models.MonitorLighthouse{},
+	&models.NotificationLock{},
+	&models.StatusPageMonitor{},
+}
+
+// monitorHistoryModels are the per monitor rows whose count grows with the AGE of
+// the monitor: one heartbeat per check, one rollup per hour, one lighthouse run per
+// day. They are never deleted inside the transaction of a request - see
+// MonitorService.Delete and purgeMonitorHistory.
+var monitorHistoryModels = []any{
+	&models.Heartbeat{},
+	&models.HeartbeatRollup{},
+	&models.LighthouseRun{},
+}
+
+// monitorHistoryChunk is how many history rows one DELETE of a monitor deletion
+// removes. It mirrors purgeChunk: the number chosen so a single statement holds
+// its lock for milliseconds instead of minutes.
+const monitorHistoryChunk = 5000
+
+// monitorHistoryPurgeTimeout bounds the background deletion of a monitor's
+// history.
 //
-// It is shared by MonitorService.Delete and by the synchronisation apply path.
-// The apply cannot call the service instead: the service opens its own transaction
-// on a different connection, which would break the atomicity between the applied
-// change and the cursor that records it.
-func deleteMonitorCascade(tx *gorm.DB, id uint) error {
-	for _, model := range []any{
-		&models.Heartbeat{},
-		&models.HeartbeatRollup{},
-		&models.MonitorState{},
-		&models.MonitorNotification{},
-		&models.MonitorGroupMember{},
-		&models.MonitorCertificate{},
-		&models.MonitorDomain{},
-		&models.MonitorLighthouse{},
-		&models.LighthouseRun{},
-		&models.NotificationLock{},
-		&models.StatusPageMonitor{},
-	} {
+// A monitor checked every 60 s for the default 180 days holds ~260 000 heartbeats,
+// i.e. ~50 chunks; the timeout is generous enough for a monitor checked every 5 s
+// (3 million rows, ~600 chunks) and still bounds a pathological one. When it
+// expires the remaining rows are left to the retention policy, which is the same
+// `DELETE` in the same chunks with no monitor to wait for.
+const monitorHistoryPurgeTimeout = 15 * time.Minute
+
+// purgeMonitorHistory deletes the history of a monitor that no longer exists.
+//
+// It runs OUTSIDE any transaction, one chunk at a time, so the undo log of each
+// statement stays small and the probes of every other monitor keep writing
+// between chunks (that is what the single `DELETE` prevented: its locks were held
+// for the whole statement).
+//
+// The request context is deliberately not used as it is: the browser that asked
+// for the deletion may close the tab, and a purge killed halfway would leave the
+// history behind for no reason. context.WithoutCancel keeps the values (the
+// logger, the trace) and drops the cancellation, and the timeout is the only bound
+// left.
+func (s *MonitorService) purgeMonitorHistory(ctx context.Context, id uint) {
+	purgeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), monitorHistoryPurgeTimeout)
+	defer cancel()
+
+	began := time.Now()
+	deleted := int64(0)
+	for _, model := range monitorHistoryModels {
+		count, err := deleteInChunks(purgeCtx, s.db, model, monitorHistoryChunk, "monitor_id = ?", id)
+		deleted += count
+		if err != nil {
+			// Not a failed deletion: the monitor is already gone from every listing.
+			// The rows that are left belong to a monitor id nobody references, and the
+			// retention purge collects them with the rest of the old rows.
+			s.log.Warn("could not finish deleting the history of a deleted monitor: the retention job will collect it",
+				"monitor_id", id, "deleted", deleted, "error", err)
+			return
+		}
+	}
+	s.log.Info("monitor history deleted",
+		"id", id, "rows", deleted, "took_ms", time.Since(began).Milliseconds())
+}
+
+// deleteMonitorRow removes the monitor and the per monitor rows that are bounded
+// by design, inside the caller's transaction.
+func deleteMonitorRow(tx *gorm.DB, id uint) error {
+	for _, model := range monitorLinkModels {
 		if err := tx.Where("monitor_id = ?", id).Delete(model).Error; err != nil {
 			return err
 		}
 	}
 	return tx.Delete(&models.Monitor{}, id).Error
+}
+
+// deleteMonitorCascade removes everything that belongs to a monitor, history
+// included, inside the caller's transaction.
+//
+// It is used by the synchronisation apply path, and only by it: the apply cannot
+// call the service instead (the service opens its own transaction on a different
+// connection, which would break the atomicity between the applied change and the
+// cursor that records it), and it must not defer the history either, because the
+// cursor advances in the same transaction. A delete pulled from a peer therefore
+// still pays for the history of that monitor in one statement - the difference is
+// that it happens once per peer deletion instead of once per operator click, and
+// that no HTTP client is waiting for it.
+func deleteMonitorCascade(tx *gorm.DB, id uint) error {
+	for _, model := range monitorHistoryModels {
+		if err := tx.Where("monitor_id = ?", id).Delete(model).Error; err != nil {
+			return err
+		}
+	}
+	return deleteMonitorRow(tx, id)
 }
 
 // applyLighthouse starts (or clears) the web performance side of a monitor

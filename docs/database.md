@@ -70,6 +70,7 @@ FLUSH PRIVILEGES;
 | `monitor_states` | aggregated status per monitor (transition detection, cluster wide) | one per monitor |
 | `heartbeats` | one row per check per node (the big table) | millions |
 | `heartbeat_rollups` | hourly aggregate of the heartbeats, per monitor: what the uptime and latency windows read | monitors x hours |
+| `monitor_node_states` | newest verdict of every node about every monitor, replaced on every check: what the cluster voting reads (derived from `heartbeats`) | monitors x nodes |
 | `notifications` | notification channels (SMTP, Webhook, Slack, Discord, Telegram) | few |
 | `notification_logs` | delivery history (success/failure + reason); kept forever unless `NOTIFICATION_LOG_RETENTION_DAYS` is set | thousands |
 | `notification_locks` | de-duplication lock for ANY_WITH_LOCK; pruned after 24 h | thousands (60 s window) |
@@ -275,6 +276,18 @@ CREATE TABLE `heartbeat_rollups` (
   `updated_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`monitor_id`,`bucket_at`),
   KEY `idx_rollup_bucket` (`bucket_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+
+CREATE TABLE `monitor_node_states` (
+  `monitor_id` bigint(20) unsigned NOT NULL,
+  `node_id` varchar(64) NOT NULL,
+  `status` bigint(20) NOT NULL,
+  `latency_ms` bigint(20) DEFAULT NULL,
+  `status_code` bigint(20) DEFAULT NULL,
+  `message` varchar(500) DEFAULT NULL,
+  `important` tinyint(1) NOT NULL DEFAULT 0,
+  `checked_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`monitor_id`,`node_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
 ```
 
@@ -867,21 +880,56 @@ The listing reads the aggregated row the evaluator already upserts on every chec
 SELECT * FROM monitor_states WHERE monitor_id IN (?);
 ```
 
-**Latest heartbeat per monitor and node** (cluster voting and the per-node
-breakdown in the UI; `internal/services/stats_series.go`). The `created_at` bound
-is what keeps the statement cheap: only a heartbeat inside the vote window can
-produce a valid verdict, so the scan covers the widest window of the batch
-(`max(2 x interval, 120 s)`) instead of the whole retention:
+**Latest verdict per monitor and node** (cluster voting; `internal/services/node_state.go`).
+The newest row of every `(monitor, node)` pair is what the voting compares with the
+vote window (`max(2 x interval, 120 s)`, see `voteWindow`), and it used to be read
+from the history:
 
 ```sql
+-- BEFORE (the shape that timed out)
 SELECT h.* FROM heartbeats h
 JOIN (SELECT monitor_id, node_id, MAX(id) AS max_id
       FROM heartbeats
       WHERE monitor_id IN (?) AND created_at >= ?
       GROUP BY monitor_id, node_id) latest
-  ON latest.max_id = h.id
-ORDER BY h.monitor_id, h.node_id;
+  ON latest.max_id = h.id;
 ```
+
+That statement is the story of the 500 on `/api/dashboard`. `heartbeats` carries two
+indexes that could answer it and the optimizer picks
+`idx_hb_monitor_node (monitor_id, node_id, created_at)` because it also satisfies the
+`GROUP BY` — but with the node unconstrained it can only range on `monitor_id`
+(`key_len: 8`), so `created_at` degrades to a filter applied while walking **every
+check the installation ever stored** for those monitors. The window does not bound
+the scan at all; the history does. At 180 days of retention that is hundreds of
+millions of index entries, and one monitor on a 12 h interval widens the batch bound
+to 24 h without changing the plan.
+
+The answer is one row per monitor and node whatever the age of the installation, so
+it now lives in its own table, replaced by every check (`HeartbeatService.Record`,
+one `INSERT ... ON DUPLICATE KEY UPDATE` that never moves a row backwards):
+
+```sql
+INSERT INTO monitor_node_states
+    (monitor_id, node_id, status, latency_ms, status_code, message, important, checked_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    status     = IF(? >= monitor_node_states.checked_at, ?, monitor_node_states.status),
+    ...
+    checked_at = IF(? >= monitor_node_states.checked_at, ?, monitor_node_states.checked_at);
+
+-- the read, on a primary key range: one row per monitor and node
+SELECT * FROM monitor_node_states WHERE monitor_id IN (?) AND checked_at >= ?;
+```
+
+The table is **derived**: it can be rebuilt from `heartbeats` at any time, and the
+boot does exactly that (`SeedNodeStates`) so a release that introduces it does not
+leave a monitor on a long interval reading `pending` until its next check. The seed
+is bounded by the vote window of each monitor and pinned to `idx_hb_monitor_time`,
+where `created_at` *is* a range of the index (`key_len: 16`) — the same statement
+without the hint walks the history, which is why the hint is there. The retention
+policy never prunes it: a heartbeat that expires must not erase what the node last
+saw.
 
 **Compact heartbeat bars** (`internal/services/stats_series.go`, one row per
 monitor and slot, oldest first; the window follows the global uptime period). The
@@ -917,8 +965,32 @@ fewer rows than the chunk size. A single `DELETE` looked simpler and was the
 wrong shape: on a history that had never been pruned (the first boot after an
 upgrade, or a deployment whose retention had been disabled for a while) it is
 hundreds of millions of rows in one statement - minutes of undo log growth, one
-very long lock, and every probe of every monitor queuing behind it. Deleting a
-monitor removes its rollups with everything else it owns.
+very long lock, and every probe of every monitor queuing behind it.
+
+**Deleting a monitor** (`internal/services/monitor_write.go`) follows the same
+rule, in two phases. One short transaction deletes the bounded rows - the
+`monitor_node_states` and `monitor_states` rows, the links, the certificate and
+domain observations - and the monitor itself, so the monitor disappears from every
+listing at once. The history (`heartbeats`, `heartbeat_rollups`, `lighthouse_runs`)
+is deleted after the commit, in chunks, in the background:
+
+```sql
+DELETE FROM heartbeats       WHERE monitor_id = ? LIMIT 5000;   -- repeated
+DELETE FROM heartbeat_rollups WHERE monitor_id = ? LIMIT 5000;  -- repeated
+DELETE FROM lighthouse_runs  WHERE monitor_id = ? LIMIT 5000;   -- repeated
+```
+
+It used to be one unbounded `DELETE` inside the same transaction: on a monitor
+checked every minute for 180 days that is ~260 000 rows in one statement, holding
+its locks for the whole duration while every probe and every dashboard read queued
+behind them. The HTTP client gave up at the driver's 30 s `readTimeout` and the
+operator saw a 500 while the server kept deleting; the API now answers in
+milliseconds. Nothing ties the two phases together (the schema declares no foreign
+keys), and the purge is resumable: a row that survives a crash belongs to a monitor
+id nobody references, and the retention policy collects it like any other old row.
+A delete pulled from a peer (`sync_apply.go`) still removes everything in one
+transaction, cursor included, because the sync cursor must advance atomically with
+the change — no HTTP client is waiting for it.
 
 **Web performance retention** (`settings.lighthouse_retention_days`, executed by
 the same boot + every 6 h pass; `LIGHTHOUSE_RETENTION_DAYS` is the fallback and

@@ -60,6 +60,7 @@ func TestNotificationPipelineLive(t *testing.T) {
 	if err := db.AutoMigrate(
 		&models.Node{}, &models.Setting{}, &models.ClusterSettings{},
 		&models.Monitor{}, &models.Heartbeat{}, &models.MonitorState{},
+		&models.MonitorNodeState{},
 		&models.MonitorGroup{}, &models.MonitorGroupMember{},
 		&models.Notification{}, &models.MonitorNotification{},
 		&models.NotificationLock{}, &models.NotificationLog{},
@@ -126,6 +127,15 @@ func TestNotificationPipelineLive(t *testing.T) {
 		Message: "connection refused", CreatedAt: now,
 	}).Error; err != nil {
 		t.Fatalf("creating the heartbeat: %v", err)
+	}
+	// The verdict the voting reads is written by HeartbeatService.Record, next to the
+	// heartbeat it mirrors (see models.MonitorNodeState): a stored check without one
+	// is a verdict no node ever reported, and the evaluation would answer "pending".
+	if err := tx.Create(&models.MonitorNodeState{
+		MonitorID: monitor.ID, NodeID: nodeID, Status: models.StatusDown, Important: true,
+		Message: "connection refused", CheckedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("creating the per node state: %v", err)
 	}
 	if err := tx.Create(&models.MonitorState{
 		MonitorID: monitor.ID, Status: models.AggregateDown, ChangedAt: now.Add(-time.Hour),

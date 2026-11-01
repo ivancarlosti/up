@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/ivancarlosti/up/internal/models"
 )
 
@@ -62,35 +64,36 @@ func (s *StatsService) Series(ctx context.Context, monitorID uint, limit int) ([
 	return out, nil
 }
 
-// LatestPerNode returns the newest heartbeat of every (monitor, node) pair
-// written since the given instant. It feeds the cluster voting logic and the
-// per-node breakdown in the UI.
+// LatestPerNode returns the newest verdict of every (monitor, node) pair
+// recorded since the given instant. It feeds the cluster voting logic.
 //
-// The bound is what keeps the statement cheap. `heartbeats` is indexed on
-// (monitor_id, created_at), so a grouped `MAX(id)` cannot seek the newest row of
-// each group: without a window it walks the whole retained history (180 days by
-// default) to keep one row per node. Only a heartbeat inside the vote window can
-// produce a valid verdict (see voteWindow), so the caller passes the widest
-// window of the batch and the scan covers the last few minutes instead.
-func (s *StatsService) LatestPerNode(ctx context.Context, monitorIDs []uint, since time.Time) ([]models.Heartbeat, error) {
+// The read is a primary key range of `monitor_node_states` - one row per monitor
+// and node - and NOT a query over the heartbeat history. The shape it replaces
+// (`MAX(id) GROUP BY monitor_id, node_id` over `heartbeats`) could not use the
+// `(monitor_id, created_at)` index for the timestamp bound: the optimizer picked
+// `(monitor_id, node_id, created_at)` because it also satisfied the grouping, and
+// that index can only range on the monitor, so the created_at predicate became a
+// filter over every check the installation had ever stored. At 180 days of
+// retention the statement ran into the driver's 30 s readTimeout and the dashboard
+// answered 500 - for a handful of rows. The derived table has those rows already:
+// the cost is one index seek per monitor and node, whatever the age of the
+// history.
+//
+// `since` still decides what counts as a verdict: only a heartbeat inside the
+// monitor's vote window can produce one (see voteWindow), and the caller passes
+// the widest window of the batch. Everything older is dropped here.
+func (s *StatsService) LatestPerNode(ctx context.Context, monitorIDs []uint, since time.Time) ([]models.MonitorNodeState, error) {
 	if len(monitorIDs) == 0 {
 		return nil, nil
 	}
 	since = queryTime(since)
-	var heartbeats []models.Heartbeat
-	query := `
-		SELECT h.* FROM heartbeats h
-		JOIN (
-			SELECT monitor_id, node_id, MAX(id) AS max_id
-			FROM heartbeats
-			WHERE monitor_id IN ? AND created_at >= ?
-			GROUP BY monitor_id, node_id
-		) latest ON latest.max_id = h.id
-		ORDER BY h.monitor_id, h.node_id`
-	if err := s.db.WithContext(ctx).Raw(query, monitorIDs, since).Scan(&heartbeats).Error; err != nil {
-		return nil, fmt.Errorf("loading per node heartbeats: %w", err)
+	var states []models.MonitorNodeState
+	if err := s.db.WithContext(ctx).
+		Where("monitor_id IN ? AND checked_at >= ?", monitorIDs, since).
+		Find(&states).Error; err != nil {
+		return nil, fmt.Errorf("loading the per node states: %w", err)
 	}
-	return heartbeats, nil
+	return states, nil
 }
 
 // List returns the heartbeats of a monitor inside a time window (newest first).
@@ -137,30 +140,39 @@ func (s *StatsService) Purge(ctx context.Context, before time.Time) (int64, erro
 	before = queryTime(before)
 	// Rollups first: a heartbeat deleted while its bucket is still readable would
 	// leave the rollup reporting a period the retention policy already dropped.
-	if _, err := s.deleteInChunks(ctx, &models.HeartbeatRollup{}, "bucket_at < ?", before); err != nil {
+	if _, err := deleteInChunks(ctx, s.db, &models.HeartbeatRollup{}, purgeChunk, "bucket_at < ?", before); err != nil {
 		return 0, fmt.Errorf("purging the heartbeat rollups: %w", err)
 	}
-	deleted, err := s.deleteInChunks(ctx, &models.Heartbeat{}, "created_at < ?", before)
+	deleted, err := deleteInChunks(ctx, s.db, &models.Heartbeat{}, purgeChunk, "created_at < ?", before)
 	if err != nil {
 		return deleted, fmt.Errorf("purging the heartbeats: %w", err)
 	}
 	return deleted, nil
 }
 
-// deleteInChunks removes the rows matching a condition purgeChunk at a time and
+// deleteInChunks removes the rows matching a condition `chunk` at a time and
 // returns how many it deleted.
-func (s *StatsService) deleteInChunks(ctx context.Context, model any, condition string, args ...any) (int64, error) {
+//
+// It is the shared primitive of the two unbounded deletions of the application:
+// the retention purge (a date range over every monitor) and the deletion of a
+// monitor's own history (a monitor id over every date). Both used to run as one
+// statement, and both are the reason a request or a boot step outlived the
+// driver's timeout while the server kept working on a lock nobody could wait for.
+func deleteInChunks(ctx context.Context, db *gorm.DB, model any, chunk int, condition string, args ...any) (int64, error) {
+	if chunk <= 0 {
+		chunk = purgeChunk
+	}
 	var deleted int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return deleted, err
 		}
-		result := s.db.WithContext(ctx).Where(condition, args...).Limit(purgeChunk).Delete(model)
+		result := db.WithContext(ctx).Where(condition, args...).Limit(chunk).Delete(model)
 		if result.Error != nil {
 			return deleted, result.Error
 		}
 		deleted += result.RowsAffected
-		if result.RowsAffected < purgeChunk {
+		if result.RowsAffected < int64(chunk) {
 			return deleted, nil
 		}
 	}

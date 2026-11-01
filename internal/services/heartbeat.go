@@ -82,6 +82,14 @@ func (s *HeartbeatService) Record(ctx context.Context, heartbeat *models.Heartbe
 		s.log.Warn("could not update the heartbeat rollup",
 			"monitor_id", heartbeat.MonitorID, "error", err)
 	}
+	// The per node state is what the cluster voting reads instead of the history
+	// (see models.MonitorNodeState). Same rule as the rollup: it is a derived row,
+	// so a failure is logged and repaired by the next check (or by the boot seed)
+	// rather than failing the probe.
+	if err := s.saveNodeState(ctx, heartbeat); err != nil {
+		s.log.Warn("could not update the per node state",
+			"monitor_id", heartbeat.MonitorID, "node_id", heartbeat.NodeID, "error", err)
+	}
 	if s.hub != nil {
 		s.hub.Publish("heartbeat", map[string]any{
 			"monitor_id":  heartbeat.MonitorID,

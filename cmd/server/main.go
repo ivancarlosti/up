@@ -260,6 +260,20 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 		return nil, err
 	}
 
+	// The per node state table is a derived one: it holds the newest verdict of
+	// every node about every monitor, and it is what the cluster voting reads
+	// instead of grouping the whole heartbeat history (see
+	// models.MonitorNodeState). The probes write it themselves, but a monitor
+	// checked every few hours would answer "pending" until its next check after the
+	// upgrade, so the boot copies the last verdict of every node from the
+	// heartbeats first. The pass is bounded by the vote window of each monitor - a
+	// couple of minutes of index range at the shipped interval - and idempotent.
+	if err := step("node_states", boot.PhaseBackfilling, i18n.CodeDatabaseMigration, func() error {
+		return services.SeedNodeStates(ctx, db, log)
+	}); err != nil {
+		return nil, err
+	}
+
 	// The hourly rollups of the window statistics are reconciled with the raw
 	// heartbeats. The plan says how much is left to do, and the first boot after
 	// the upgrade has to reduce 30 days of raw heartbeats: that pass is deferred

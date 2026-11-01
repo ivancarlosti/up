@@ -279,7 +279,11 @@ Same body as create. Omitting `notification_ids` keeps the current links;
 
 ### `DELETE /api/monitors/:id` -> `204`
 
-Removes the monitor, its heartbeats, state row, notification links and lock rows.
+Removes the monitor, its state rows (per monitor and per node), notification links
+and lock rows before answering. The history it owns — heartbeats, hourly rollups and
+web performance runs — is deleted in chunks right after, in the background, so the
+request returns in milliseconds instead of waiting for the last 180 days of checks to
+be removed (see `docs/database.md` §5, *Deleting a monitor*).
 
 ### `POST /api/monitors/:id/pause` and `.../resume`
 

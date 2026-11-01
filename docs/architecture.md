@@ -228,6 +228,7 @@ flush.
 |---|---|---|
 | `monitors`, `notifications`, links | Any node (admin API) | Yes (same database) |
 | `heartbeats` | The node that executed the check (`node_id`) | Yes (aggregated by readers) |
+| `monitor_node_states` | The node that executed the check (`node_id`, one row per monitor and node) | Yes (the input of the cross-node voting) |
 | `monitor_states` | The node that observed the transition (first writer wins) | Yes (transition de-duplication) |
 | `notification_locks` | The node that claimed the event | Yes (single sender election) |
 | `nodes`, `cluster_settings` | Primary node (or any admin) | Yes |
@@ -328,14 +329,15 @@ Every failure answers with a stable code that the frontend translates:
   growth (purge at boot and every 6 h). `HEARTBEAT_RETENTION_DAYS` is only the
   fallback of a deployment that never opened Admin > Settings.
 - The decoration of a listing runs its grouped queries concurrently
-  (`errgroup`): `History`, `RecentBars` and `LatestPerNode` (bounded by the vote
-  window), plus one read of `monitor_states` for the current status and the last
-  check. It never runs a query per heartbeat: the bucketed heartbeat column reads
-  the hourly rollups (one row per monitor and whole hour, at most 31 slots), and
-  the uptime window chosen in Admin > Settings is computed in the same pass as the
-  fixed 24 h/7 d/30 d figures (see the rollup note below). Every datetime bound
-  goes through `queryTime`: a nanosecond literal is finer than the `datetime(3)`
-  columns and stops being usable as an index range.
+  (`errgroup`): `History`, `RecentBars` and `LatestPerNode` (one row per monitor
+  and node from `monitor_node_states`, bounded by the vote window), plus one read
+  of `monitor_states` for the current status and the last check. It never runs a
+  query per heartbeat: the bucketed heartbeat column reads the hourly rollups (one
+  row per monitor and whole hour, at most 31 slots), and the uptime window chosen
+  in Admin > Settings is computed in the same pass as the fixed 24 h/7 d/30 d
+  figures (see the rollup note below). Every datetime bound goes through
+  `queryTime`: a nanosecond literal is finer than the `datetime(3)` columns and
+  stops being usable as an index range.
 - The "latest heartbeat per monitor" query is gone: `MAX(id) GROUP BY
   monitor_id` cannot use the `(monitor_id, created_at)` index and walked the whole
   retention to keep one row per monitor, which is what made the monitors table

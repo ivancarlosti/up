@@ -66,6 +66,56 @@ func (h Heartbeat) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// MonitorNodeState is the newest verdict of one node about one monitor.
+//
+// `heartbeats` is the history: every check that was ever run, pruned by the
+// retention policy. The question the cluster voting asks is a different one -
+// "what did each node see last" - and its answer is one row per (monitor, node)
+// whatever the age of the installation. Answering it from the history means
+// grouping the whole table: on an installation that keeps 180 days at a 60 s
+// interval that is hundreds of millions of rows scanned to return a handful, and
+// the read is asked for every monitor the dashboard renders. This table holds the
+// answer itself, replaced on every write, so the read is a primary key range whose
+// cost follows the answer and not the history.
+//
+// It is a DERIVED table: every row can be rebuilt from `heartbeats`
+// (HeartbeatService.SeedNodeStates does exactly that for the rows a boot cannot
+// see). The retention policy deliberately does NOT prune it - a heartbeat that
+// expires must not erase what the node last saw - and it is bounded by the number
+// of monitors times the number of nodes by construction.
+type MonitorNodeState struct {
+	MonitorID uint   `gorm:"primaryKey;autoIncrement:false" json:"monitor_id"`
+	NodeID    string `gorm:"primaryKey;autoIncrement:false;size:64" json:"node_id"`
+
+	// Status is persisted as the same integer as heartbeats.status (see
+	// HeartbeatStatus and the MarshalJSON below).
+	Status     HeartbeatStatus `gorm:"not null" json:"-"`
+	LatencyMS  int64           `json:"latency_ms"`
+	StatusCode int             `json:"status_code"`
+	Message    string          `gorm:"size:500" json:"message"`
+
+	// Important is copied from the heartbeat: it is what tells a definitive
+	// verdict from a manual "check now" that bypassed a retry policy.
+	Important bool `gorm:"not null;default:false" json:"important"`
+	// CheckedAt is the created_at of the heartbeat this row mirrors. The voting
+	// compares it with the monitor's window (see voteWindow): an old row is a
+	// stale verdict, not a missing one.
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+// MarshalJSON keeps the integer status in the database while exposing the
+// readable name, exactly like Heartbeat does.
+func (s MonitorNodeState) MarshalJSON() ([]byte, error) {
+	type stateAlias MonitorNodeState
+	return json.Marshal(struct {
+		stateAlias
+		Status string `json:"status"`
+	}{
+		stateAlias: stateAlias(s),
+		Status:     s.Status.String(),
+	})
+}
+
 // HeartbeatRollupHorizonHours is the widest period the window statistics can
 // report (30 days, the largest value of UptimeWindowHoursAllowed). Rollups older
 // than it are never read, so they can be pruned together with the heartbeats

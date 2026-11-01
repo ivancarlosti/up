@@ -181,6 +181,7 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		"deleteStatusPageSelection":        "shared cascade; the caller publishes the tombstone",
 		"deleteStatusPageSubscriptionData": "shared cascade; the caller publishes the tombstones",
 		"deleteMonitorCascade":             "shared cascade; the caller publishes the tombstones",
+		"deleteMonitorRow":                 "first phase of the cascade; the caller publishes the tombstones",
 		"removeRelation":                   "apply path (no echo)",
 		"linkRelation":                     "apply path (no echo)",
 		// Shared join-table writers. Their callers take a before/after snapshot and

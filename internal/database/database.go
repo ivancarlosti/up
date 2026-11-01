@@ -48,6 +48,18 @@ func Connect(ctx context.Context, cfg *config.Config, log *slog.Logger, state *b
 	// A "record not found" is a normal answer for the lookups that guard the
 	// first boot seed or a deleted row, so it must not be printed as an error
 	// (gormlogger.Default logs it together with its SQL statement).
+	//
+	// About what a slow query line looks like:
+	//
+	//	2026/11/01 16:29:30 github.com/ivancarlosti/up/internal/services/stats.go:658 SLOW SQL >= 500ms
+	//
+	// The `github.com/...` prefix is a FILE NAME, not a request: the image is
+	// built with -trimpath (see Dockerfile), so the compiler records every source
+	// path as the module path of go.mod instead of the build directory, and
+	// GORM prints the caller of the statement (utils.FileWithLineNum) verbatim.
+	// Nothing in this process talks to GitHub; the only outbound traffic is to the
+	// monitored targets, the peers of a cluster, the PageSpeed API, SMTP and the
+	// identity provider, each only when it is configured.
 	dbLogger := gormlogger.New(
 		stdlog.New(os.Stdout, "", stdlog.LstdFlags),
 		gormlogger.Config{
@@ -147,6 +159,12 @@ func MigrationModels() []any {
 		&models.MonitorState{},
 		&models.Heartbeat{},
 		&models.HeartbeatRollup{},
+		// The newest verdict of every node about every monitor: one row per
+		// (monitor, node), read by the cluster voting on every listing. It is a
+		// derived table (see models.MonitorNodeState) and the boot seeds it from
+		// the heartbeats, so an existing installation gains it without losing a
+		// single vote.
+		&models.MonitorNodeState{},
 		&models.Notification{},
 		&models.NotificationLog{},
 		&models.NotificationLock{},

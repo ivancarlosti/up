@@ -42,7 +42,7 @@ func participatesInVoting(monitor *models.Monitor, node models.Node) bool {
 	return models.MonitorRunsOn(monitor, node.NodeID, node.IsPrimary)
 }
 
-// EvaluateAll implements VoteProvider: it merges the latest heartbeat of every
+// EvaluateAll implements VoteProvider: it merges the newest verdict of every
 // node into a single status per monitor.
 func (s *ClusterService) EvaluateAll(ctx context.Context, monitors []*models.Monitor) (map[uint][]models.NodeVote, map[uint]models.AggregateStatus, error) {
 	votesByMonitor := map[uint][]models.NodeVote{}
@@ -64,25 +64,27 @@ func (s *ClusterService) EvaluateAll(ctx context.Context, monitors []*models.Mon
 	for _, m := range monitors {
 		ids = append(ids, m.ID)
 	}
-	// Only a heartbeat inside the monitor's vote window can produce a valid verdict,
-	// so the lookup is bounded by the widest window of the batch instead of scanning
-	// the whole history: everything older is dropped right below anyway.
+	// Only a verdict inside the monitor's vote window can produce a valid vote, so
+	// the lookup is bounded by the widest window of the batch instead of reading
+	// every row: a state older than the window is dropped right below anyway. The
+	// bound is a filter over one row per (monitor, node), not over the history -
+	// see StatsService.LatestPerNode.
 	maxWindow := 2 * time.Minute
 	for _, monitor := range monitors {
 		if window := voteWindow(monitor); window > maxWindow {
 			maxWindow = window
 		}
 	}
-	heartbeats, err := s.stats.LatestPerNode(ctx, ids, time.Now().UTC().Add(-maxWindow))
+	states, err := s.stats.LatestPerNode(ctx, ids, time.Now().UTC().Add(-maxWindow))
 	if err != nil {
 		return nil, nil, err
 	}
-	latest := map[uint]map[string]models.Heartbeat{}
-	for _, hb := range heartbeats {
-		if latest[hb.MonitorID] == nil {
-			latest[hb.MonitorID] = map[string]models.Heartbeat{}
+	latest := map[uint]map[string]models.MonitorNodeState{}
+	for _, state := range states {
+		if latest[state.MonitorID] == nil {
+			latest[state.MonitorID] = map[string]models.MonitorNodeState{}
 		}
-		latest[hb.MonitorID][hb.NodeID] = hb
+		latest[state.MonitorID][state.NodeID] = state
 	}
 
 	now := time.Now().UTC()
@@ -109,20 +111,20 @@ func (s *ClusterService) EvaluateAll(ctx context.Context, monitors []*models.Mon
 				continue
 			}
 			if latest[localID] == nil {
-				latest[localID] = map[string]models.Heartbeat{}
+				latest[localID] = map[string]models.MonitorNodeState{}
 			}
 			if _, measured := latest[localID][vote.NodeID]; measured {
-				// This node's own heartbeat wins: it is the same measurement, only fresher.
+				// This node's own verdict wins: it is the same measurement, only fresher.
 				continue
 			}
-			latest[localID][vote.NodeID] = models.Heartbeat{
+			latest[localID][vote.NodeID] = models.MonitorNodeState{
 				MonitorID: localID,
 				NodeID:    vote.NodeID,
 				Status:    vote.Status,
 				LatencyMS: vote.LatencyMS,
 				Message:   vote.Message,
 				Important: vote.Important,
-				CreatedAt: vote.CheckedAt,
+				CheckedAt: vote.CheckedAt,
 			}
 		}
 	}
@@ -140,13 +142,13 @@ func (s *ClusterService) EvaluateAll(ctx context.Context, monitors []*models.Mon
 				Status:   models.AggregateUnknown,
 				Online:   node.Status != models.NodeStatusOffline,
 			}
-			if hb, ok := latest[monitor.ID][node.NodeID]; ok {
-				checked := hb.CreatedAt
+			if state, ok := latest[monitor.ID][node.NodeID]; ok {
+				checked := state.CheckedAt
 				vote.CheckedAt = &checked
-				vote.LatencyMS = hb.LatencyMS
-				vote.Message = hb.Message
-				if now.Sub(hb.CreatedAt) <= window {
-					vote.Status = heartbeatToAggregate(hb.Status)
+				vote.LatencyMS = state.LatencyMS
+				vote.Message = state.Message
+				if now.Sub(state.CheckedAt) <= window {
+					vote.Status = heartbeatToAggregate(state.Status)
 				}
 			}
 			votes = append(votes, vote)
