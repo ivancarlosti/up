@@ -497,6 +497,7 @@ shows that detail next to the translated sentence.
 | PUT | `/api/status-pages/:id/monitors` | `{"monitor_ids":[6,7,8]}` (order = display order) |
 | GET | `/api/status-pages/:id/groups` | groups included, in page order |
 | PUT | `/api/status-pages/:id/groups` | `{"groups":[{"group_id":1,"display_name":"Edge"}]}` |
+| PUT | `/api/status-pages/:id/order` | manual order per section: `{"monitor_ids":[6,7,8]}` — the explicit monitors then each group's members, blocks concatenated; an id that is not on the page is refused; `monitor_order` (`manual`, `alphabetical`, `type`) reorders every block at render time |
 | GET | `/api/status-pages/:id/subscribers` | paginated opt-in subscribers (`page`, `size`, `q`) |
 | DELETE | `/api/status-pages/:id/subscribers/:subscriber_id` | remove one subscriber (tombstoned on the peers) |
 | POST | `/api/public/status/:slug/subscribe` | **public** double opt-in (`email`, `locale`, optional `recaptcha_token`) |

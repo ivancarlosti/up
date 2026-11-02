@@ -28,6 +28,9 @@ type StatusPageSection struct {
 // rendered twice. An empty group produces no section (it would be an empty heading
 // on the public page) and the flat list keeps the exact order of the sections, so
 // the API payload and the page never disagree.
+//
+// An ORDER-ONLY row is skipped: it carries the manual position of a group member
+// (see SetOrder) and publishing it here would move that monitor out of its group.
 func planStatusPage(items []models.StatusPageMonitor, links []models.StatusPageGroupLink,
 	members map[uint][]uint, names map[uint]string) ([]StatusPageSection, []uint) {
 
@@ -37,7 +40,7 @@ func planStatusPage(items []models.StatusPageMonitor, links []models.StatusPageG
 
 	explicit := StatusPageSection{Name: "", MonitorIDs: []uint{}}
 	for _, item := range items {
-		if item.MonitorID == 0 || seen[item.MonitorID] {
+		if item.OrderOnly || item.MonitorID == 0 || seen[item.MonitorID] {
 			continue
 		}
 		seen[item.MonitorID] = true

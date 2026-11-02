@@ -1,4 +1,12 @@
-import type { ExpiryTarget, Monitor, MonitorGroup, MonitorTemplate, StatusPage, TagUsage } from './types'
+import type {
+  ExpiryTarget,
+  Monitor,
+  MonitorGroup,
+  MonitorTemplate,
+  StatusPage,
+  StatusPageMonitorOrder,
+  TagUsage,
+} from './types'
 
 /**
  * Sorting of the admin tables.
@@ -434,4 +442,56 @@ export function sortStatusPages(
   context: LocaleSortContext,
 ): StatusPage[] {
   return [...pages].sort((a, b) => compareStatusPages(a, b, key, direction, context))
+}
+
+/**
+ * The orders a status page can apply inside its sections (mirror of
+ * models.AllMonitorOrders): the value sent in `monitor_order`.
+ */
+export const statusPageMonitorOrders: StatusPageMonitorOrder[] = ['manual', 'alphabetical', 'type']
+
+/**
+ * The order of the monitor types of a "by type" page (mirror of
+ * models.AllMonitorTypes): the page puts http first, not "dns" because it sorts
+ * first alphabetically.
+ */
+export const monitorTypeOrder: string[] = ['http', 'keyword', 'tcp', 'dns', 'ssl', 'websocket']
+
+/** monitorTypeRank is the position of a type in {@link monitorTypeOrder} (unknown last). */
+function monitorTypeRank(type: string): number {
+  const index = monitorTypeOrder.indexOf(type)
+  return index === -1 ? monitorTypeOrder.length : index
+}
+
+/**
+ * orderStatusPageMonitors sorts ONE section of a status page the way the server
+ * renders it (internal/services/statuspage_order.go).
+ *
+ * The rule is the same, in the same order: the key of the mode — the name the page
+ * shows, or the type — then the position the operator dragged in (the index of the
+ * row in `section`), then the id. That is what makes the preview of the dialog show
+ * exactly what the page publishes, including the tie-break the manual order still
+ * provides. It is a copy: the caller keeps the order it holds.
+ */
+export function orderStatusPageMonitors<T extends { id: number; name: string; type: string }>(
+  section: T[],
+  mode: StatusPageMonitorOrder,
+): T[] {
+  const manualRank = new Map(section.map((row, index) => [row.id, index]))
+  const rankOf = (id: number) => manualRank.get(id) ?? section.length
+  return [...section].sort((a, b) => {
+    if (mode === 'alphabetical') {
+      // Case insensitive and locale independent, exactly like the server: the page
+      // is anonymous, so every visitor must see the same order.
+      const left = a.name.trim().toLowerCase()
+      const right = b.name.trim().toLowerCase()
+      if (left !== right) return left < right ? -1 : 1
+    }
+    if (mode === 'type') {
+      const left = monitorTypeRank(a.type)
+      const right = monitorTypeRank(b.type)
+      if (left !== right) return left - right
+    }
+    return rankOf(a.id) - rankOf(b.id) || a.id - b.id
+  })
 }

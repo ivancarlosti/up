@@ -46,8 +46,13 @@ func (s *StatusPageSubscriptionService) ObserveTransition(ctx context.Context, m
 // monitor, either explicitly or through one of their groups.
 func (s *StatusPageSubscriptionService) subscribedStatusPagesOf(ctx context.Context, monitorID uint) ([]uint, error) {
 	var explicit []uint
+	// An ORDER-ONLY row only carries the manual position of a group member (see
+	// StatusPageService.SetOrder): the page publishes that monitor through its group,
+	// which the second query already finds, and one left behind by a monitor removed
+	// from the group must not notify anybody.
 	if err := s.db.WithContext(ctx).Table("status_page_monitors").
-		Where("monitor_id = ?", monitorID).Distinct().Pluck("status_page_id", &explicit).Error; err != nil {
+		Where("monitor_id = ? AND order_only = ?", monitorID, false).
+		Distinct().Pluck("status_page_id", &explicit).Error; err != nil {
 		return nil, ErrInternal(err)
 	}
 	var throughGroups []uint

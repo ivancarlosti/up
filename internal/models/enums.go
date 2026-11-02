@@ -73,6 +73,21 @@ func (t MonitorType) Valid() bool {
 	return false
 }
 
+// MonitorTypeRank is the position of a type in AllMonitorTypes.
+//
+// It is the coarse order of a status page that sorts "by type" (see
+// StatusPage.MonitorOrder): the list above is the order the page shows (http,
+// keyword, tcp, dns, ssl, websocket), not the alphabetical one, and an unknown
+// type sinks to the end instead of breaking the comparison.
+func MonitorTypeRank(t MonitorType) int {
+	for index, known := range AllMonitorTypes() {
+		if t == known {
+			return index
+		}
+	}
+	return len(AllMonitorTypes())
+}
+
 // ---------------------------------------------------------------------------
 // Heartbeat status (the outcome of a single check)
 // ---------------------------------------------------------------------------

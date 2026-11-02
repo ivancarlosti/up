@@ -84,7 +84,7 @@ FLUSH PRIVILEGES;
 | `sync_dead_letters` | a change that could not be applied, past the attempt cap it is skipped | few |
 | `peer_votes` | the latest verdict of each peer per monitor uuid (federated voting input) | nodes x monitors |
 | `status_pages` | public status pages | few |
-| `status_page_monitors` | monitor selection and ordering per page | tens |
+| `status_page_monitors` | monitor selection, manual positions (`sort_order`, per section) and the `order_only` rows that carry a group member's position | tens |
 | `status_page_groups` | monitor groups included in a page (membership driven) | tens |
 | `api_tokens` | public API bearer tokens (hashed) | few |
 | `ip_rules` | allow/deny list by scope | few |
@@ -194,6 +194,15 @@ certificate of a host long before it should publish the registration date of its
 domain. The single `show_expiry` column of protocol 1-2 is left in place on an
 existing database: `AutoMigrate` never drops a column, and nothing reads or writes
 it any more.
+
+`status_pages.monitor_order` and `status_page_monitors.order_only` are the two
+halves of the manual order (`docs/status-pages.md` §3.3). The first is the mode
+(`manual`, `alphabetical`, `type`); the second distinguishes a row that publishes
+a monitor from a row that **only** carries the position of a group member, which is
+how one page orders a section it inherits from a group without publishing the
+monitor twice. `sort_order` is the position **inside its section** (0..N-1 for the
+explicit monitors, 0..M-1 per group), never a page-wide rank: two sections are
+never compared.
 
 **Every value that comes from a remote server is clipped before the insert.**
 The columns are dimensioned for the widest realistic answer and the observation
@@ -570,6 +579,7 @@ CREATE TABLE `status_page_monitors` (
   `sort_order` bigint(20) NOT NULL DEFAULT 0,
   `show_uptime` tinyint(1) NOT NULL DEFAULT 1,
   `show_chart` tinyint(1) NOT NULL DEFAULT 1,
+  `order_only` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_status_page_monitor` (`status_page_id`,`monitor_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
@@ -590,6 +600,7 @@ CREATE TABLE `status_pages` (
   `show_tags` tinyint(1) NOT NULL DEFAULT 0,
   `show_cert_expiry` tinyint(1) NOT NULL DEFAULT 0,
   `show_domain_expiry` tinyint(1) NOT NULL DEFAULT 0,
+  `monitor_order` varchar(20) NOT NULL DEFAULT 'manual',
   `uptime_window_hours` bigint(20) NOT NULL DEFAULT 0,
   `custom_css` text DEFAULT NULL,
   `created_at` datetime(3) DEFAULT NULL,

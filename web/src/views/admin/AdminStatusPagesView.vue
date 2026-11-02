@@ -3,8 +3,11 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Boxes,
+  ChevronDown,
+  ChevronUp,
   Copy,
   ExternalLink,
+  GripVertical,
   Pencil,
   Plus,
   Tag,
@@ -27,7 +30,7 @@ import Textarea from '@/components/ui/Textarea.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/format'
-import { sortStatusPages, statusPageSortKeys } from '@/lib/sort'
+import { orderStatusPageMonitors, sortStatusPages, statusPageSortKeys } from '@/lib/sort'
 import type { StatusPageSortKey } from '@/lib/sort'
 import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { uptimeWindowOptionsWithInherit } from '@/lib/uptime-window'
@@ -39,6 +42,8 @@ import type {
   Notification,
   StatusPage,
   StatusPageCloneOptions,
+  StatusPageMonitorItem,
+  StatusPageMonitorOrder,
   StatusPageSubscriber,
 } from '@/lib/types'
 
@@ -56,6 +61,13 @@ const pendingRemoval = ref<StatusPage | null>(null)
 const editing = ref<StatusPage | null>(null)
 const selectedMonitors = ref<number[]>([])
 const selectedGroups = ref<number[]>([])
+// The manual position of the members of every linked group, keyed by group: the
+// explicit monitors keep their order in selectedMonitors (see the page order panel).
+const groupOrder = ref<Record<number, number[]>>({})
+// The preview of the panel: it renders the rows in the order the page publishes with
+// the chosen mode, without touching a single stored position.
+const orderPreview = ref(false)
+const draggingMonitor = ref<{ section: number; id: number } | null>(null)
 const form = ref<Partial<StatusPage>>(blank())
 // The term of the picker above the two selection lists (see the picker block
 // below): it filters the monitors and the groups the operator can still add.
@@ -169,6 +181,7 @@ function blank(): Partial<StatusPage> {
     show_tags: false,
     show_cert_expiry: false,
     show_domain_expiry: false,
+    monitor_order: 'manual',
     uptime_window_hours: 0,
     custom_css: '',
     subscription_enabled: false,
@@ -208,9 +221,16 @@ async function openEdit(page: StatusPage): Promise<void> {
   form.value = JSON.parse(JSON.stringify(page))
   pickerSearch.value = ''
   const items = await api.statusPageMonitors(page.id)
-  selectedMonitors.value = items.map((item) => item.monitor_id)
+  // Only the explicit rows are the selection: an ORDER-ONLY row is the manual position
+  // of a group member (see the page order panel).
+  selectedMonitors.value = items
+    .filter((item) => !item.order_only)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((item) => item.monitor_id)
   const links = await api.statusPageGroups(page.id)
   selectedGroups.value = links.map((link) => link.group_id)
+  groupOrder.value = orderFromRows(items, groups.value)
+  orderPreview.value = false
   dialogOpen.value = true
 }
 
@@ -219,6 +239,8 @@ function openCreate(): void {
   form.value = blank()
   selectedMonitors.value = []
   selectedGroups.value = []
+  groupOrder.value = {}
+  orderPreview.value = false
   pickerSearch.value = ''
   dialogOpen.value = true
 }
@@ -395,6 +417,134 @@ function removeGroup(id: number): void {
   selectedGroups.value = selectedGroups.value.filter((current) => current !== id)
 }
 
+// --- the page order panel --------------------------------------------------
+// The order is PAGE WIDE but it never crosses a section: the page renders the explicit
+// monitors first and then one block per linked group, so the panel mirrors that shape
+// and a drag only moves a row inside its own block (the server numbers the positions
+// per section, see StatusPageService.SetOrder).
+
+/** The options of the monitor order select (mirror of models.AllMonitorOrders). */
+const monitorOrderOptions = computed(() => [
+  { value: 'manual', label: t('statusPages.orderManual') },
+  { value: 'alphabetical', label: t('statusPages.orderAlphabetical') },
+  { value: 'type', label: t('statusPages.orderType') },
+])
+
+/** monitorByID resolves an id of the panel into the monitor row (name, type, tags). */
+const monitorByID = computed(() => new Map(monitors.value.map((monitor) => [monitor.id, monitor])))
+
+/**
+ * orderedGroupMembers is the members of one group in page order: the ones an operator
+ * moved, then the rest in the order of the group (a monitor joins a group without a
+ * position of its own, so it lands at the end of the block).
+ */
+function orderedGroupMembers(groupId: number): number[] {
+  const group = groups.value.find((current) => current.id === groupId)
+  const members = (group?.monitor_ids ?? []).filter((id) => !selectedMonitors.value.includes(id))
+  const moved = (groupOrder.value[groupId] ?? []).filter((id) => members.includes(id))
+  return [...moved, ...members.filter((id) => !moved.includes(id))]
+}
+
+/**
+ * pageOrderSections is the page as the panel orders it: the explicit monitors, then one
+ * block per linked group. It mirrors planStatusPage on the server, so the panel never
+ * promises an order the page cannot render. An empty block is not shown (the page does
+ * not render an empty heading either).
+ */
+const pageOrderSections = computed(() => {
+  const sections: { key: string; name: string; groupId: number | null; monitorIds: number[] }[] = []
+  if (selectedMonitors.value.length) {
+    sections.push({
+      key: 'monitors',
+      name: t('statusPages.selectMonitors'),
+      groupId: null,
+      monitorIds: selectedMonitors.value,
+    })
+  }
+  for (const groupId of selectedGroups.value) {
+    const group = groups.value.find((current) => current.id === groupId)
+    sections.push({
+      key: `group-${groupId}`,
+      name: group?.name ?? t('statusPages.groups'),
+      groupId,
+      monitorIds: orderedGroupMembers(groupId),
+    })
+  }
+  return sections.filter((section) => section.monitorIds.length > 0)
+})
+
+/** pageOrderIDs is the payload of the order endpoint: every block, one after the other. */
+const pageOrderIDs = computed(() => pageOrderSections.value.flatMap((section) => section.monitorIds))
+
+/**
+ * sectionRows resolves the rows of one block, in the order the page publishes.
+ *
+ * The preview sorts them with the mode of the form (lib/sort.ts mirrors the server,
+ * tie-break included), so an operator sees what "alphabetical" or "type" does before
+ * saving it. It never changes the stored order: the drag positions stay where they are.
+ */
+function sectionRows(section: { monitorIds: number[] }): Monitor[] {
+  const rows = section.monitorIds
+    .map((id) => monitorByID.value.get(id))
+    .filter((monitor): monitor is Monitor => monitor !== undefined)
+  if (!orderPreview.value) return rows
+  return orderStatusPageMonitors(rows, (form.value.monitor_order ?? 'manual') as StatusPageMonitorOrder)
+}
+
+/** setSectionOrder stores the ids of one block in their new order. */
+function setSectionOrder(sectionIndex: number, monitorIds: number[]): void {
+  const section = pageOrderSections.value[sectionIndex]
+  if (!section) return
+  if (section.groupId === null) {
+    // The explicit block IS the selection order, which the selection endpoint saves.
+    selectedMonitors.value = monitorIds
+    return
+  }
+  groupOrder.value = { ...groupOrder.value, [section.groupId]: monitorIds }
+}
+
+/** moveMonitor moves a row inside its own block (the blocks never mix). */
+function moveMonitor(sectionIndex: number, from: number, to: number): void {
+  const ids = [...(pageOrderSections.value[sectionIndex]?.monitorIds ?? [])]
+  if (from === to || from < 0 || to < 0 || from >= ids.length || to >= ids.length) return
+  const [moved] = ids.splice(from, 1)
+  ids.splice(to, 0, moved)
+  setSectionOrder(sectionIndex, ids)
+}
+
+/** dragMonitor starts a drag; the drop only accepts a row of the same block. */
+function dragMonitor(sectionIndex: number, monitorId: number): void {
+  draggingMonitor.value = { section: sectionIndex, id: monitorId }
+}
+
+/** dropMonitor drops the dragged row on top of another one of its block. */
+function dropMonitor(sectionIndex: number, monitorId: number): void {
+  const dragged = draggingMonitor.value
+  draggingMonitor.value = null
+  if (!dragged || dragged.section !== sectionIndex) return
+  const ids = pageOrderSections.value[sectionIndex]?.monitorIds ?? []
+  moveMonitor(sectionIndex, ids.indexOf(dragged.id), ids.indexOf(monitorId))
+}
+
+/**
+ * orderFromRows seeds the manual order of every group from the rows of the page.
+ *
+ * A group member only has a row once an operator moved it (the ORDER-ONLY rows the
+ * server writes), so the rest of the members keep the order of the group itself.
+ */
+function orderFromRows(items: StatusPageMonitorItem[], groupList: MonitorGroup[]): Record<number, number[]> {
+  const order: Record<number, number[]> = {}
+  const moved = items
+    .filter((item) => item.order_only)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((item) => item.monitor_id)
+  for (const group of groupList) {
+    const members = moved.filter((id) => (group.monitor_ids ?? []).includes(id))
+    if (members.length) order[group.id] = members
+  }
+  return order
+}
+
 async function save(): Promise<void> {
   saving.value = true
   try {
@@ -402,10 +552,14 @@ async function save(): Promise<void> {
       await api.updateStatusPage(editing.value.id, form.value)
       await api.setStatusPageMonitors(editing.value.id, selectedMonitors.value)
       await api.setStatusPageGroups(editing.value.id, selectedGroups.value)
+      // The order is saved last: it speaks about the monitors the two calls above just
+      // wrote, so the server never has to renumber a monitor it no longer renders.
+      await api.setStatusPageOrder(editing.value.id, pageOrderIDs.value)
     } else {
       const created = await api.createStatusPage({ ...form.value, monitor_ids: selectedMonitors.value })
       if (created?.id) {
         await api.setStatusPageGroups(created.id, selectedGroups.value)
+        await api.setStatusPageOrder(created.id, pageOrderIDs.value)
       }
     }
     dialogOpen.value = false
@@ -644,6 +798,12 @@ onMounted(load)
           </Label>
           <Select id="page-uptime-window" v-model="uptimeWindow" :options="windowOptions" />
         </div>
+        <div class="grid gap-1">
+          <Label for="page-monitor-order" :help="t('statusPages.orderModeHelp')">
+            {{ t('statusPages.orderMode') }}
+          </Label>
+          <Select id="page-monitor-order" v-model="form.monitor_order" :options="monitorOrderOptions" />
+        </div>
         <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
           <Switch v-model="form.is_public as boolean">{{ t('statusPages.isPublic') }}</Switch>
           <Switch v-model="form.show_uptime as boolean">{{ t('statusPages.showUptime') }}</Switch>
@@ -825,6 +985,75 @@ onMounted(load)
           <p v-else class="text-[11px] text-muted-foreground">{{ t('statusPages.pickerNoGroups') }}</p>
         </div>
 
+        <!--
+          The page order: the blocks the public page renders (the explicit monitors,
+          then one per linked group), each one draggable inside itself. The order
+          belongs to the page, so a group section an operator ordered here keeps that
+          order on this page only — another page that links the same group is untouched.
+        -->
+        <div id="page-order" class="grid gap-2 rounded-lg border border-border p-3 sm:col-span-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-sm font-medium">{{ t('statusPages.orderTitle') }}</p>
+              <p class="text-[11px] text-muted-foreground">{{ t('statusPages.orderHelp') }}</p>
+            </div>
+            <Switch v-model="orderPreview">{{ t('statusPages.orderPreview') }}</Switch>
+          </div>
+          <p v-if="orderPreview" class="text-[11px] text-muted-foreground">
+            {{ t('statusPages.orderPreviewHelp') }}
+          </p>
+          <p v-if="!pageOrderSections.length" class="text-[11px] text-muted-foreground">
+            {{ t('statusPages.orderEmpty') }}
+          </p>
+          <div v-for="(section, sectionIndex) in pageOrderSections" :key="section.key" class="grid gap-1">
+            <p class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {{ section.name }}
+            </p>
+            <div
+              v-for="(monitor, rowIndex) in sectionRows(section)"
+              :key="monitor.id"
+              class="flex flex-wrap items-center gap-2 rounded-md border border-border px-2 py-1 text-sm"
+              :class="[
+                draggingMonitor?.id === monitor.id && draggingMonitor?.section === sectionIndex
+                  ? 'opacity-50'
+                  : '',
+                orderPreview ? '' : 'cursor-grab',
+              ]"
+              :draggable="!orderPreview"
+              :title="t('statusPages.orderDragHint')"
+              @dragstart="dragMonitor(sectionIndex, monitor.id)"
+              @dragend="draggingMonitor = null"
+              @dragover.prevent
+              @drop.prevent="dropMonitor(sectionIndex, monitor.id)"
+            >
+              <GripVertical class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span class="min-w-0 truncate font-medium">{{ monitor.name }}</span>
+              <Badge variant="secondary" class="shrink-0">{{ monitor.type }}</Badge>
+              <div class="ms-auto flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :disabled="orderPreview || rowIndex === 0"
+                  :title="t('statusPages.orderMoveUp')"
+                  :aria-label="t('statusPages.orderMoveUp')"
+                  @click="moveMonitor(sectionIndex, rowIndex, rowIndex - 1)"
+                >
+                  <ChevronUp class="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :disabled="orderPreview || rowIndex >= sectionRows(section).length - 1"
+                  :title="t('statusPages.orderMoveDown')"
+                  :aria-label="t('statusPages.orderMoveDown')"
+                  @click="moveMonitor(sectionIndex, rowIndex, rowIndex + 1)"
+                >
+                  <ChevronDown class="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <template #footer>

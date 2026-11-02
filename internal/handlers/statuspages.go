@@ -201,3 +201,32 @@ func (h *Container) setStatusPageMonitors(c *gin.Context) {
 	}
 	api.OK(c, items)
 }
+
+// setStatusPageOrder replaces the manual order of the monitors of a page.
+//
+// The body is the page as the operator reads it: every section one after the other,
+// the monitors it renders in the order they must appear. The positions are stored per
+// section, so the dialog can send the concatenation of what it shows (see
+// StatusPageService.SetOrder).
+func (h *Container) setStatusPageOrder(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		MonitorIDs []uint `json:"monitor_ids"`
+	}
+	if !bindJSON(c, &payload) {
+		return
+	}
+	if err := h.StatusPages.SetOrder(c.Request.Context(), id, payload.MonitorIDs); err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	items, err := h.StatusPages.Items(c.Request.Context(), id)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, items)
+}

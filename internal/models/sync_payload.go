@@ -135,6 +135,10 @@ type StatusPagePayload struct {
 	ShowCertExpiry   bool   `json:"show_cert_expiry"`
 	ShowDomainExpiry bool   `json:"show_domain_expiry"`
 	CustomCSS        string `json:"custom_css"`
+	// MonitorOrder is how the sections of the page are ordered ("manual",
+	// "alphabetical" or "type"): without it a peer would render the selection in a
+	// different order than the origin, from the very payload that carries it.
+	MonitorOrder string `json:"monitor_order"`
 	// The subscription switches are additive fields: a peer that predates them
 	// ignores them and keeps offering no form, which is the safe direction.
 	SubscriptionEnabled      bool   `json:"subscription_enabled"`
@@ -185,6 +189,16 @@ type StatusPageItemPayload struct {
 	SortOrder   int    `json:"sort_order"`
 	ShowUptime  bool   `json:"show_uptime"`
 	ShowChart   bool   `json:"show_chart"`
+	// OrderOnly marks a row that only carries the manual position of a monitor the
+	// page publishes through a group (see models.StatusPageMonitor), so a receiver
+	// does not publish it a second time.
+	//
+	// It is an additive field and does NOT bump ProtocolVersion: a peer that
+	// predates it stores such a row as an explicit selection and renders that one
+	// monitor in the top section for as long as it runs the older build — a
+	// display difference, never a wrong or a missing monitor (see
+	// docs/clustering-modes.md, "compatibility").
+	OrderOnly bool `json:"order_only"`
 }
 
 // StatusPageGroupPayload is one group section of a page, for the same reason.

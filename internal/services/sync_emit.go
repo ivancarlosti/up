@@ -173,6 +173,7 @@ func BuildStatusPagePayload(p *models.StatusPage, items []models.StatusPageItemP
 		ShowCertExpiry:   p.ShowCertExpiry,
 		ShowDomainExpiry: p.ShowDomainExpiry,
 		CustomCSS:        p.CustomCSS,
+		MonitorOrder:     models.NormalizeMonitorOrder(p.MonitorOrder),
 
 		SubscriptionEnabled:      p.SubscriptionEnabled,
 		SubscriptionSMTPUUID:     p.SubscriptionSMTPUUID,
@@ -245,14 +246,16 @@ func orEmptySlice[T any](values []T) []T {
 
 // statusPageItems reads the monitor selection of a page in DISPLAY ORDER.
 //
-// sort_order is the page's own order (StatusPageService.SetMonitors allocates it
-// from the order the operator gave), and the uuid is only a tie-break so that two
-// nodes produce the same sequence for the same selection.
+// sort_order is the page's own order (StatusPageService.SetMonitors and SetOrder
+// allocate it from the order the operator gave), and the uuid is only a tie-break so
+// that two nodes produce the same sequence for the same selection. An ORDER-ONLY row
+// travels with its flag: without it the receiver would publish a group member twice.
 func statusPageItems(ctx context.Context, tx *gorm.DB, pageID uint) ([]models.StatusPageItemPayload, error) {
 	var rows []models.StatusPageItemPayload
 	if err := tx.WithContext(ctx).Raw(
 		`SELECT m.uuid AS uuid, s.display_name AS display_name, s.group_name AS group_name,
-		        s.sort_order AS sort_order, s.show_uptime AS show_uptime, s.show_chart AS show_chart
+		        s.sort_order AS sort_order, s.show_uptime AS show_uptime, s.show_chart AS show_chart,
+		        s.order_only AS order_only
 		   FROM status_page_monitors s
 		   JOIN monitors m ON m.id = s.monitor_id
 		  WHERE s.status_page_id = ?

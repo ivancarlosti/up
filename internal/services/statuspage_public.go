@@ -58,18 +58,29 @@ func writeMonitorSelection(tx *gorm.DB, pageID uint, monitorIDs []uint) error {
 //
 // It is shared by the create, the selection endpoint and the clone, so the three
 // cannot write a different set of columns.
+//
+// An ORDER-ONLY row is not part of the selection: it only holds the manual position
+// of a group member (see StatusPageService.SetOrder), so replacing the selection
+// leaves it alone. A monitor that becomes explicit loses its order-only row here, or
+// the unique index (status_page_id, monitor_id) would refuse the second row.
 func writeStatusPageItems(tx *gorm.DB, pageID uint, items []models.StatusPageMonitor) error {
-	if err := tx.Where("status_page_id = ?", pageID).
+	if err := tx.Where("status_page_id = ? AND order_only = ?", pageID, false).
 		Delete(&models.StatusPageMonitor{}).Error; err != nil {
 		return err
 	}
 	seen := map[uint]bool{}
 	order := 0
 	for _, item := range items {
-		if item.MonitorID == 0 || seen[item.MonitorID] {
+		// A caller that hands over an order-only row (the clone copies the
+		// positions verbatim through writeStatusPageOrder) never publishes it.
+		if item.MonitorID == 0 || item.OrderOnly || seen[item.MonitorID] {
 			continue
 		}
 		seen[item.MonitorID] = true
+		if err := tx.Where("status_page_id = ? AND monitor_id = ?", pageID, item.MonitorID).
+			Delete(&models.StatusPageMonitor{}).Error; err != nil {
+			return err
+		}
 		row := models.StatusPageMonitor{
 			StatusPageID: pageID,
 			MonitorID:    item.MonitorID,
@@ -165,14 +176,25 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 			displayNames[item.MonitorID] = trimmed
 		}
 	}
+	for id, name := range displayNames {
+		if monitor, ok := byID[id]; ok {
+			monitor.Name = name
+		}
+	}
+
+	// The manual position of a monitor lives in its row: the selection row of an
+	// explicit monitor, the ORDER-ONLY row of a group member (see statuspage_order.go).
+	ranks := make(map[uint]int, len(items))
+	for _, item := range items {
+		ranks[item.MonitorID] = item.SortOrder
+	}
+	sections, ids = applyStatusPageOrder(sections, byID, ranks, page.MonitorOrder)
+
 	ordered := make([]*models.Monitor, 0, len(ids))
 	for _, id := range ids {
 		monitor, ok := byID[id]
 		if !ok {
 			continue
-		}
-		if name, ok := displayNames[id]; ok {
-			monitor.Name = name
 		}
 		if series, seriesErr := s.monitors.SeriesFor(ctx, monitor.ID, 30); seriesErr == nil {
 			monitor.Heartbeats = series

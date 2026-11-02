@@ -58,7 +58,8 @@ Example API response:
 | `subscription_enabled` | offers the opt-in incident e-mails to the visitors (default `false`) |
 | `subscription_smtp_uuid` | SMTP channel that sends them, named by uuid so every cluster node finds the same channel |
 | `subscription_delay_minutes` | how long a monitor must stay down before the first mail: `5` to `1440`, multiple of `5`, default `10` |
-| `monitor_ids` order | display order (up to any number of monitors) |
+| `monitor_order` | how the monitors are ordered **inside each section**: `manual` (default, the order an operator drags), `alphabetical` (the name the page shows) or `type` (http, keyword, tcp, dns, ssl, websocket). Both automatic modes fall back to the manual order, which is the tie-break |
+| `monitor_ids` order | the explicit selection, in display order (§3.3) |
 
 ## 3. Managing pages
 
@@ -134,6 +135,9 @@ so nothing disappears silently; the operator can remove the explicit row to let
 the group order win. A page with no groups still shows the group half of the
 picker with a hint pointing at Admin > Monitor groups.
 
+The order **inside** those two lists is the *Page order* panel of the same dialog
+(and the `monitor_order` setting), described in §3.3.
+
 ## 3.2 Clone a page
 
 Admin UI: the copy button of a row opens the clone dialog — a title and a slug
@@ -173,6 +177,62 @@ published as **one revision** (`createWithSelection` in
 `internal/services/statuspage.go`, `StatusPageService.Clone` in
 `internal/services/statuspage_clone.go`): a peer never sees a copy without its
 monitors, and the whole action is one row in the sync outbox.
+
+## 3.3 Order the monitors of a page
+
+The dialog ends with a **Page order** panel: one block per section the page
+renders — the explicit monitors first, then one block per linked group — with a
+drag handle and two arrows per row. The order is stored **per section**, never
+across: a monitor cannot be dragged out of its group, because the group heading is
+what gives the page its shape.
+
+```bash
+curl -b cookies.txt -X PUT localhost:3000/api/status-pages/3/order \
+  -H 'Content-Type: application/json' -d '{"monitor_ids":[7,6,12,9]}'
+```
+
+The body is the page as an operator reads it: the blocks concatenated, in order.
+The server numbers each block from zero and stores the position in
+`status_page_monitors.sort_order`:
+
+| Row | Written when | Meaning |
+|---|---|---|
+| explicit (`order_only = false`) | the monitor is an explicit selection of the page | publishes the monitor **and** carries its position |
+| order-only (`order_only = true`) | the monitor is published by a linked group and an operator moved it | carries its position inside the group, publishes nothing |
+
+An order-only row is what lets a page order a section it **inherits**: the group
+keeps its own membership order for every other page, while this page remembers
+where the operator put each member. `planStatusPage` skips those rows, so a moved
+member is never rendered twice and never leaves its group; `GET
+/api/status-pages/:id/monitors` returns them with their flag so the dialog can
+rebuild the panel, and `PUT /api/status-pages/:id/monitors` leaves them alone (a
+monitor that becomes an explicit selection takes over its row).
+
+Rules the endpoint enforces:
+
+- every id must be on the page (explicit or a member of a linked group); one
+  unknown id refuses the whole request with `400 ERR_VALIDATION`, so an order is
+  never half applied;
+- a duplicated id is ignored (the first position wins);
+- a monitor the body omits — added to a group by another tab while the dialog was
+  open — is appended to the end of its block instead of jumping to the top;
+- the call is a new **revision** of the page (`touchStatusPage`), so the peers
+  receive the order with the payload that already carries the selection.
+
+`monitor_order` decides what happens next, per block:
+
+| Mode | Order inside a block |
+|---|---|
+| `manual` (default) | the position an operator dragged; a member nobody moved keeps the order of the group |
+| `alphabetical` | the name the page shows (`display_name` when set), case insensitive and locale independent — the page is anonymous and the server has no visitor locale, so every visitor sees the same order |
+| `type` | `http`, `keyword`, `tcp`, `dns`, `ssl`, `websocket` (`models.AllMonitorTypes`), then the rest |
+
+Both automatic modes end on the manual position, so `alphabetical` keeps two
+monitors with the same name in the order the operator chose, and switching the mode
+back to `manual` restores the drag exactly. The *preview* switch of the panel (and
+`orderStatusPageMonitors` in `web/src/lib/sort.ts`) sorts the rows with the same
+rule without saving anything, which is how an operator sees the effect of a mode
+before committing to it.
 
 ## 4. Badge
 
@@ -255,8 +315,9 @@ cannot be replayed here) or whose score is below the configured minimum.
 
 - No incident timeline/announcements yet: everything shown is derived from the
   heartbeats.
-- Monitor groups (`status_page_monitors.group_name`) exist in the schema; the UI
-  currently renders a flat, ordered list.
+- Monitor groups are the only way to group the page: the order is stored per
+  section (§3.3), so a monitor cannot be moved out of its group on one page —
+  change the group (Admin > Monitor groups) or publish the monitor explicitly.
 - The uptime figure follows the page period (`uptime_window_hours`, or the
   global one when it is `0`); the monitor payload also keeps the fixed
   `uptime_24h`/`uptime_7d`/`uptime_30d` columns of the public API.

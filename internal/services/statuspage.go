@@ -107,7 +107,10 @@ func (s *StatusPageService) List(ctx context.Context) ([]*models.StatusPage, err
 		return nil, ErrInternal(fmt.Errorf("listing status pages: %w", err))
 	}
 	var items []models.StatusPageMonitor
-	if err := s.db.WithContext(ctx).Find(&items).Error; err != nil {
+	// ORDER-ONLY rows are the manual positions of group members (see SetOrder): they
+	// publish nothing, so counting them as an explicit selection would inflate the
+	// monitor column and hide a monitor behind its group.
+	if err := s.db.WithContext(ctx).Where("order_only = ?", false).Find(&items).Error; err != nil {
 		return nil, ErrInternal(err)
 	}
 	var links []models.StatusPageGroupLink
@@ -184,7 +187,7 @@ func (s *StatusPageService) GetBySlug(ctx context.Context, slug string) (*models
 // outbox rows on the wire for one operator action — and made "the page as created" a
 // state no peer ever saw.
 func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage, monitorIDs []uint) error {
-	if err := s.createWithSelection(ctx, page, statusPageMonitorRows(monitorIDs), nil); err != nil {
+	if err := s.createWithSelection(ctx, page, statusPageMonitorRows(monitorIDs), nil, nil); err != nil {
 		return err
 	}
 	s.log.Info("status page created", "id", page.ID, "slug", page.Slug, "monitors", len(monitorIDs))
@@ -197,8 +200,11 @@ func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage,
 // It is shared by the create and by the clone so the two cannot disagree on what a
 // new page is (one transaction, one revision, one outbox row), and so a copy lands on
 // the peers complete instead of arriving as a page that is edited twice afterwards.
+//
+// positions carries the manual order of the monitors of the page (see SetOrder) and is
+// nil on a plain create, where the order of the id list is the order.
 func (s *StatusPageService) createWithSelection(ctx context.Context, page *models.StatusPage,
-	items []models.StatusPageMonitor, links []models.StatusPageGroupLink) error {
+	items []models.StatusPageMonitor, links []models.StatusPageGroupLink, positions map[uint]int) error {
 
 	if err := s.normalize(page); err != nil {
 		return err
@@ -227,6 +233,13 @@ func (s *StatusPageService) createWithSelection(ctx context.Context, page *model
 		}
 		if len(links) > 0 {
 			if err := writeStatusPageGroupLinks(tx, page.ID, links); err != nil {
+				return err
+			}
+		}
+		// The manual order is written after the selection: it updates the rows the
+		// write above created and adds the ORDER-ONLY rows of the group members.
+		if positions != nil {
+			if err := writeStatusPageOrder(tx, page.ID, positions); err != nil {
 				return err
 			}
 		}
@@ -295,6 +308,8 @@ func (s *StatusPageService) Update(ctx context.Context, page *models.StatusPage)
 			"show_cert_expiry":   page.ShowCertExpiry,
 			"show_domain_expiry": page.ShowDomainExpiry,
 			"custom_css":         page.CustomCSS,
+
+			"monitor_order": page.MonitorOrder,
 
 			"subscription_enabled":       page.SubscriptionEnabled,
 			"subscription_smtp_uuid":     page.SubscriptionSMTPUUID,
@@ -403,6 +418,9 @@ func (s *StatusPageService) normalize(page *models.StatusPage) error {
 	if !containsString(config.SupportedThemes, page.Theme) {
 		page.Theme = "system"
 	}
+	// An unknown or empty order renders the page as it was ordered by hand, which is
+	// also what a page created by an older peer asks for.
+	page.MonitorOrder = models.NormalizeMonitorOrder(page.MonitorOrder)
 	// 0 keeps meaning "inherit the global window"; any other value is clamped to
 	// a period the UI can label.
 	if page.UptimeWindowHours != 0 {

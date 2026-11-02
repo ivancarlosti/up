@@ -18,6 +18,7 @@
     "e2e:groups": "node scripts/e2e-groups.mjs",
     "e2e:monitor-tags": "node scripts/e2e-monitor-tags.mjs",
     "e2e:status-page-groups": "node scripts/e2e-status-page-groups.mjs",
+    "e2e:status-page-order": "node scripts/e2e-status-page-order.mjs",
     "e2e:templates": "node scripts/e2e-templates.mjs",
     "e2e:table-sort": "node scripts/e2e-table-sort.mjs",
     "e2e:dashboard-load": "node scripts/e2e-dashboard-load.mjs",

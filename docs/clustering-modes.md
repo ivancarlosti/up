@@ -357,7 +357,7 @@ Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
 | `monitors` (+ notification links, group members) | sync | the core of the feature |
 | `monitor_groups` (+ members) | sync | already has a uuid |
 | `monitor_templates` | sync | already has a uuid |
-| `status_pages` (+ `status_page_monitors`, `status_page_groups`) | sync | referenced monitors/groups resolve by uuid |
+| `status_pages` (+ `status_page_monitors`, `status_page_groups`) | sync | referenced monitors/groups resolve by uuid; the page carries its `monitor_order` and every selection row its `order_only` flag, so a peer renders the same order inside the same sections |
 | `status_page_subscribers` | sync | one row per page+address, deterministic uuid; the payload carries **PII** (the e-mail) and the token hashes, so the peers must run over TLS like the channel payload. Incidents and notices stay local (derived state) |
 | `heartbeats` | local | see **D5** |
 | `monitor_states`, `notification_logs`, `monitor_certificates` | local | runtime, derived or node-specific |
@@ -716,6 +716,15 @@ suite:
    own database is not imported back, so configuration created on it after the switch
    is lost unless it was synchronised to a peer first. The two modes cannot be mixed
    in a running cluster (item 4).
+10. **Additive fields of a status page do not bump the protocol.** The page payload
+    carries `monitor_order` and, on every selection row, `order_only` (the manual
+    position of a group member, `docs/status-pages.md` §3.3). A peer that predates
+    them ignores the first and stores such a row as an explicit selection: it renders
+    that one monitor in the top section instead of inside its group — a display
+    difference for as long as the older build runs, never a wrong or a missing
+    monitor, and never a privacy change. That is why the pair does not cost a
+    protocol bump, while the per-badge expiry switches of protocol 3 did: a version 2
+    receiver would have published a badge the origin hides.
 
 
 

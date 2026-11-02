@@ -201,6 +201,10 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		"writeMonitorSelection":     "caller publishes the page",
 		"writeStatusPageItems":      "caller publishes the page",
 		"writeStatusPageGroupLinks": "caller publishes the page",
+		// The manual order is part of the page payload too: SetOrder turns it into a
+		// version with touchStatusPage, and the clone publishes the page it just built
+		// (positions included) with publishStatusPage.
+		"writeStatusPageOrder": "caller publishes the page",
 	}
 
 	checked := 0

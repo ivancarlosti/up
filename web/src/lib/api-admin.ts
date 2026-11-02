@@ -47,6 +47,10 @@ export const adminApi = {
   statusPageMonitors: (id: number) => get<StatusPageMonitorItem[]>(`/api/status-pages/${id}/monitors`),
   setStatusPageMonitors: (id: number, monitorIds: number[]) =>
     put<StatusPageMonitorItem[]>(`/api/status-pages/${id}/monitors`, { monitor_ids: monitorIds }),
+  // The page order is the concatenation of the sections as the dialog shows them:
+  // the explicit monitors, then one block per linked group (see AdminStatusPagesView).
+  setStatusPageOrder: (id: number, monitorIds: number[]) =>
+    put<StatusPageMonitorItem[]>(`/api/status-pages/${id}/order`, { monitor_ids: monitorIds }),
   statusPageGroups: (id: number) =>
     get<StatusPageGroupLink[]>(`/api/status-pages/${id}/groups`).then((data) => data ?? []),
   setStatusPageGroups: (id: number, groupIds: number[]) =>

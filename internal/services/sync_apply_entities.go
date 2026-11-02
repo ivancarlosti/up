@@ -699,6 +699,7 @@ func (s *SyncService) writeStatusPage(ctx context.Context, tx *gorm.DB, payload 
 		"show_cert_expiry":           payload.ShowCertExpiry,
 		"show_domain_expiry":         payload.ShowDomainExpiry,
 		"custom_css":                 payload.CustomCSS,
+		"monitor_order":              models.NormalizeMonitorOrder(payload.MonitorOrder),
 		"subscription_enabled":       payload.SubscriptionEnabled,
 		"subscription_smtp_uuid":     payload.SubscriptionSMTPUUID,
 		"subscription_delay_minutes": models.NormalizeSubscriptionDelayMinutes(payload.SubscriptionDelayMinutes),
@@ -752,6 +753,7 @@ func (s *SyncService) writeStatusPageSelection(ctx context.Context, tx *gorm.DB,
 			SortOrder:    item.SortOrder,
 			ShowUptime:   item.ShowUptime,
 			ShowChart:    item.ShowChart,
+			OrderOnly:    item.OrderOnly,
 		}
 		if err := tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&link).Error; err != nil {
 			return fmt.Errorf("storing the selection of status page %s: %w", payload.UUID, err)

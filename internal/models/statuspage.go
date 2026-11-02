@@ -45,6 +45,15 @@ type StatusPage struct {
 	// ShowDomainExpiry publishes the domain registration days-left badge of the
 	// monitors on the page (see ShowCertExpiry).
 	ShowDomainExpiry bool `gorm:"not null;default:false" json:"show_domain_expiry"`
+	// MonitorOrder is how the monitors are ordered INSIDE every section of the
+	// page (see the MonitorOrder* constants): "manual" is the order an operator
+	// drags in the dialog, "alphabetical" sorts by the name the page shows and
+	// "type" groups http, keyword, tcp, dns, ssl and websocket together.
+	//
+	// The manual order is the tie-break of the other two, so a page sorted by type
+	// keeps the fine positions the operator chose (two http monitors stay in the
+	// order they were dragged into) and switching back to manual never loses them.
+	MonitorOrder string `gorm:"size:20;not null;default:manual" json:"monitor_order"`
 	// UptimeWindowHours is the period this page shows the uptime percentage and
 	// the heartbeat bars for. 0 means "inherit the global window"
 	// (Admin > Settings), which is what keeps a page in step with the dashboard.
@@ -101,6 +110,39 @@ func (p *StatusPage) EffectiveUptimeWindow(globalHours int) int {
 	return NormalizeUptimeWindowHours(globalHours)
 }
 
+// ---------------------------------------------------------------------------
+// Monitor order of a status page (see StatusPage.MonitorOrder)
+// ---------------------------------------------------------------------------
+
+// The orders a status page can use inside its sections.
+const (
+	// MonitorOrderManual renders the page order the operator set (default).
+	MonitorOrderManual = "manual"
+	// MonitorOrderAlphabetical sorts by the name the page shows.
+	MonitorOrderAlphabetical = "alphabetical"
+	// MonitorOrderType sorts by type, in the AllMonitorTypes order.
+	MonitorOrderType = "type"
+)
+
+// AllMonitorOrders lists every status page monitor order (validation + UI).
+func AllMonitorOrders() []string {
+	return []string{MonitorOrderManual, MonitorOrderAlphabetical, MonitorOrderType}
+}
+
+// NormalizeMonitorOrder maps an empty or unknown value to manual.
+//
+// It is what makes the setting safe on every path that is not the admin form: a
+// page created by an older peer, a payload without the field or a hand written
+// request all render in the page order instead of failing.
+func NormalizeMonitorOrder(order string) string {
+	for _, known := range AllMonitorOrders() {
+		if order == known {
+			return order
+		}
+	}
+	return MonitorOrderManual
+}
+
 // StatusPageMonitor links a monitor to a status page, optionally renaming it
 // and grouping it with other monitors.
 type StatusPageMonitor struct {
@@ -110,9 +152,20 @@ type StatusPageMonitor struct {
 
 	DisplayName string `gorm:"size:200" json:"display_name"`
 	GroupName   string `gorm:"size:120" json:"group_name"`
-	SortOrder   int    `gorm:"not null;default:0" json:"sort_order"`
-	ShowUptime  bool   `gorm:"not null;default:true" json:"show_uptime"`
-	ShowChart   bool   `gorm:"not null;default:true" json:"show_chart"`
+	// SortOrder is the manual position of the monitor INSIDE ITS SECTION of the
+	// page: 0..N-1 for the explicit monitors (their own list) and 0..M-1 inside a
+	// group section. Two sections never compare their positions.
+	SortOrder  int  `gorm:"not null;default:0" json:"sort_order"`
+	ShowUptime bool `gorm:"not null;default:true" json:"show_uptime"`
+	ShowChart  bool `gorm:"not null;default:true" json:"show_chart"`
+	// OrderOnly marks a row that ONLY carries the manual position of a monitor the
+	// page publishes through a group: it does not publish the monitor by itself, so
+	// planStatusPage never treats it as an explicit selection.
+	//
+	// A group member has no row of its own on the page until an operator moves it;
+	// without this flag a positioned member would be published twice (once in the
+	// explicit section, once inside its group) and the group heading would lose it.
+	OrderOnly bool `gorm:"not null;default:false" json:"order_only"`
 }
 
 // TableName keeps the join table name stable.

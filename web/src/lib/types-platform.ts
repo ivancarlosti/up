@@ -185,6 +185,12 @@ export interface PeerStatusReport {
   recent_dead_letters: DeadLetterView[] | null
 }
 
+/**
+ * How the monitors of a status page are ordered inside each of its sections
+ * (mirror of models.MonitorOrderManual / Alphabetical / Type).
+ */
+export type StatusPageMonitorOrder = 'manual' | 'alphabetical' | 'type'
+
 export interface StatusPage {
   id: number
   slug: string
@@ -205,6 +211,12 @@ export interface StatusPage {
    * hours). 0 inherits the global window from Admin > Settings.
    */
   uptime_window_hours: number
+  /**
+   * How the monitors are ordered INSIDE every section of the page: the order an
+   * operator dragged (`manual`), the name the page shows, or the type. The manual
+   * order stays the tie-break of the other two, so it is never lost.
+   */
+  monitor_order: StatusPageMonitorOrder
   custom_css: string
   /** Opt-in incident e-mails for the page. */
   subscription_enabled: boolean
@@ -263,6 +275,11 @@ export interface StatusPageMonitorItem {
   sort_order: number
   show_uptime: boolean
   show_chart: boolean
+  /**
+   * The row only carries the manual position of a monitor the page publishes
+   * through a group: it is not part of the explicit selection.
+   */
+  order_only?: boolean
 }
 
 /** One opt-in subscription of a status page (admin listing). */

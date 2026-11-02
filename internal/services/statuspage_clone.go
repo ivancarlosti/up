@@ -83,7 +83,8 @@ func (s *StatusPageService) Clone(ctx context.Context, id uint, opts StatusPageC
 	// One transaction, one revision, one outbox row: the page and its two selections
 	// reach the peers as the state the operator asked for, not as a page that is
 	// edited twice afterwards.
-	if err := s.createWithSelection(ctx, clone, items, links); err != nil {
+	positions := statusPageClonePositions(rows, opts.CopyMonitors, opts.CopyGroups)
+	if err := s.createWithSelection(ctx, clone, items, links, positions); err != nil {
 		return nil, err
 	}
 	s.log.Info("status page cloned", "source", id, "clone", clone.ID, "slug", clone.Slug,
@@ -166,6 +167,7 @@ func statusPageClone(source *models.StatusPage, title, slug string) *models.Stat
 		ShowTags:                 source.ShowTags,
 		ShowCertExpiry:           source.ShowCertExpiry,
 		ShowDomainExpiry:         source.ShowDomainExpiry,
+		MonitorOrder:             source.MonitorOrder,
 		UptimeWindowHours:        source.UptimeWindowHours,
 		CustomCSS:                source.CustomCSS,
 		SubscriptionEnabled:      false,
@@ -177,6 +179,9 @@ func statusPageClone(source *models.StatusPage, title, slug string) *models.Stat
 // statusPageCloneItems renders the selection rows of the copy: the same monitors, in
 // the same order, with the overrides of the page (display name, section and the two
 // switches). The row identity and the link to the source page stay behind.
+//
+// The ORDER-ONLY flag travels too: such a row only carries the manual position of a
+// group member, and marking it explicit in the copy would publish that monitor twice.
 func statusPageCloneItems(rows []models.StatusPageMonitor) []models.StatusPageMonitor {
 	items := make([]models.StatusPageMonitor, 0, len(rows))
 	for _, row := range rows {
@@ -187,11 +192,45 @@ func statusPageCloneItems(rows []models.StatusPageMonitor) []models.StatusPageMo
 			MonitorID:   row.MonitorID,
 			DisplayName: row.DisplayName,
 			GroupName:   row.GroupName,
+			OrderOnly:   row.OrderOnly,
 			ShowUptime:  row.ShowUptime,
 			ShowChart:   row.ShowChart,
 		})
 	}
 	return items
+}
+
+// statusPageClonePositions renders the manual order of the copy from the rows of the
+// source (see StatusPageService.SetOrder).
+//
+// The sort_order of a row is already section relative — the explicit monitors are
+// 0..N-1, a group section 0..M-1 — so the copy can take it verbatim; only the
+// selection rows are renumbered, because writing them reallocates their positions from
+// the order of the slice. An ORDER-ONLY row only matters when its group travels, so it
+// is dropped with the group, and the explicit positions are dropped with the selection.
+// The result is nil when nothing of the order travels, which skips the write entirely.
+func statusPageClonePositions(rows []models.StatusPageMonitor, copyMonitors, copyGroups bool) map[uint]int {
+	positions := make(map[uint]int, len(rows))
+	explicit := 0
+	for _, row := range rows {
+		if row.MonitorID == 0 {
+			continue
+		}
+		if row.OrderOnly {
+			if copyGroups {
+				positions[row.MonitorID] = row.SortOrder
+			}
+			continue
+		}
+		if copyMonitors {
+			positions[row.MonitorID] = explicit
+			explicit++
+		}
+	}
+	if len(positions) == 0 {
+		return nil
+	}
+	return positions
 }
 
 // statusPageCloneGroupLinks renders the group links of the copy: the same groups, in

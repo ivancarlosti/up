@@ -182,6 +182,16 @@ npm run smoke -- --url https://up.example.com   # against a running instance
 > page**, while the row of the admin status pages table opens the dialog that
 > lists the group and publishes a third monitor picked in its search box.
 >
+> `npm run e2e:status-page-order` covers the page order: it creates three
+> monitors, a group with two of them and a page with the third one plus that group,
+> opens the real dialog, moves a group member up with the arrow of the **Page order**
+> panel, saves, and then checks that the row landed in the database as an
+> *order-only* row at the position the panel showed and that the public page renders
+> the block in that order. It also proves the two halves the server owns:
+> `alphabetical` sorts the block by name while the manual positions survive,
+> switching back to `manual` restores them, and an id that is not on the page is
+> refused with `400`.
+>
 > `npm run e2e:templates` drives the templates page and both bulk flows: create a
 > template, add two monitors by pasting `name,url` in the bulk dialog (with a row
 > interval override), preview the bulk edit and apply it, checking that the
