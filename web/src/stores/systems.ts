@@ -172,6 +172,30 @@ export const useSystemStore = defineStore('systems', () => {
     }
   }
 
+  /** resetAlerts restores the global default rules on one machine. */
+  async function resetAlerts(id: number): Promise<SystemAlerts> {
+    saving.value = true
+    try {
+      const view = await api.resetSystemAlerts(id)
+      await load({ silent: true })
+      return view
+    } finally {
+      saving.value = false
+    }
+  }
+
+  /** copyAlerts copies the rules of another machine onto one machine. */
+  async function copyAlerts(id: number, sourceId: number): Promise<SystemAlerts> {
+    saving.value = true
+    try {
+      const view = await api.copySystemAlerts(id, sourceId)
+      await load({ silent: true })
+      return view
+    } finally {
+      saving.value = false
+    }
+  }
+
   /** create stores a machine and answers with its one time token. */
   async function create(payload: SystemPayload): Promise<System> {
     saving.value = true
@@ -274,6 +298,8 @@ export const useSystemStore = defineStore('systems', () => {
     history,
     alerts,
     saveAlerts,
+    resetAlerts,
+    copyAlerts,
     create,
     update,
     remove,

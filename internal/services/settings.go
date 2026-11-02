@@ -8,6 +8,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -588,4 +589,34 @@ func (s *SettingService) SystemRetentionDays() int {
 // SetSystemRetentionDays stores the hardware history retention policy.
 func (s *SettingService) SetSystemRetentionDays(ctx context.Context, days int) error {
 	return s.Set(ctx, models.SettingSystemRetentionDays, strconv.Itoa(models.NormalizeSystemRetentionDays(days)))
+}
+
+// SystemAlertDefaults is the rule set of the hardware alerts (Admin >
+// Settings): what a new machine starts with and what "reset to defaults"
+// restores.
+//
+// The stored value is a JSON blob of models.SystemAlertDefaults. It is read on
+// every machine reset and on every alert dialog, so it is normalised here: a
+// value written by an older build gains the rules it did not know, and a broken
+// one falls back to the built-in set instead of failing the page.
+func (s *SettingService) SystemAlertDefaults() models.SystemAlertDefaults {
+	value, ok := s.Get(models.SettingSystemAlertDefaults)
+	if !ok || strings.TrimSpace(value) == "" {
+		return models.DefaultSystemAlertDefaults()
+	}
+	var stored models.SystemAlertDefaults
+	if err := json.Unmarshal([]byte(value), &stored); err != nil {
+		return models.DefaultSystemAlertDefaults()
+	}
+	return models.NormalizeSystemAlertDefaults(stored)
+}
+
+// SetSystemAlertDefaults stores the global rule set of the hardware alerts.
+func (s *SettingService) SetSystemAlertDefaults(ctx context.Context, defaults models.SystemAlertDefaults) error {
+	normalized := models.NormalizeSystemAlertDefaults(defaults)
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return ErrInternal(fmt.Errorf("encoding the alert defaults: %w", err))
+	}
+	return s.Set(ctx, models.SettingSystemAlertDefaults, string(encoded))
 }

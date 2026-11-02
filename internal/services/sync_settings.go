@@ -30,6 +30,10 @@ var settingsWhitelist = []string{
 	// The hardware history window follows the same rule: two nodes of one
 	// cluster must not keep a different amount of it.
 	models.SettingSystemRetentionDays,
+	// The alert defaults are the rules a new machine starts with and the ones a
+	// reset restores: two nodes of one cluster must reset a machine to the same
+	// rules, otherwise a failover would change what the operator sees.
+	models.SettingSystemAlertDefaults,
 }
 
 // ServeSettings answers GET /api/cluster/sync/settings.

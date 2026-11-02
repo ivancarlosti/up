@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Save, Trash2 } from 'lucide-vue-next'
+import { Save, RotateCcw, Trash2 } from 'lucide-vue-next'
 import Alert from '@/components/ui/Alert.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -11,13 +11,16 @@ import Label from '@/components/ui/Label.vue'
 import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
 import LighthouseJobCard from '@/components/lighthouse/LighthouseJobCard.vue'
+import SystemAlertRules from '@/components/systems/SystemAlertRules.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/format'
+import { ruleFormOf, rulePayloadOf, type AlertRuleForm } from '@/lib/system-alert-form'
 import { uptimeWindowOptions } from '@/lib/uptime-window'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
 import type { AdminSettings, ExpirySettings, HeartbeatRetentionStats, RecaptchaSettings } from '@/lib/types'
+import type { SystemAlertSpec } from '@/lib/types-systems'
 
 const { t, locale } = useI18n()
 const toast = useToastStore()
@@ -38,6 +41,14 @@ const form = ref({
 const saving = ref(false)
 const purgeOpen = ref(false)
 const purging = ref(false)
+
+// --- Hardware alert defaults ------------------------------------------------
+// The rule set a new machine starts with, and the one the "reset to defaults"
+// button of a machine restores. It is a global setting (it travels with the
+// synchronised cluster settings) and it is edited with the same component the
+// alerts dialog uses, so the two can never describe a rule differently.
+const alertSpecs = ref<SystemAlertSpec[]>([])
+const alertDefaults = ref<AlertRuleForm[]>([])
 
 // --- Login protection (Google reCAPTCHA v3) --------------------------------
 // The keys used to come from RECAPTCHA_CLIENTID / RECAPTCHA_CLIENTSECRET; they
@@ -174,6 +185,8 @@ async function load(): Promise<void> {
     retention.value = stats
     expiryForm.value = { ...expiry.settings }
     captcha.value = { ...captchaSettings }
+    alertSpecs.value = adminSettings.system_alert_specs ?? []
+    alertDefaults.value = (adminSettings.system_alert_defaults?.rules ?? []).map(ruleFormOf)
     form.value = {
       default_locale: adminSettings.default_locale,
       default_theme: adminSettings.default_theme,
@@ -192,7 +205,12 @@ async function load(): Promise<void> {
 async function save(): Promise<void> {
   saving.value = true
   try {
-    await api.updateAdminSettings(form.value)
+    await api.updateAdminSettings({
+      ...form.value,
+      // The alert defaults are part of the same save: the card below the
+      // retention one edits them, and the API stores the whole set at once.
+      system_alert_defaults: { rules: alertDefaults.value.map(rulePayloadOf) },
+    })
     toast.success(t('common.saved'))
     await Promise.all([app.bootstrap(), load()])
   } catch (error) {
@@ -200,6 +218,23 @@ async function save(): Promise<void> {
   } finally {
     saving.value = false
   }
+}
+
+/**
+ * restoreBuiltinAlerts puts the built-in values back in the form.
+ *
+ * It does not save by itself: the card belongs to the page, so the values are
+ * stored by the same button as everything else (and can still be discarded).
+ */
+function restoreBuiltinAlerts(): void {
+  alertDefaults.value = alertSpecs.value.map((spec) =>
+    ruleFormOf({
+      metric: spec.metric,
+      enabled: spec.default_enabled,
+      threshold: spec.default_threshold,
+      min_minutes: spec.default_minutes,
+    }),
+  )
 }
 
 /** saveExpiry stores the certificate/domain job configuration. */
@@ -426,6 +461,24 @@ onMounted(load)
         <Button variant="outline" size="sm" @click="purgeOpen = true">
           <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
           {{ t('settings.purgeNow') }}
+        </Button>
+      </template>
+    </Card>
+
+    <!-- The defaults every machine starts with, and the ones a reset restores.
+         They are a global setting, so they are edited here and not per machine. -->
+    <Card :title="t('settings.systemAlertDefaults')" :description="t('settings.systemAlertDefaultsHelp')">
+      <p v-if="!alertSpecs.length" class="text-xs text-muted-foreground">{{ t('common.loading') }}</p>
+      <SystemAlertRules v-else :rules="alertDefaults" :specs="alertSpecs" />
+
+      <template #footer>
+        <Button size="sm" :loading="saving" @click="save">
+          <Save class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('common.save') }}
+        </Button>
+        <Button variant="outline" size="sm" :disabled="!alertSpecs.length" @click="restoreBuiltinAlerts">
+          <RotateCcw class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('settings.systemAlertDefaultsRestore') }}
         </Button>
       </template>
     </Card>

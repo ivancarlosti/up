@@ -42,6 +42,11 @@ export const systemsApi = {
   systemAlerts: (id: number) => get<SystemAlerts>(`/api/systems/${id}/alerts`),
   saveSystemAlerts: (id: number, payload: SystemAlertsPayload) =>
     put<SystemAlerts>(`/api/systems/${id}/alerts`, payload),
+  /** resetSystemAlerts restores the global default rules on one machine. */
+  resetSystemAlerts: (id: number) => post<SystemAlerts>(`/api/systems/${id}/alerts/reset`),
+  /** copySystemAlerts copies the rules of another machine onto this one. */
+  copySystemAlerts: (id: number, sourceId: number) =>
+    post<SystemAlerts>(`/api/systems/${id}/alerts/copy`, { source_id: sourceId }),
   /** agentKey is the KEY value the agent must be started with. */
   agentKey: () => get<AgentKeyInfo>('/api/systems/agent-key'),
   containers: (id: number) => get<SystemContainer[]>(`/api/systems/${id}/containers`),

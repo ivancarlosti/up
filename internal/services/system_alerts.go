@@ -68,6 +68,24 @@ type SystemAlertsView struct {
 	SystemID uint                        `json:"system_id"`
 	Rules    []models.SystemAlertRule    `json:"rules"`
 	Channels []models.SystemNotification `json:"channels"`
+	// Specs is the catalogue of the rules (unit, domain, built-in defaults), so
+	// the dialog is built from the server instead of keeping a second copy of
+	// the table in the bundle.
+	Specs []models.SystemAlertSpec `json:"specs"`
+	// Defaults are the rules a reset restores (the global setting).
+	Defaults models.SystemAlertDefaults `json:"defaults"`
+}
+
+// defaults returns the global rule set of the installation: what a machine
+// starts with and what ResetToDefaults restores.
+//
+// It is the Admin > Settings value when the settings service is wired, and the
+// built-in set otherwise (the alerts are used by the tests without one).
+func (s *SystemAlertService) defaults() models.SystemAlertDefaults {
+	if s.systems != nil && s.systems.settings != nil {
+		return s.systems.settings.SystemAlertDefaults()
+	}
+	return models.DefaultSystemAlertDefaults()
 }
 
 // Rules returns the alert rules of a machine, with their latch, in the display
@@ -88,25 +106,46 @@ func (s *SystemAlertService) storedRules(ctx context.Context, db *gorm.DB, syste
 	if err := db.WithContext(ctx).Where("system_id = ?", systemID).Find(&rows).Error; err != nil {
 		return nil, ErrInternal(fmt.Errorf("reading the alert rules of system %d: %w", systemID, err))
 	}
-	return orderSystemAlertRules(rows), nil
+	return s.orderRules(rows), nil
 }
 
-// orderSystemAlertRules sorts the stored rows into the display order and fills
-// the rules a machine has no row for with their defaults, so a caller always
+// orderRules sorts the stored rows into the catalogue order and fills the rules
+// a machine has no row for with the configured default, so a caller always
 // receives the full set.
-func orderSystemAlertRules(rows []models.SystemAlert) []models.SystemAlertRule {
+//
+// The defaults, not the built-in values, are the fallback: a machine that was
+// created before a rule existed shows the threshold the operator configured in
+// Admin > Settings, which is what the sweep writes for it anyway.
+func (s *SystemAlertService) orderRules(rows []models.SystemAlert) []models.SystemAlertRule {
+	return orderSystemAlertRules(rows, s.defaults().Rules)
+}
+
+// orderSystemAlertRules sorts the stored rows into the catalogue order and fills
+// the rules a machine has no row for with the given defaults.
+//
+// The defaults, not the built-in values, are the fallback: a machine that was
+// created before a rule existed shows the threshold the operator configured in
+// Admin > Settings, which is what the sweep writes for it anyway.
+func orderSystemAlertRules(rows []models.SystemAlert, defaults []models.SystemAlertRule) []models.SystemAlertRule {
 	byMetric := make(map[models.SystemAlertMetric]models.SystemAlert, len(rows))
 	for _, row := range rows {
 		byMetric[row.Metric] = row
 	}
+	defaultByMetric := make(map[models.SystemAlertMetric]models.SystemAlertRule, len(defaults))
+	for _, rule := range defaults {
+		defaultByMetric[rule.Metric] = rule
+	}
 	out := make([]models.SystemAlertRule, 0, len(models.AllSystemAlertMetrics))
 	for _, metric := range models.AllSystemAlertMetrics {
-		row, ok := byMetric[metric]
-		if !ok {
-			out = append(out, models.DefaultSystemAlert(metric))
+		if row, ok := byMetric[metric]; ok {
+			out = append(out, models.SystemAlertRuleOf(row))
 			continue
 		}
-		out = append(out, models.SystemAlertRuleOf(row))
+		if rule, ok := defaultByMetric[metric]; ok {
+			out = append(out, rule)
+			continue
+		}
+		out = append(out, models.DefaultSystemAlert(metric))
 	}
 	return out
 }
@@ -126,8 +165,11 @@ func (s *SystemAlertService) States(ctx context.Context, systemIDs []uint) (map[
 	for _, row := range rows {
 		grouped[row.SystemID] = append(grouped[row.SystemID], row)
 	}
+	// The defaults are read once for the whole page: the JSON blob behind them
+	// is a setting, not a per row lookup.
+	defaults := s.defaults().Rules
 	for _, id := range systemIDs {
-		out[id] = orderSystemAlertRules(grouped[id])
+		out[id] = orderSystemAlertRules(grouped[id], defaults)
 	}
 	return out, nil
 }
@@ -136,7 +178,7 @@ func (s *SystemAlertService) States(ctx context.Context, systemIDs []uint) (map[
 // existing rule (with its latch) is left untouched. It is idempotent and runs
 // inside the caller's transaction.
 func (s *SystemAlertService) EnsureDefaults(ctx context.Context, tx *gorm.DB, systemID uint) error {
-	for _, rule := range models.DefaultSystemAlerts() {
+	for _, rule := range s.defaults().Rules {
 		row := models.SystemAlert{
 			SystemID:   systemID,
 			Metric:     rule.Metric,
@@ -182,14 +224,7 @@ func (s *SystemAlertService) Save(ctx context.Context, systemID uint, input Syst
 		}
 		// One revision for the whole save: the rules travel inside the system
 		// payload, so bumping it is what tells a peer to read them again.
-		if err := tx.WithContext(ctx).Model(&models.System{}).Where("id = ?", systemID).
-			Updates(map[string]any{
-				"revision":   gorm.Expr("revision + 1"),
-				"updated_at": now,
-			}).Error; err != nil {
-			return fmt.Errorf("bumping the revision of system %d: %w", systemID, err)
-		}
-		if err := s.systems.emit(ctx, tx, systemID); err != nil {
+		if err := s.touch(ctx, tx, systemID, now); err != nil {
 			return err
 		}
 		return s.emitLinks(ctx, tx, systemID, before, channels)
@@ -198,6 +233,106 @@ func (s *SystemAlertService) Save(ctx context.Context, systemID uint, input Syst
 	}
 	s.publish("system.alerts", map[string]any{"id": systemID})
 	return s.View(ctx, systemID)
+}
+
+// ResetToDefaults puts the global default rules back on one machine.
+//
+// It is Save without the channels: the links the operator chose are kept (a
+// reset changes how the machine is watched, not who is told). The latch is left
+// alone on purpose - the next evaluation releases whatever the new rules no
+// longer satisfy, and that release is what sends the matching recovery mail: a
+// silent clear would drop the notification of a real recovery.
+func (s *SystemAlertService) ResetToDefaults(ctx context.Context, systemID uint) (*SystemAlertsView, error) {
+	if s.systems == nil {
+		return nil, ErrInternal(fmt.Errorf("the alert service is not wired to the system service"))
+	}
+	if _, err := s.systems.find(ctx, systemID); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, rule := range s.defaults().Rules {
+			row := models.SystemAlert{
+				SystemID:   systemID,
+				Metric:     rule.Metric,
+				Enabled:    rule.Enabled,
+				Threshold:  rule.Threshold,
+				MinMinutes: rule.MinMinutes,
+				UpdatedAt:  now,
+			}
+			// The configuration columns only: the latch is not part of the
+			// rules being reset (see the comment above).
+			if err := tx.WithContext(ctx).Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "system_id"}, {Name: "metric"}},
+				DoUpdates: clause.Assignments(map[string]any{
+					"enabled":     rule.Enabled,
+					"threshold":   rule.Threshold,
+					"min_minutes": rule.MinMinutes,
+					"updated_at":  now,
+				}),
+			}).Create(&row).Error; err != nil {
+				return fmt.Errorf("resetting the %s rule of system %d: %w", rule.Metric, systemID, err)
+			}
+		}
+		return s.touch(ctx, tx, systemID, now)
+	}); err != nil {
+		return nil, AsAPIError(err)
+	}
+	s.publish("system.alerts", map[string]any{"id": systemID})
+	return s.View(ctx, systemID)
+}
+
+// CopyFrom copies the rules of another machine onto one machine.
+//
+// The source is read with its stored rules (and the default for a rule it has no
+// row for), so a copy is complete even when the source itself was never opened
+// in the dialog. The channels of the target are untouched: copying a machine's
+// thresholds must not silently subscribe it to somebody else's mail. As in a
+// reset, the local latch is the target's own observation and stays.
+func (s *SystemAlertService) CopyFrom(ctx context.Context, systemID, sourceID uint) (*SystemAlertsView, error) {
+	if s.systems == nil {
+		return nil, ErrInternal(fmt.Errorf("the alert service is not wired to the system service"))
+	}
+	if sourceID == 0 {
+		return nil, ErrBadRequest(i18n.CodeValidation, "source_id is required")
+	}
+	if sourceID == systemID {
+		return nil, ErrBadRequest(i18n.CodeValidation, "a machine cannot copy its own alert rules")
+	}
+	if _, err := s.systems.find(ctx, systemID); err != nil {
+		return nil, err
+	}
+	if _, err := s.systems.find(ctx, sourceID); err != nil {
+		return nil, err
+	}
+	source, err := s.storedRules(ctx, s.db, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.saveRules(ctx, tx, systemID, source, now); err != nil {
+			return err
+		}
+		return s.touch(ctx, tx, systemID, now)
+	}); err != nil {
+		return nil, AsAPIError(err)
+	}
+	s.publish("system.alerts", map[string]any{"id": systemID})
+	return s.View(ctx, systemID)
+}
+
+// touch bumps the revision of the system and publishes it, which is what tells a
+// peer to read the rules again.
+func (s *SystemAlertService) touch(ctx context.Context, tx *gorm.DB, systemID uint, now time.Time) error {
+	if err := tx.WithContext(ctx).Model(&models.System{}).Where("id = ?", systemID).
+		Updates(map[string]any{
+			"revision":   gorm.Expr("revision + 1"),
+			"updated_at": now,
+		}).Error; err != nil {
+		return fmt.Errorf("bumping the revision of system %d: %w", systemID, err)
+	}
+	return s.systems.emit(ctx, tx, systemID)
 }
 
 // View returns the whole alert configuration of one machine.
@@ -217,7 +352,13 @@ func (s *SystemAlertService) View(ctx context.Context, systemID uint) (*SystemAl
 	if err != nil {
 		return nil, err
 	}
-	return &SystemAlertsView{SystemID: systemID, Rules: rules, Channels: links}, nil
+	return &SystemAlertsView{
+		SystemID: systemID,
+		Rules:    rules,
+		Channels: links,
+		Specs:    models.AllSystemAlertSpecs(),
+		Defaults: s.defaults(),
+	}, nil
 }
 
 // saveRules upserts the incoming rules of the known metrics.

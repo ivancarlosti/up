@@ -4,6 +4,7 @@
  */
 
 import type { AggregateStatus, FailureStrategy, Header, LighthouseInterval, LighthouseResult, LighthouseRun, LighthouseWeekday, Monitor, NotificationSenderStrategy, NodeStatus, NodeUnavailableStrategy, ThemeMode } from './types'
+import type { SystemAlertDefaults, SystemAlertSpec } from './types-systems'
 
 export interface ClusterSettings {
   id: number
@@ -460,6 +461,13 @@ export interface AdminSettings {
   uptime_window_hours: number
   /** Every window the settings page offers. */
   uptime_windows: number[]
+  /**
+   * The rule set of the hardware alerts: what a new machine starts with and what
+   * "reset to defaults" restores (models.SystemAlertDefaults).
+   */
+  system_alert_defaults: SystemAlertDefaults
+  /** The catalogue of the rules: unit, domain and built-in default of each. */
+  system_alert_specs: SystemAlertSpec[]
 }
 
 /**

@@ -197,6 +197,11 @@ func (h *Container) adminSettings(c *gin.Context) {
 		"default_system_retention_days": models.DefaultSystemRetentionDays,
 		"max_system_retention_days":     models.MaxSystemRetentionDays,
 		"uptime_windows":                models.UptimeWindowHoursAllowed,
+		// The hardware alert defaults: the rule set a reset restores, and the
+		// catalogue that describes every rule (unit, domain, built-in default)
+		// so the form is drawn from the server instead of the bundle.
+		"system_alert_defaults": h.Settings.SystemAlertDefaults(),
+		"system_alert_specs":    models.AllSystemAlertSpecs(),
 	})
 }
 
@@ -218,6 +223,9 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 		UptimeWindowHours      *int `json:"uptime_window_hours"`
 		// SystemRetentionDays is the hardware history window (the agent samples).
 		SystemRetentionDays *int `json:"system_retention_days"`
+		// SystemAlertDefaults is the rule set of the hardware alerts: what a new
+		// machine starts with and what "reset to defaults" restores.
+		SystemAlertDefaults *models.SystemAlertDefaults `json:"system_alert_defaults"`
 	}
 	if !bindJSON(c, &payload) {
 		return
@@ -246,6 +254,12 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 	}
 	if payload.SystemRetentionDays != nil {
 		if err := h.Settings.SetSystemRetentionDays(c.Request.Context(), *payload.SystemRetentionDays); err != nil {
+			api.WriteServiceError(c, err)
+			return
+		}
+	}
+	if payload.SystemAlertDefaults != nil {
+		if err := h.Settings.SetSystemAlertDefaults(c.Request.Context(), *payload.SystemAlertDefaults); err != nil {
 			api.WriteServiceError(c, err)
 			return
 		}

@@ -98,10 +98,10 @@ be restarted with the new value.
 |---|---|---|
 | `systems` | any node (operator edit) | name, host notes, enabled, token hash, fingerprint, identity of the machine, last sample |
 | `system_leases` | the node holding the agent connection | who is talking to the agent, until when |
-| `system_metrics` | the owner node | one row per minute: CPU, memory, swap, root filesystem, network, disk I/O, load, temperature, uptime, container count |
+| `system_metrics` | the owner node | one row per minute: CPU, memory, swap, root filesystem, network, disk I/O, the three load averages, GPU, temperature, uptime, container count |
 | `system_containers` | the owner node | the latest state of each container (a mirror of the last sample) |
 | `system_container_metrics` | the owner node | one row per running container per minute |
-| `system_smart` | the owner node | the last SMART report, as the agent sent it (JSON) |
+| `system_smart` | the owner node | the last SMART report, as the agent sent it (JSON), plus `failed`: how many disks it classified as failing |
 | `system_alerts` | any node (operator edit) + the owner node (latch) | one row per machine and metric: `enabled`, `threshold`, `min_minutes`, and the local latch `triggered`/`triggered_at` |
 | `system_notifications` | any node (operator edit) | the channels a machine notifies, with one toggle per event (`on_down`, `on_up`, `on_threshold`, `on_recovered`) |
 
@@ -160,14 +160,34 @@ election uses.
 
 ## 5. Alerts
 
-Every machine has one rule per metric, at the Beszel defaults:
+Every machine has one rule per metric. The catalogue lives in
+`internal/models/system_alert_spec.go` and is served to the UI
+(`SystemAlertsView.Specs`), so the dialog, the API and the evaluator cannot
+disagree about a rule: it describes the unit, the domain of the threshold and
+whether the rule has a window.
 
-| Rule | Default | Fires when |
-|---|---|---|
-| `down` | 5 min | `now - last_sample_at - SystemDownAfter >= min` — the listing already waits three missed polls (3 min), so the rule adds its own patience on top of that grace |
-| `cpu` | 80 %, 5 min | the **average** of `[T - min, T]` is at or above the threshold |
-| `memory` | 80 %, 5 min | same, over `mem_pct` |
-| `disk` | 85 %, 5 min | same, over the root filesystem |
+| Rule | Unit | Default | Fires when |
+|---|---|---|---|
+| `down` | — | 5 min | `now - last_sample_at - SystemDownAfter >= min` — the listing already waits three missed polls (3 min), so the rule adds its own patience on top of that grace |
+| `cpu` | % | 80, 5 min | the **average** of `[T - min, T]` is at or above the threshold |
+| `memory` | % | 80, 5 min | same, over `mem_pct` |
+| `swap` | % | 80, 5 min | same, over `swap_pct` |
+| `disk` | % | 85, 5 min | same, over the root filesystem |
+| `load` | load | 10, 5 min | same, over the one minute load average |
+| `load5` | load | 10, 5 min | same, over the five minute load average |
+| `load15` | load | 10, 5 min | same, over the fifteen minute load average |
+| `temperature` | °C | 80, 5 min | same, over the hottest sensor of the sample |
+| `bandwidth` | MB/s | 80, 5 min | same, over `(net_sent + net_recv)` |
+| `gpu` | % | 80, 5 min | same, over `gpu_pct` |
+| `container` | containers | 1 | the number of containers whose health is `unhealthy` reaches the threshold |
+| `smart` | disks | 1 | the number of disks the last SMART report classified as failing reaches the threshold |
+
+The thresholds and ranges are Beszel's (percentages 1–100, temperature 40–100,
+bandwidth 1–250 MB/s, load 0–64). The last two are **state** rules: they count
+rows (the container snapshot, the `system_smart.failed` column) and have no
+window and no warm-up, so they fire the moment the count reaches the threshold
+and recover the moment it drops below. A disk whose status is empty — a USB
+bridge the agent could not read — is **not** counted as failing.
 
 The evaluation is **stateless**: nothing but the latch is remembered between two
 ticks. It runs in two places, and both are idempotent because an edge is dispatched
@@ -178,6 +198,10 @@ only by the caller that wins the latch:
 - `Sweep`, every 30 s on every node (the silent path: a machine that stopped
   reporting produces no sample, so nothing else would ever run; it also releases a
   latch whose samples came back on another node after a failover).
+
+The SMART report is the exception to the "one evaluation per sample" rule: it is
+refreshed on its own slow cadence (`SystemSmartRefresh`, ten minutes), so
+`RefreshSmart` evaluates the `smart` rule right after storing the report.
 
 A window the history does not cover is **not** an alert (the oldest sample of the
 window must be at least 90 % of the window old), and a window with no sample at all
@@ -206,6 +230,39 @@ them (`High CPU`, `High memory`, `High disk` compare the latest sample with the
 threshold of the **enabled** rule, `Alerting` counts the machines with a firing
 latch), and the rows are the machines themselves.
 
+### Defaults, copy and reset
+
+The rule set a machine starts with is a **global setting**
+(`system_alert_defaults`, Admin > Settings, "Hardware alert defaults"), not a
+constant: the built-in values above are only the fallback of the setting and the
+seed of a fresh installation. Two consequences worth knowing:
+
+- it travels with the cluster synchronised settings, so every node resets a
+  machine to the same rules and a failover never changes what the operator
+  configured;
+- a rule added by a new build reaches an existing machine through the sweep
+  (`ensureAllRules`), which fills the `(system, metric)` pairs the machine has no
+  row for with the configured default and never touches a row that exists: an
+  edited threshold, a disabled rule and a latch all survive the upgrade.
+
+Per machine, the alerts dialog offers two shortcuts:
+
+| Action | Endpoint | Effect |
+|---|---|---|
+| Copy from another monitor | `POST /api/systems/:id/alerts/copy` (`{"source_id": n}`) | every rule of the source (its stored ones, the default for those it never had) is written on the target and the target's revision is bumped; the channels of the target are **kept**, and so is its latch |
+| Reset to defaults | `POST /api/systems/:id/alerts/reset` | every rule of the global default set is written on the machine; the channels are kept |
+
+Neither clears the latch: the next evaluation releases whatever the new rules no
+longer satisfy, and that release is what sends the recovery notification — a
+silent clear would drop the mail of a real recovery. The one exception is the
+`down` rule switched off: the sweep clears that latch silently, because a machine
+we stopped watching did not "come back up".
+
+Not implemented yet (each needs a new ingest column or a different evaluator
+shape): battery, failed systemd units, ZFS pool health, CPU iowait/steal, and the
+probe side rules (loss, latency, certificate). The catalogue is the extension
+point for all of them.
+
 ## 6. HTTP API
 
 The dashboard routes are session authenticated (`registerAdmin`); the agent route
@@ -220,8 +277,10 @@ is not (the agent has no session).
 | GET/PUT/DELETE | `/api/systems/:id` | read, edit, delete (the delete removes the history) |
 | POST | `/api/systems/:id/token` | rotate the agent token (answers with the new one) |
 | GET | `/api/systems/:id/history?hours=` | the detail page: row + charts + containers + SMART |
-| GET | `/api/systems/:id/alerts` | the alert rules of the machine and its channel links |
+| GET | `/api/systems/:id/alerts` | the alert rules of the machine, its channel links, the catalogue (`specs`) and the global defaults |
 | PUT | `/api/systems/:id/alerts` | save the rules and the links (one revision, published to the peers) |
+| POST | `/api/systems/:id/alerts/copy` | copy the rules of `{"source_id": n}` onto the machine (links kept) |
+| POST | `/api/systems/:id/alerts/reset` | restore the global default rules on the machine (links kept) |
 | GET | `/api/systems/:id/metrics?hours=` | only the charts |
 | GET | `/api/systems/:id/containers` | the containers of the machine |
 | GET | `/api/systems/:id/containers/:name/metrics?hours=` | one container's history |

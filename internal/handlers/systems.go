@@ -296,6 +296,50 @@ func (h *Container) updateSystemAlerts(c *gin.Context) {
 	api.OK(c, view)
 }
 
+// resetSystemAlerts restores the global default rules on one machine.
+//
+// The channel links are untouched (a reset changes how the machine is watched,
+// not who is told) and the answer is the whole view, so the dialog can redraw
+// itself without a second round trip.
+func (h *Container) resetSystemAlerts(c *gin.Context) {
+	if !h.requireSystemAlerts(c) {
+		return
+	}
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	view, err := h.Systems.Alerts().ResetToDefaults(c.Request.Context(), id)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, view)
+}
+
+// copySystemAlerts copies the rules of another machine onto one machine.
+func (h *Container) copySystemAlerts(c *gin.Context) {
+	if !h.requireSystemAlerts(c) {
+		return
+	}
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		SourceID uint `json:"source_id"`
+	}
+	if !bindJSON(c, &payload) {
+		return
+	}
+	view, err := h.Systems.Alerts().CopyFrom(c.Request.Context(), id, payload.SourceID)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, view)
+}
+
 // refreshSystemSmart asks the owner of an agent for a fresh SMART report.
 func (h *Container) refreshSystemSmart(c *gin.Context) {
 	if !h.requireSystems(c) {

@@ -15,19 +15,25 @@ type SystemMetric struct {
 	// system so the range scan of a chart is one index range.
 	CreatedAt time.Time `gorm:"index:idx_system_metrics_lookup,priority:2" json:"created_at"`
 
-	CPU         float64 `json:"cpu"`
-	MemPct      float64 `json:"mem_pct"`
-	MemUsed     uint64  `json:"mem_used"`
-	MemTotal    uint64  `json:"mem_total"`
-	SwapPct     float64 `json:"swap_pct"`
-	DiskPct     float64 `json:"disk_pct"`
-	DiskUsed    uint64  `json:"disk_used"`
-	DiskTotal   uint64  `json:"disk_total"`
-	NetSent     uint64  `json:"net_sent"`
-	NetRecv     uint64  `json:"net_recv"`
-	DiskRead    uint64  `json:"disk_read"`
-	DiskWrite   uint64  `json:"disk_write"`
-	LoadAvg     float64 `json:"load_avg"`
+	CPU       float64 `json:"cpu"`
+	MemPct    float64 `json:"mem_pct"`
+	MemUsed   uint64  `json:"mem_used"`
+	MemTotal  uint64  `json:"mem_total"`
+	SwapPct   float64 `json:"swap_pct"`
+	DiskPct   float64 `json:"disk_pct"`
+	DiskUsed  uint64  `json:"disk_used"`
+	DiskTotal uint64  `json:"disk_total"`
+	NetSent   uint64  `json:"net_sent"`
+	NetRecv   uint64  `json:"net_recv"`
+	DiskRead  uint64  `json:"disk_read"`
+	DiskWrite uint64  `json:"disk_write"`
+	LoadAvg   float64 `json:"load_avg"`
+	// LoadAvg5 and LoadAvg15 are the five and fifteen minute load averages the
+	// agent reports; LoadAvg is the one minute figure.
+	LoadAvg5  float64 `json:"load_avg5"`
+	LoadAvg15 float64 `json:"load_avg15"`
+	// GpuPct is the GPU utilisation the agent reports (0 when it has none).
+	GpuPct      float64 `json:"gpu_pct"`
 	Temperature float64 `json:"temperature"`
 	Uptime      uint64  `json:"uptime"`
 	Containers  int     `json:"containers"`
@@ -94,7 +100,11 @@ type SystemSmart struct {
 	ID       uint `gorm:"primaryKey" json:"-"`
 	SystemID uint `gorm:"not null;uniqueIndex" json:"system_id"`
 	// Disks is a JSON object keyed by device name (beszel.SmartReport).
-	Disks       string    `gorm:"type:longtext" json:"-"`
+	Disks string `gorm:"type:longtext" json:"-"`
+	// Failed is how many disks of that report did not report a healthy status.
+	// It is denormalised on purpose: the `smart` alert counts it without parsing
+	// the blob, and the S.M.A.R.T. API reports it without either.
+	Failed      int       `gorm:"not null;default:0" json:"failed"`
 	Complete    bool      `json:"complete"`
 	CollectedAt time.Time `json:"collected_at"`
 	UpdatedAt   time.Time `json:"-"`

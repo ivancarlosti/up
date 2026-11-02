@@ -63,3 +63,28 @@ func TestSmartReportJSONKeys(t *testing.T) {
 		t.Fatalf("the disk object lost its model_name: %s", encoded)
 	}
 }
+
+// TestSmartDiskHealthy pins what the `smart` alert counts: only a positive bad
+// verdict, never the silence of a disk the agent could not read.
+func TestSmartDiskHealthy(t *testing.T) {
+	cases := map[string]bool{
+		"":          true,
+		"  ":        true,
+		"PASSED":    true,
+		"passed":    true,
+		" OK ":      true,
+		"GOOD":      true,
+		"FAILED!":   false,
+		"failed":    false,
+		"bad":       false,
+		"Failing":   false,
+		"UNKNOWN!":  false,
+		"Critical":  false,
+		"Attention": false,
+	}
+	for status, want := range cases {
+		if got := SmartDiskHealthy(status); got != want {
+			t.Errorf("SmartDiskHealthy(%q) = %v, want %v", status, got, want)
+		}
+	}
+}

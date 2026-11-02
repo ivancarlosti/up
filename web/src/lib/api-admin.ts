@@ -32,6 +32,7 @@ import type {
   WhoisParsersResetResult,
   WhoisTestResult,
 } from './types'
+import type { SystemAlertDefaults } from './types-systems'
 
 /** Admin API client: status pages, cluster, runtime settings and security. */
 export const adminApi = {
@@ -87,6 +88,8 @@ export const adminApi = {
     app_name?: string
     heartbeat_retention_days?: number
     uptime_window_hours?: number
+    /** The rule set a new machine starts with (Admin > Settings). */
+    system_alert_defaults?: SystemAlertDefaults
   }) =>
     put<void>('/api/admin/settings', payload),
 

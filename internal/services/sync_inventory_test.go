@@ -216,8 +216,9 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		// The latch is the OBSERVATION of the node that held the agent connection,
 		// not configuration: claiming or releasing it is deliberately not published,
 		// and a peer must never inherit an incident it did not see.
-		"Claim":   "writes the local latch, which never travels",
-		"Release": "writes the local latch, which never travels",
+		"Claim":      "writes the local latch, which never travels",
+		"Release":    "writes the local latch, which never travels",
+		"clearLatch": "writes the local latch, which never travels",
 		// The apply path of the two tables (no echo, like every write* above).
 		"writeSystemAlerts": "apply path (no echo)",
 	}

@@ -97,9 +97,21 @@ func TestSystemAlertsLive(t *testing.T) {
 		t.Fatalf("got %d rules, want %d", len(view.Rules), len(models.AllSystemAlertMetrics))
 	}
 	for _, rule := range view.Rules {
-		if !rule.Enabled || rule.MinMinutes != models.DefaultSystemAlertMinutes {
+		spec, ok := models.SystemAlertSpecOf(rule.Metric)
+		if !ok {
+			t.Fatalf("%s is not in the catalogue", rule.Metric)
+		}
+		if rule.Enabled != spec.DefaultEnabled || rule.MinMinutes != spec.DefaultMinutes || rule.Threshold != spec.DefaultThreshold {
 			t.Errorf("%s default = %+v", rule.Metric, rule)
 		}
+	}
+	// The view carries the catalogue and the defaults the reset restores, so the
+	// dialog never keeps a second copy of the table.
+	if len(view.Specs) != len(models.AllSystemAlertMetrics) {
+		t.Errorf("the view carries %d specs, want %d", len(view.Specs), len(models.AllSystemAlertMetrics))
+	}
+	if len(view.Defaults.Rules) != len(models.AllSystemAlertMetrics) {
+		t.Errorf("the view carries %d defaults, want %d", len(view.Defaults.Rules), len(models.AllSystemAlertMetrics))
 	}
 
 	// --- a save keeps a rule switched OFF (the default:true trap) ------------
@@ -251,5 +263,69 @@ func TestSystemAlertsLive(t *testing.T) {
 	}
 	if got := taken(); len(got) != 1 {
 		t.Errorf("the target received %v, want the recovery to stay silent (on_recovered off)", got)
+	}
+
+	// --- copying the rules of another machine -------------------------------
+	other := &models.System{
+		UUID: models.NewSystemUUID(), Name: "zz-verify-source-" + suffix,
+		Enabled: true, TokenHash: "hash-source-" + suffix, Revision: 1,
+	}
+	if err := tx.Create(other).Error; err != nil {
+		t.Fatalf("creating the source system: %v", err)
+	}
+	if _, err := alerts.Save(ctx, other.ID, SystemAlertsInput{Rules: []models.SystemAlertRule{
+		{Metric: models.SystemAlertDisk, Enabled: true, Threshold: 55, MinMinutes: 2},
+		{Metric: models.SystemAlertContainer, Enabled: true, Threshold: 3},
+	}}); err != nil {
+		t.Fatalf("saving the source rules: %v", err)
+	}
+	copied, err := alerts.CopyFrom(ctx, system.ID, other.ID)
+	if err != nil {
+		t.Fatalf("copying the rules: %v", err)
+	}
+	byMetric = map[models.SystemAlertMetric]models.SystemAlertRule{}
+	for _, rule := range copied.Rules {
+		byMetric[rule.Metric] = rule
+	}
+	if disk := byMetric[models.SystemAlertDisk]; !disk.Enabled || disk.Threshold != 55 || disk.MinMinutes != 2 {
+		t.Errorf("the disk rule was not copied: %+v", disk)
+	}
+	// A state rule has no window, whatever the source stored.
+	if container := byMetric[models.SystemAlertContainer]; container.Threshold != 3 || container.MinMinutes != 0 {
+		t.Errorf("the container rule was not copied: %+v", container)
+	}
+	// A rule the source never configured arrives at its default, not missing.
+	if memory := byMetric[models.SystemAlertMemory]; !memory.Enabled || memory.Threshold != models.DefaultSystemAlertThreshold {
+		t.Errorf("the memory rule did not fall back to the default: %+v", memory)
+	}
+	if _, err := alerts.CopyFrom(ctx, system.ID, system.ID); err == nil {
+		t.Error("a machine copied its own rules")
+	}
+	if _, err := alerts.CopyFrom(ctx, system.ID, 0); err == nil {
+		t.Error("a copy without a source was accepted")
+	}
+
+	// --- resetting to the defaults ------------------------------------------
+	// A firing rule stays firing across the reset: the latch is the observation
+	// of this node, not configuration, and the next evaluation is what releases
+	// it (and sends the recovery).
+	if _, err := alerts.Claim(ctx, system.ID, models.SystemAlertDisk); err != nil {
+		t.Fatalf("claiming the disk rule: %v", err)
+	}
+	reset, err := alerts.ResetToDefaults(ctx, system.ID)
+	if err != nil {
+		t.Fatalf("resetting the rules: %v", err)
+	}
+	for _, rule := range reset.Rules {
+		spec, ok := models.SystemAlertSpecOf(rule.Metric)
+		if !ok {
+			t.Fatalf("%s is not in the catalogue", rule.Metric)
+		}
+		if rule.Enabled != spec.DefaultEnabled || rule.Threshold != spec.DefaultThreshold || rule.MinMinutes != spec.DefaultMinutes {
+			t.Errorf("%s after the reset = %+v", rule.Metric, rule)
+		}
+	}
+	if triggered, err := alerts.Triggered(ctx, system.ID, models.SystemAlertDisk); err != nil || !triggered {
+		t.Errorf("the reset cleared the latch: %v, %v", triggered, err)
 	}
 }

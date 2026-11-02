@@ -125,8 +125,12 @@ func metricFromSample(systemID uint, data *beszel.CombinedData, at time.Time) mo
 	}
 
 	loadAvg := stats.LoadAvg[0]
-	if loadAvg == 0 {
-		loadAvg = info.LoadAvg[0]
+	loadAvg5 := stats.LoadAvg[1]
+	loadAvg15 := stats.LoadAvg[2]
+	if loadAvg == 0 && loadAvg5 == 0 && loadAvg15 == 0 {
+		// The three follow the same source: mixing a one minute figure from
+		// Stats with a fifteen minute one from Info would compare two machines.
+		loadAvg, loadAvg5, loadAvg15 = info.LoadAvg[0], info.LoadAvg[1], info.LoadAvg[2]
 	}
 
 	extra, _ := json.Marshal(map[string]any{
@@ -152,6 +156,9 @@ func metricFromSample(systemID uint, data *beszel.CombinedData, at time.Time) mo
 		DiskRead:    stats.DiskIO[0],
 		DiskWrite:   stats.DiskIO[1],
 		LoadAvg:     loadAvg,
+		LoadAvg5:    loadAvg5,
+		LoadAvg15:   loadAvg15,
+		GpuPct:      info.GpuPct,
 		Temperature: maxTemperature(stats.Temperatures),
 		Uptime:      info.Uptime,
 		Containers:  len(data.Containers),

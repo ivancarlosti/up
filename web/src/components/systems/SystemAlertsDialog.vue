@@ -1,29 +1,36 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { BellRing } from 'lucide-vue-next'
+import { BellRing, Copy, RotateCcw } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Checkbox from '@/components/ui/Checkbox.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
-import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import Switch from '@/components/ui/Switch.vue'
+import SystemAlertRules from '@/components/systems/SystemAlertRules.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
-import type { System, SystemAlertMetric, SystemAlertsPayload } from '@/lib/types-systems'
+import { ruleFormOf, rulePayloadOf, type AlertRuleForm } from '@/lib/system-alert-form'
+import type { Notification } from '@/lib/types-platform'
+import type { System, SystemAlertRuleConfig, SystemAlertSpec, SystemAlerts, SystemAlertsPayload } from '@/lib/types-systems'
 import { useSystemStore } from '@/stores/systems'
 import { useToastStore } from '@/stores/toast'
-import type { Notification } from '@/lib/types-platform'
 
 /**
  * SystemAlertsDialog edits the alert configuration of one machine: the rule of
  * every metric (on/off, threshold, sustained minutes) and the channels it
  * notifies, with one toggle per event.
  *
- * The four toggles are the reason the dialog is wider than a form: a machine has
- * four edges (down, up, threshold, recovered) and an operator who wants the disk
- * warning but not the recovery mail must be able to say so. A channel with no
- * event selected is not linked at all.
+ * The rules themselves are edited by SystemAlertRules, the same component the
+ * Admin > Settings card uses: the catalogue, the units and the defaults all come
+ * from the API, so the dialog never disagrees with the server about what a rule
+ * is.
+ *
+ * Two shortcuts sit above the rules: "copy from another monitor" and "reset to
+ * defaults". Both write immediately (and are confirmed first), because neither
+ * can be undone by cancelling the dialog.
  */
 const props = defineProps<{
   modelValue: boolean
@@ -35,14 +42,6 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const { t } = useI18n()
 const store = useSystemStore()
 const toasts = useToastStore()
-
-/** One rule as the form holds it (the numbers are strings until the save). */
-interface RuleForm {
-  metric: SystemAlertMetric
-  enabled: boolean
-  threshold: string
-  minutes: string
-}
 
 /** One channel of the instance, with its link state. */
 interface ChannelForm {
@@ -56,19 +55,33 @@ interface ChannelForm {
   on_recovered: boolean
 }
 
-const rules = ref<RuleForm[]>([])
+const rules = ref<AlertRuleForm[]>([])
 const channels = ref<ChannelForm[]>([])
+const specs = ref<SystemAlertSpec[]>([])
+const defaults = ref<SystemAlertRuleConfig[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const copying = ref(false)
+const resetting = ref(false)
+const copySource = ref('')
+const copyOpen = ref(false)
+const resetOpen = ref(false)
 
-/** metricLabel is the human name of a rule. */
-function metricLabel(metric: SystemAlertMetric): string {
-  return t(`systems.metric.${metric}`)
-}
+/** sourceOptions are the machines whose rules can be copied onto this one. */
+const sourceOptions = computed(() =>
+  store.systems
+    .filter((system) => system.id !== props.system?.id)
+    .map((system) => ({ value: String(system.id), label: system.name })),
+)
 
-/** numeric reports whether a rule has a percentage (the down rule has none). */
-function numeric(metric: SystemAlertMetric): boolean {
-  return metric !== 'down'
+/** busy tells whether a rule write is in flight (both are immediate). */
+const busy = computed(() => copying.value || resetting.value)
+
+/** applyView replaces the form with what the API answered. */
+function applyView(view: SystemAlerts): void {
+  rules.value = view.rules.map(ruleFormOf)
+  specs.value = view.specs
+  defaults.value = view.defaults.rules
 }
 
 /** load fetches the alert configuration and the channels of the instance. */
@@ -79,12 +92,7 @@ async function load(): Promise<void> {
   error.value = null
   try {
     const [alerts, notifications] = await Promise.all([store.alerts(system.id), api.notifications()])
-    rules.value = alerts.rules.map((rule) => ({
-      metric: rule.metric,
-      enabled: rule.enabled,
-      threshold: String(Math.round(rule.threshold)),
-      minutes: String(rule.min_minutes),
-    }))
+    applyView(alerts)
     const links = new Map(alerts.channels.map((link) => [link.notification_id, link]))
     channels.value = notifications.map((channel: Notification) => {
       const link = links.get(channel.id)
@@ -128,12 +136,7 @@ async function save(): Promise<void> {
   const system = props.system
   if (!system) return
   const payload: SystemAlertsPayload = {
-    rules: rules.value.map((rule) => ({
-      metric: rule.metric,
-      enabled: rule.enabled,
-      threshold: Number(rule.threshold) || 0,
-      min_minutes: Number(rule.minutes) || 0,
-    })),
+    rules: rules.value.map(rulePayloadOf),
     channels: channels.value
       .filter((row) => row.linked && anyEvent(row))
       .map((row) => ({
@@ -153,6 +156,40 @@ async function save(): Promise<void> {
   }
 }
 
+/** copyRules copies the rules of the chosen machine onto this one. */
+async function copyRules(): Promise<void> {
+  const system = props.system
+  const sourceId = Number(copySource.value)
+  if (!system || !sourceId) return
+  copying.value = true
+  try {
+    applyView(await store.copyAlerts(system.id, sourceId))
+    copyOpen.value = false
+    copySource.value = ''
+    toasts.success(t('systems.alertsCopied'))
+  } catch (cause) {
+    toasts.error(t('systems.alertsCopyFailed'), translateError(cause))
+  } finally {
+    copying.value = false
+  }
+}
+
+/** resetRules puts the global defaults back on this machine. */
+async function resetRules(): Promise<void> {
+  const system = props.system
+  if (!system) return
+  resetting.value = true
+  try {
+    applyView(await store.resetAlerts(system.id))
+    resetOpen.value = false
+    toasts.success(t('systems.alertsReset'))
+  } catch (cause) {
+    toasts.error(t('systems.alertsResetFailed'), translateError(cause))
+  } finally {
+    resetting.value = false
+  }
+}
+
 /** close restores nothing: the dialog reloads its state on the next open. */
 function close(): void {
   emit('update:modelValue', false)
@@ -164,13 +201,15 @@ watch(
     if (!open) return
     rules.value = []
     channels.value = []
+    specs.value = []
+    defaults.value = []
+    copySource.value = ''
     void load()
   },
 )
 
 const linkedCount = computed(() => channels.value.filter((row) => row.linked && anyEvent(row)).length)
 </script>
-
 <template>
   <Dialog
     :model-value="modelValue"
@@ -186,49 +225,39 @@ const linkedCount = computed(() => channels.value.filter((row) => row.linked && 
 
       <!-- Rules --------------------------------------------------------- -->
       <section class="space-y-2">
-        <h3 class="text-sm font-semibold">{{ t('systems.alertsRules') }}</h3>
-        <p class="text-xs text-muted-foreground">{{ t('systems.alertsRulesHelp') }}</p>
-        <div class="space-y-2">
-          <div
-            v-for="rule in rules"
-            :key="rule.metric"
-            class="grid items-end gap-2 rounded-md border border-border p-3 sm:grid-cols-[1fr_7rem_9rem]"
-          >
-            <div class="space-y-1">
-              <p class="text-sm font-medium">{{ metricLabel(rule.metric) }}</p>
-              <Switch v-model="rule.enabled">{{ t('systems.alertsEnabled') }}</Switch>
-            </div>
-            <div v-if="numeric(rule.metric)" class="grid gap-1">
-              <label class="text-[11px] text-muted-foreground" :for="`alert-threshold-${rule.metric}`">
-                {{ t('systems.alertsThreshold') }}
-              </label>
-              <Input
-                :id="`alert-threshold-${rule.metric}`"
-                v-model="rule.threshold"
-                type="number"
-                min="1"
-                max="100"
-                :disabled="!rule.enabled"
-              />
-            </div>
-            <div v-else class="text-[11px] text-muted-foreground">
-              {{ t('systems.alertsDownHelp') }}
-            </div>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold">{{ t('systems.alertsRules') }}</h3>
+            <p class="text-xs text-muted-foreground">{{ t('systems.alertsRulesHelp') }}</p>
+          </div>
+          <div class="flex flex-wrap items-end gap-2">
             <div class="grid gap-1">
-              <label class="text-[11px] text-muted-foreground" :for="`alert-minutes-${rule.metric}`">
-                {{ t('systems.alertsMinutes') }}
+              <label class="text-[11px] text-muted-foreground" for="alerts-copy-source">
+                {{ t('systems.alertsCopyFrom') }}
               </label>
-              <Input
-                :id="`alert-minutes-${rule.metric}`"
-                v-model="rule.minutes"
-                type="number"
-                min="1"
-                max="1440"
-                :disabled="!rule.enabled"
+              <Select
+                id="alerts-copy-source"
+                v-model="copySource"
+                class="w-44"
+                :options="sourceOptions"
+                :placeholder="t('systems.alertsCopyPick')"
+                :disabled="busy || !sourceOptions.length"
               />
             </div>
+            <Button variant="outline" size="sm" :disabled="!copySource || busy" :loading="copying" @click="copyRules">
+              <Copy class="h-3.5 w-3.5" aria-hidden="true" />
+              {{ t('systems.alertsCopy') }}
+            </Button>
+            <Button variant="outline" size="sm" :disabled="busy" @click="resetOpen = true">
+              <RotateCcw class="h-3.5 w-3.5" aria-hidden="true" />
+              {{ t('systems.alertsResetAction') }}
+            </Button>
           </div>
         </div>
+        <p class="text-xs text-muted-foreground">{{ t('systems.alertsCopyHelp') }}</p>
+
+        <p v-if="loading && !rules.length" class="text-xs text-muted-foreground">{{ t('common.loading') }}</p>
+        <SystemAlertRules v-else :rules="rules" :specs="specs" :defaults="defaults" :disabled="busy" />
       </section>
 
       <!-- Channels ------------------------------------------------------ -->
@@ -272,11 +301,20 @@ const linkedCount = computed(() => channels.value.filter((row) => row.linked && 
 
     <template #footer>
       <Button variant="ghost" @click="close">{{ t('common.cancel') }}</Button>
-      <Button :loading="store.saving" @click="save">
+      <Button :loading="store.saving" :disabled="busy" @click="save">
         <BellRing class="h-3.5 w-3.5" aria-hidden="true" />
         {{ t('common.save') }}
       </Button>
     </template>
   </Dialog>
-</template>
 
+  <!-- The reset is confirmed: it overwrites every rule of the machine. -->
+  <ConfirmDialog
+    v-model="resetOpen"
+    :title="t('systems.alertsResetTitle')"
+    :description="t('systems.alertsResetWarning')"
+    :confirm-label="t('systems.alertsResetAction')"
+    :loading="resetting"
+    @confirm="resetRules"
+  />
+</template>

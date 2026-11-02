@@ -120,19 +120,34 @@ func (s *SystemService) RefreshSmart(ctx context.Context, systemID uint, fetch f
 		s.log.Warn("could not encode the SMART report", "system_id", systemID, "error", err)
 		return
 	}
+	// The count the `smart` alert watches is denormalised here: a failing disk
+	// must not require parsing the blob on every tick of the sweep.
+	failed := 0
+	for _, disk := range report.Disks {
+		if !beszel.SmartDiskHealthy(disk.Status) {
+			failed++
+		}
+	}
 	row := models.SystemSmart{
 		SystemID:    systemID,
 		Disks:       string(encoded),
+		Failed:      failed,
 		Complete:    report.Complete,
 		CollectedAt: report.At,
 		UpdatedAt:   report.At,
 	}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "system_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"disks", "complete", "collected_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"disks", "failed", "complete", "collected_at", "updated_at"}),
 	}).Create(&row).Error; err != nil {
 		s.log.Warn("could not store the SMART report", "system_id", systemID, "error", err)
 		return
 	}
-	s.publish("system.smart", map[string]any{"id": systemID, "disks": len(report.Disks)})
+	s.publish("system.smart", map[string]any{"id": systemID, "disks": len(report.Disks), "failed": failed})
+	// The report refreshes on its own slow cadence, so the rule is evaluated
+	// right here: waiting for the next sample would delay a failing disk by
+	// minutes (and the sample may belong to another node entirely).
+	if s.alerts != nil {
+		s.alerts.EvaluateMetric(ctx, systemID, models.SystemAlertSmart)
+	}
 }

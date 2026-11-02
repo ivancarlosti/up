@@ -11,18 +11,55 @@ export type SystemStatus = 'up' | 'down' | 'pending'
 /**
  * The metric an alert rule watches (models.SystemAlertMetric).
  *
- * `down` is the silence of the agent; the other three are percentages of the
- * machine averaged over the rule's window.
+ * `down` is the silence of the agent; `container` and `smart` are state rules
+ * that count rows; every other one is a number averaged over the rule's window.
  */
-export type SystemAlertMetric = 'down' | 'cpu' | 'memory' | 'disk'
+export type SystemAlertMetric =
+  | 'down'
+  | 'cpu'
+  | 'memory'
+  | 'swap'
+  | 'disk'
+  | 'load'
+  | 'load5'
+  | 'load15'
+  | 'temperature'
+  | 'bandwidth'
+  | 'gpu'
+  | 'container'
+  | 'smart'
+
+/**
+ * The unit of a rule (models.SystemAlertUnit). `%`, `°C` and `MB/s` are symbols
+ * appended to the number; the others are words the help of the rule shows.
+ */
+export type SystemAlertUnit = '%' | 'load' | '°C' | 'MB/s' | 'containers' | 'disks'
+
+/** One entry of the rule catalogue (models.SystemAlertSpec). */
+export interface SystemAlertSpec {
+  metric: SystemAlertMetric
+  unit: SystemAlertUnit
+  /** Domain of the threshold, straight into the number input. */
+  min: number
+  max: number
+  step: number
+  /** False for `down`: the rule watches an event, not a number. */
+  has_threshold: boolean
+  /** False for the state rules: they have no sustained minutes. */
+  has_window: boolean
+  /** The built-in rule ("restore the built-in values" puts these back). */
+  default_enabled: boolean
+  default_threshold: number
+  default_minutes: number
+}
 
 /** One alert rule of a machine (models.SystemAlertRule). */
 export interface SystemAlertRule {
   metric: SystemAlertMetric
   enabled: boolean
-  /** Percentage a numeric rule fires above; ignored by `down`. */
+  /** The number a numeric rule fires above; ignored by `down`. */
   threshold: number
-  /** How long the condition must hold before the alert fires. */
+  /** How long the condition must hold before the alert fires (0 for the state rules). */
   min_minutes: number
   /** Whether the rule is firing right now (local to the node that evaluated it). */
   triggered: boolean
@@ -39,16 +76,28 @@ export interface SystemAlertChannel {
   on_recovered: boolean
 }
 
+/** The configuration of a rule, without the local latch (what the payloads carry). */
+export type SystemAlertRuleConfig = Omit<SystemAlertRule, 'triggered' | 'triggered_at'>
+
+/** The rule set a reset restores (models.SystemAlertDefaults). */
+export interface SystemAlertDefaults {
+  rules: SystemAlertRuleConfig[]
+}
+
 /** Everything the alert dialog edits (services.SystemAlertsView). */
 export interface SystemAlerts {
   system_id: number
   rules: SystemAlertRule[]
   channels: SystemAlertChannel[]
+  /** The catalogue: unit, domain and defaults of every rule. */
+  specs: SystemAlertSpec[]
+  /** The global defaults, i.e. what "reset to defaults" restores. */
+  defaults: SystemAlertDefaults
 }
 
 /** The body of PUT /api/systems/:id/alerts. */
 export interface SystemAlertsPayload {
-  rules: Pick<SystemAlertRule, 'metric' | 'enabled' | 'threshold' | 'min_minutes'>[]
+  rules: SystemAlertRuleConfig[]
   channels: Omit<SystemAlertChannel, 'system_id'>[]
 }
 
@@ -182,6 +231,8 @@ export interface SmartReport {
   system_id: number
   system_name: string
   disks: Record<string, SmartDisk> | null
+  /** How many disks the report classified as failing (the `smart` alert counts it). */
+  failed: number
   complete: boolean
   collected_at: string
 }

@@ -107,11 +107,15 @@ func (s *SystemService) AllContainers(ctx context.Context) ([]models.ContainerRo
 
 // SmartReport is one system SMART row.
 type SmartReport struct {
-	SystemID    uint            `json:"system_id"`
-	SystemName  string          `json:"system_name"`
-	Disks       json.RawMessage `json:"disks"`
-	Complete    bool            `json:"complete"`
-	CollectedAt time.Time       `json:"collected_at"`
+	SystemID   uint            `json:"system_id"`
+	SystemName string          `json:"system_name"`
+	Disks      json.RawMessage `json:"disks"`
+	// Failed is the number of disks the report classified as failing: the
+	// `smart` alert counts it, and the S.M.A.R.T. page can badge it without
+	// walking the attribute list of every disk.
+	Failed      int       `json:"failed"`
+	Complete    bool      `json:"complete"`
+	CollectedAt time.Time `json:"collected_at"`
 }
 
 // Smart lists the stored SMART reports, for the S.M.A.R.T. page.
@@ -135,6 +139,7 @@ func (s *SystemService) Smart(ctx context.Context, systemID uint) ([]SmartReport
 		report := SmartReport{
 			SystemID:    row.SystemID,
 			SystemName:  row.SystemName,
+			Failed:      row.Failed,
 			Complete:    row.Complete,
 			CollectedAt: row.CollectedAt,
 		}

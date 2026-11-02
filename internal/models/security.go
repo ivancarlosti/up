@@ -79,6 +79,12 @@ const (
 	// "never purge"; see models.DefaultSystemRetentionDays for the value used
 	// when the setting is absent.
 	SettingSystemRetentionDays = "system_retention_days"
+	// SettingSystemAlertDefaults is the rule set of the hardware alerts: what a
+	// new machine starts with, and what "reset to defaults" puts back (see
+	// models.SystemAlertDefaults, stored as JSON). It is part of the
+	// synchronised settings, so every node of the cluster resets a machine to
+	// the same rules.
+	SettingSystemAlertDefaults = "system_alert_defaults"
 	// SettingRecaptchaClientID is the public site key of Google reCAPTCHA and
 	// SettingRecaptchaClientSecret the matching server side secret. Both are
 	// edited in Admin > Settings ("Login protection") and stored here only:

@@ -1,6 +1,9 @@
 package beszel
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Container is one running (or recently stopped) Docker/Podman container.
 //
@@ -81,4 +84,20 @@ type SmartReport struct {
 	Disks    map[string]Smart `json:"disks"`
 	Complete bool             `json:"complete"`
 	At       time.Time        `json:"at"`
+}
+
+// SmartDiskHealthy reports whether the overall status the agent reported for a
+// disk means the disk is fine.
+//
+// The agent passes smartctl's verdict through ("PASSED" for ATA, "OK" for NVMe,
+// and an empty string when it could not ask: a USB bridge, a permission
+// problem, a virtual disk). Only a positive bad verdict counts as a failure, so
+// a disk the agent could not read never raises the `smart` alert on its own.
+func SmartDiskHealthy(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "", "PASSED", "OK", "GOOD":
+		return true
+	default:
+		return false
+	}
 }

@@ -57,8 +57,13 @@ func TestSameSystemLink(t *testing.T) {
 
 // TestOrderSystemAlertRules pins the display order and the defaults of a machine
 // whose rows have not been written yet.
+//
+// The fallback is the built-in catalogue here because the service carries no
+// settings store; with one wired it is the configured default (that path is
+// covered by the live test against a scratch database).
 func TestOrderSystemAlertRules(t *testing.T) {
-	rules := orderSystemAlertRules(nil)
+	service := &SystemAlertService{}
+	rules := service.orderRules(nil)
 	if len(rules) != len(models.AllSystemAlertMetrics) {
 		t.Fatalf("got %d rules, want %d", len(rules), len(models.AllSystemAlertMetrics))
 	}
@@ -68,6 +73,16 @@ func TestOrderSystemAlertRules(t *testing.T) {
 		}
 		if !rule.Enabled {
 			t.Errorf("%s should fall back to the default (enabled)", rule.Metric)
+		}
+	}
+	// A stored row always wins over the default, latch included.
+	stored := []models.SystemAlert{{Metric: models.SystemAlertCPU, Enabled: false, Threshold: 42, MinMinutes: 9, Triggered: true}}
+	for _, rule := range service.orderRules(stored) {
+		if rule.Metric != models.SystemAlertCPU {
+			continue
+		}
+		if rule.Enabled || rule.Threshold != 42 || rule.MinMinutes != 9 || !rule.Triggered {
+			t.Errorf("the stored cpu rule was not used: %+v", rule)
 		}
 	}
 }
