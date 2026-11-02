@@ -1158,6 +1158,7 @@
     "ownerNode": "owned by {node}",
     "owner": "Owner",
     "lastSampleColumn": "Last sample",
+    "uptimeColumn": "Uptime",
     "filteredCount": "Showing {count} of {total} systems",
     "clearFilters": "Clear filters",
     "alertsButton": "Alerts",

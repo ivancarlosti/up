@@ -76,6 +76,12 @@ type System struct {
 	// and LastSeenAt when the agent was last connected at all.
 	LastSampleAt *time.Time `json:"last_sample_at,omitempty"`
 	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
+	// Uptime is how long the machine has been up, in seconds, as of the last
+	// sample. It is denormalised from system_metrics so the listing can show and
+	// sort it without reading the per minute history; the charts keep the series.
+	// Zero means the agent never reported one (a row written by an older node, or
+	// a machine that has not answered yet), never "just booted".
+	Uptime uint64 `gorm:"not null;default:0" json:"uptime"`
 	// LastError is the last failure of the connection or of the agent, so the
 	// operator sees why a system is down without reading the server log.
 	LastError string `gorm:"size:500" json:"last_error,omitempty"`

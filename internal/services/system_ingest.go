@@ -42,6 +42,12 @@ func (s *SystemService) IngestSample(ctx context.Context, system *models.System,
 			"last_error":     "",
 			"updated_at":     now,
 		}
+		// Uptime is denormalised from the sample so the listing can show it without
+		// reading system_metrics. A zero means "not reported", so it never erases
+		// what a previous sample already knew - the same rule as the identity.
+		if uptime := data.Info.Uptime; uptime > 0 {
+			columns["uptime"] = uptime
+		}
 		// The identity is only rewritten when the agent sent it (IncludeDetails):
 		// an empty value would erase what a previous sample already knows.
 		if details := data.Details; details != nil {

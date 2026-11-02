@@ -388,9 +388,11 @@ func OutboxToChange(row SyncOutbox) SyncChangePayload {
 // usable credential — but it does carry the fingerprint and the token prefix, so
 // it must still only travel over TLS, exactly like the status page subscribers.
 //
-// The identity fields (hostname, cores, memory total) are deliberately absent:
-// they are the owner node's observation of the agent, not configuration the
-// peers must agree on.
+// The identity fields (hostname, cores, memory total) and the freshly observed
+// state (uptime, last sample, last error) are deliberately absent: they are the
+// owner node's observation of the agent, not configuration the peers must agree
+// on. writeSystem only touches the columns named here, so a peer applying an
+// older payload leaves the local observations untouched.
 type SystemPayload struct {
 	UUID         string    `json:"uuid"`
 	OriginNodeID string    `json:"origin_node_id"`

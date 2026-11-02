@@ -278,6 +278,11 @@ func TestAgentEndToEnd(t *testing.T) {
 	if history.System.Hostname != "docker-01" || history.System.Cores != 4 {
 		t.Fatalf("identity = %+v", history.System)
 	}
+	// The uptime is denormalised onto the row so the listing can sort by it: the
+	// sample carries it, and the system row must have followed.
+	if history.System.Uptime != 1234 {
+		t.Fatalf("system uptime = %d, want 1234", history.System.Uptime)
+	}
 	if history.System.Status != models.SystemStatusUp {
 		t.Fatalf("status = %q, want up", history.System.Status)
 	}

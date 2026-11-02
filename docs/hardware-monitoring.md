@@ -96,7 +96,7 @@ be restarted with the new value.
 
 | Table | Written by | Meaning |
 |---|---|---|
-| `systems` | any node (operator edit) | name, host notes, enabled, token hash, fingerprint, identity of the machine, last sample |
+| `systems` | any node (operator edit) + the owner node (the observations) | name, host notes, enabled, token hash, fingerprint, identity of the machine, last sample, last seen, last error, uptime |
 | `system_leases` | the node holding the agent connection | who is talking to the agent, until when |
 | `system_metrics` | the owner node | one row per minute: CPU, memory, swap, root filesystem, network, disk I/O, the three load averages, GPU, temperature, uptime, container count |
 | `system_containers` | the owner node | the latest state of each container (a mirror of the last sample) |
@@ -109,6 +109,14 @@ The charts are downsampled **when they are read** (`system_stats.go`): a window 
 split into ~240 buckets and the database returns one averaged row per bucket, so a
 30 day chart is the same size as a one hour chart and the browser never renders
 43 000 points.
+
+The uptime of a machine is stored twice, on purpose: `system_metrics` keeps it with
+every sample (the charts), and `systems.uptime` carries the value of the last sample
+so the listing can show and sort it with one query instead of a join on the history.
+The ingest only writes it when the agent reported one, so a zero there means
+"unknown" (a machine that has not answered yet, or a row written by an older node)
+and never erases what a previous sample knew. It is an observation, not
+configuration, so it does not travel between peers (see §4).
 
 History is pruned by the housekeeping loop (every 6 h) with
 `system_retention_days` (default 30 days, `0` = never purge, Admin > Settings).

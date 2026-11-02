@@ -124,6 +124,8 @@ export interface System {
   smart_interval?: number
   last_sample_at?: string | null
   last_seen_at?: string | null
+  /** How long the machine has been up, in seconds, as of the last sample. */
+  uptime: number
   last_error?: string
   created_at: string
   updated_at: string

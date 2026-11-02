@@ -11,10 +11,21 @@ import type { System, SystemAlertMetric, SystemAlertRule, SystemPointOverview } 
  * containers) are NOT on the system row — they are the latest sample, which the
  * page holds in its own map. Passing that map in keeps the comparators pure, the
  * same way lib/sort.ts passes the locale and the group names.
+ *
+ * Uptime is the exception: it is denormalised onto the system row (models.System),
+ * so it is read from the machine itself and needs no sample.
  */
 
 /** The columns of the table an operator can sort by. */
-export type SystemSortKey = 'name' | 'status' | 'cpu' | 'memory' | 'disk' | 'containers' | 'sample'
+export type SystemSortKey =
+  | 'name'
+  | 'status'
+  | 'cpu'
+  | 'memory'
+  | 'disk'
+  | 'containers'
+  | 'uptime'
+  | 'sample'
 
 /** The columns accepted by loadSystemSort (guards a hand edited value). */
 export const systemSortKeys: SystemSortKey[] = [
@@ -24,6 +35,7 @@ export const systemSortKeys: SystemSortKey[] = [
   'memory',
   'disk',
   'containers',
+  'uptime',
   'sample',
 ]
 
@@ -76,6 +88,10 @@ export function compareSystems(
       return sign * ((left?.disk_pct ?? -1) - (right?.disk_pct ?? -1)) || byName()
     case 'containers':
       return sign * ((left?.containers ?? -1) - (right?.containers ?? -1)) || byName()
+    case 'uptime':
+      // It is on the row, not in the sample: a machine that never reported sorts
+      // as the lowest uptime, exactly like a missing sample above.
+      return sign * ((a.uptime || -1) - (b.uptime || -1)) || byName()
     case 'sample':
       return sign * (sampleTime(a) - sampleTime(b)) || byName()
     default:

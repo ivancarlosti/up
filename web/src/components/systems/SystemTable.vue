@@ -8,7 +8,7 @@ import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SortHeader from '@/components/ui/SortHeader.vue'
-import { formatDateTime, formatPercent } from '@/lib/format'
+import { formatDateTime, formatDuration, formatPercent } from '@/lib/format'
 import type { SystemSortKey, SystemSortState } from '@/lib/system-sort'
 import { systemFiringMetrics } from '@/lib/system-sort'
 import type { System, SystemPointOverview } from '@/lib/types-systems'
@@ -127,6 +127,13 @@ const hasRows = computed(() => props.systems.length > 0)
               @toggle="emit('sort', 'containers')"
             />
             <SortHeader
+              :label="t('systems.uptimeColumn')"
+              column="uptime"
+              :active="sort.key"
+              :direction="sort.direction"
+              @toggle="emit('sort', 'uptime')"
+            />
+            <SortHeader
               :label="t('systems.lastSampleColumn')"
               column="sample"
               :active="sort.key"
@@ -170,6 +177,7 @@ const hasRows = computed(() => props.systems.length > 0)
             <td class="px-4 py-2 tabular-nums">{{ formatPercent(sampleOf(system.id)?.mem_pct) }}</td>
             <td class="px-4 py-2 tabular-nums">{{ formatPercent(sampleOf(system.id)?.disk_pct) }}</td>
             <td class="px-4 py-2 tabular-nums">{{ sampleOf(system.id)?.containers ?? 0 }}</td>
+            <td class="px-4 py-2 tabular-nums">{{ formatDuration(system.uptime) }}</td>
             <td class="px-4 py-2 text-xs text-muted-foreground">
               <template v-if="system.last_sample_at">
                 {{ formatDateTime(system.last_sample_at, locale) }}

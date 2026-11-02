@@ -191,6 +191,27 @@ export function formatRelative(value?: string | null, locale = 'en-US'): string 
   return formatter.format(Math.round(value2), 'year')
 }
 
+/**
+ * formatDuration renders a length of time in seconds as the compact figure a
+ * machine table shows: two units at most ("42d 3h", "4h 12m", "7m", "38s").
+ *
+ * A zero (or a missing value) is an agent that never reported one, so it renders
+ * as a dash instead of a bogus "0s". The suffixes are short and locale-neutral on
+ * purpose, like formatUptimeWindow: the column is narrow and the header carries
+ * the translated label.
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) return '—'
+  const total = Math.floor(seconds)
+  const days = Math.floor(total / 86400)
+  const hours = Math.floor((total % 86400) / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  if (minutes > 0) return `${minutes}m`
+  return `${total}s`
+}
+
 /** formatInterval renders "60s" / "5m" / "1h" for monitor intervals. */
 export function formatInterval(seconds: number): string {
   if (!seconds || seconds <= 0) return '—'
