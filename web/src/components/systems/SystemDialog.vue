@@ -69,8 +69,21 @@ async function copy(value: string): Promise<void> {
   }
 }
 
+/** finish closes the dialog once there is nothing left to submit. */
+function finish(): void {
+  emit('update:modelValue', false)
+}
+
 async function save(): Promise<void> {
   error.value = null
+  // A creation already went through and the dialog is showing the one-time
+  // token: the footer button (or Enter in a field) only closes it. Without this
+  // guard the second submit POSTs the same system again and the API answers
+  // ERR_SYSTEM_NAME_TAKEN, which reads as if the creation had failed.
+  if (created.value) {
+    finish()
+    return
+  }
   if (!form.name.trim()) {
     error.value = t('systems.nameRequired')
     return
@@ -179,8 +192,11 @@ async function save(): Promise<void> {
       </div>
 
       <div class="flex items-center justify-end gap-2 pt-1">
-        <Button type="button" variant="ghost" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</Button>
-        <Button type="submit" :loading="store.saving">{{ created ? t('common.done') : t('common.save') }}</Button>
+        <Button type="button" variant="ghost" @click="finish">{{ t('common.cancel') }}</Button>
+        <!-- After a creation the button no longer submits: the record is stored
+             and the only remaining action is to close the token panel. -->
+        <Button v-if="created" type="button" @click="finish">{{ t('common.done') }}</Button>
+        <Button v-else type="submit" :loading="store.saving">{{ t('common.save') }}</Button>
       </div>
     </form>
   </Dialog>
