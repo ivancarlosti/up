@@ -454,3 +454,26 @@ func truncateForLog(value string, limit int) string {
 	}
 	return string(runes[:limit]) + "…"
 }
+
+// PeerKnown reports whether this node knows how to reach another node.
+func (s *ClusterService) PeerKnown(ctx context.Context, nodeID string) bool {
+	_, ok, err := s.peerByID(ctx, nodeID)
+	return err == nil && ok
+}
+
+// PeerGet performs a signed GET against another node and decodes the answer.
+//
+// It is the outbound half of the peer API for the callers that are not the
+// synchronisation loop itself (today: the hardware history of a system owned by
+// another node). The signature, the timeout and the URL validation are the ones
+// every peer call already uses, so a new endpoint cannot come with a weaker one.
+func (s *ClusterService) PeerGet(ctx context.Context, nodeID, path, query string, out any) error {
+	node, ok, err := s.peerByID(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("node %q is not registered", nodeID)
+	}
+	return s.peerRequest(ctx, node, path, query, out)
+}

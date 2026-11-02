@@ -43,6 +43,7 @@ cluster of nodes that vote on the real status.
 | **Notifications** | SMTP, Webhook, Slack, Discord and Telegram through the [shoutrrr](https://github.com/nicholas-fedor/shoutrrr) engine, custom webhook body template, the tags and groups of the monitor in the payload and in the message bodies, delivery history, test button |
 | **Public status pages** | per-slug public pages with groups, theme, monitor selection, a drag-and-drop **page order** (manual, alphabetical or by type, per section) that also orders the members of a linked group, per-page toggles (uptime, charts, tags) and two independent **opt-in expiry badges** (certificate, domain), plus a shields.io style README badge |
 | **Authentication** | `none`, single `account` (with optional reCAPTCHA) or `keycloak` OIDC (Authorization Code + PKCE) with an e-mail/domain allow list |
+| **Systems (hardware)** | CPU, memory, root filesystem, disk I/O, network, load, temperature and containers of every machine, plus **S.M.A.R.T.** disk health, reported by the regular [Beszel](https://github.com/henrygd/beszel) agent (the agent dials Up, nothing is linked into the server). One sample a minute, downsampled charts (1 h to 30 d), per container history, one sidebar entry with *Systems*, *All containers* and *S.M.A.R.T.* tabs. Ownership is a lease: exactly one node polls an agent, and the lease moves when that node stops reporting heartbeats. See [hardware-monitoring.md](docs/hardware-monitoring.md) |
 | **Cluster** | two modes. **`shared`** (default): several nodes on the same external database, join with a private key, node liveness (offline after 2 min), `ANY_NODE_FAILS` / `ALL_NODES_FAIL` / `QUORUM` voting and `PRIMARY_ONLY` / `ANY_WITH_LOCK` notification sender. **`federated`**: one database per node, the configuration, the votes and the notification ownership synchronised over the signed peer API (`CLUSTER_PEER_API`), with a derived leader, a notification election (`leader`/`hash`/`origin`), `run_on=some`, opt-in channel/settings/session-secret sync and push. See [clustering.md](docs/clustering.md) and [clustering-modes.md](docs/clustering-modes.md) |
 | **Public REST API** | scoped bearer tokens (`read`/`write`), IP allow/deny rules, rate limiting |
 | **i18n & theme** | en-US, pt-BR, es-MX, fr-FR, zh-CN, hi-IN, ar-SA (with RTL), light/dark/system and a 12/24-hour clock preference, with configurable defaults for new visitors |
@@ -267,6 +268,7 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 | [status-pages.md](docs/status-pages.md) | public status pages and badges |
 | [security.md](docs/security.md) | IP rules, rate limiting, tokens, secrets inventory |
 | [clustering.md](docs/clustering.md) | topology, join flow, liveness, voting and sender strategies |
+| [hardware-monitoring.md](docs/hardware-monitoring.md) | systems, containers and S.M.A.R.T.: agent setup, security model, ownership and failover |
 | [clustering-modes.md](docs/clustering-modes.md) | cluster modes: `shared` vs `federated` (one database per node), sync protocol, identity, voting, notification election |
 | [reverse-proxy.md](docs/reverse-proxy.md) | Traefik, Nginx, Caddy, Cloudflare Tunnel, WebSocket notes |
 | [i18n.md](docs/i18n.md) | languages, resolution order, adding a language |
@@ -274,10 +276,13 @@ curl -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/status
 
 ## Screenshots
 
-Every image below comes from a seeded local instance - nothing is mocked up, and
-the `Live` badge is the real WebSocket connection (regenerate them with
-`npm run seed:demo && npm run shots:readme` in `web/`, see
+Every image below comes from a seeded local instance - nothing is edited
+afterwards, and the `Live` badge is the real WebSocket connection (regenerate them
+with `npm run seed:demo && npm run shots:readme` in `web/`, see
 [docs/development.md](docs/development.md#61-screenshots-and-layout-checks)).
+The two hardware screens are the exception on the *data* side: their samples are
+written by that fixture, because no agent runs on the machine that takes the
+screenshots.
 
 | ![dashboard](docs/screenshots/1-dashboard.png) | 
 |:--:| 
@@ -323,6 +328,14 @@ the `Live` badge is the real WebSocket connection (regenerate them with
 | ![public status page](docs/screenshots/11-statuspage.png) | 
 |:--:| 
 | *Public status page* |
+
+| ![systems](docs/screenshots/12-systems.png) | 
+|:--:| 
+| *Systems: CPU, memory, disk and network of every machine an agent reports, plus the containers and the S.M.A.R.T. health of the disks* |
+
+| ![system detail](docs/screenshots/13-systemdetail.png) | 
+|:--:| 
+| *System detail: the 24 h charts of one machine, its containers (with the chart of each one) and the SMART attributes of every disk* |
 
 ## License
 

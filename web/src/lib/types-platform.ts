@@ -355,6 +355,12 @@ export interface PublicSettings {
   cluster_enabled: boolean
   node_id: string
   node_name: string
+  /** Days of hardware history (the agent samples) kept (0 = never purge). */
+  system_retention_days: number
+  /** The documented default of the hardware history. */
+  default_system_retention_days: number
+  /** Upper bound accepted for the hardware history. */
+  max_system_retention_days: number
   /** Global uptime window in hours (24, 168, 336 or 720). */
   uptime_window_hours: number
   /** Every window the settings page offers. */
@@ -444,6 +450,12 @@ export interface AdminSettings {
   default_retention_days: number
   /** Upper bound accepted by the API. */
   max_retention_days: number
+  /** Days of hardware history (the agent samples) kept (0 = never purge). */
+  system_retention_days: number
+  /** The documented default of the hardware history. */
+  default_system_retention_days: number
+  /** Upper bound accepted for the hardware history. */
+  max_system_retention_days: number
   /** Global uptime window in hours (24, 168, 336 or 720). */
   uptime_window_hours: number
   /** Every window the settings page offers. */

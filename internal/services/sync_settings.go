@@ -27,6 +27,9 @@ var settingsWhitelist = []string{
 	// about how much history exists.
 	models.SettingHeartbeatRetentionDays,
 	models.SettingUptimeWindowHours,
+	// The hardware history window follows the same rule: two nodes of one
+	// cluster must not keep a different amount of it.
+	models.SettingSystemRetentionDays,
 }
 
 // ServeSettings answers GET /api/cluster/sync/settings.

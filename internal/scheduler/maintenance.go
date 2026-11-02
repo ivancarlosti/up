@@ -244,6 +244,16 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		s.purge(ctx)
 	}
 
+	// The hardware history (the agent samples) follows its own policy: it is a
+	// different table with a different cadence, and 0 means "never purge" there
+	// too.
+	if s.systems != nil {
+		switch _, err := s.systems.PurgeHistory(ctx); {
+		case err != nil:
+			s.log.Error("hardware history purge failed", "error", err)
+		}
+	}
+
 	// The de-duplication locks are always pruned: a lock is meaningless after
 	// its own window, and nothing else ever removed it, so the table used to
 	// grow for the whole life of the deployment.

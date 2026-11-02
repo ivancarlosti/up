@@ -121,6 +121,13 @@ const (
 	// carries an e-mail address, which makes the peer transport a PII channel
 	// (docs/clustering-modes.md).
 	EntityStatusPageSubscriber = "status_page_subscriber"
+	// EntitySystem carries the configuration of a hardware monitored machine:
+	// its name, where it runs, whether it is enabled, and the credentials the
+	// agent authenticates with. The samples stay local to the node that owns the
+	// connection (docs/hardware-monitoring.md): they are the hardware equivalent
+	// of the heartbeat stream, and each row is an observation of one machine at
+	// one instant, which no peer has to agree with.
+	EntitySystem = "system"
 )
 
 // linkNamespace is the fixed namespace of the relation identifiers. Every node

@@ -60,9 +60,10 @@ const REALTIME_BADGE = `(() => {
 })()`
 
 /**
- * The static screens, in README order. The number in the file name is that
- * order, so the names stay stable when a screen is added and the README table
- * is rebuilt from this list.
+ * The static screens. The number in the file name is their position in the
+ * README table, so the names stay stable when a screen is added; the capture runs
+ * this list first and the screens whose route needs an id afterwards, which is why
+ * the order of the two lists is not the numbering.
  */
 const SHOTS = [
   { file: '1-dashboard.png', path: '/', caption: 'Dashboard' },
@@ -74,10 +75,17 @@ const SHOTS = [
   { file: '7-security.png', path: '/admin/security', caption: 'Security (IP rules, tokens)' },
   { file: '8-cluster.png', path: '/admin/cluster', caption: 'Cluster' },
   { file: '9-settings.png', path: '/admin/settings', caption: 'Settings' },
+  // The two hardware screens come last on purpose: their data is created by the
+  // fixture rather than reported by a running agent (see seed-demo.mjs), so they
+  // are the newest half of the set and the numbering of the rest stays stable.
+  { file: '12-systems.png', path: '/systems', caption: 'Systems (hardware monitoring)' },
 ]
 
 /** The monitor the detail shot follows: the flagship probe of the fixture. */
 const DETAIL_MONITOR = 'Website'
+
+/** The system the detail shot follows: the machine the fixture gives a SMART report. */
+const DETAIL_SYSTEM = 'Hypervisor (proxmox-01)'
 
 /** The status page of the public shot. */
 const PUBLIC_STATUS_PAGE = 'status'
@@ -170,7 +178,7 @@ async function preflight(base, cookie) {
   return monitors.length
 }
 
-/** dynamicPaths resolves the two screens whose route carries an id or a slug. */
+/** dynamicPaths resolves the screens whose route carries an id or a slug. */
 async function dynamicPaths(base, cookie) {
   const headers = cookie === '' ? {} : { cookie }
   const get = async (path) => {
@@ -188,9 +196,14 @@ async function dynamicPaths(base, cookie) {
   const page = list.find((row) => row.slug === PUBLIC_STATUS_PAGE) ?? list.find((row) => row.is_public) ?? list[0]
   if (!page) throw new Error('the instance has no status page to show: run `npm run seed:demo`')
 
+  const systems = await get('/api/systems')
+  const system = systems.find((row) => row.name === DETAIL_SYSTEM) ?? systems[0]
+  if (!system) throw new Error('the instance has no system to show: run `npm run seed:demo`')
+
   return [
     { file: '10-monitordetail.png', path: `/monitors/${monitor.id}`, caption: `Monitor: ${monitor.name}` },
     { file: '11-statuspage.png', path: `/status/${page.slug}`, caption: 'Public status page' },
+    { file: '13-systemdetail.png', path: `/systems/${system.id}`, caption: `System: ${system.name}` },
   ]
 }
 

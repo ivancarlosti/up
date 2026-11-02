@@ -913,3 +913,111 @@ func (s *SyncService) resolveContainerReferences(ctx context.Context, tx *gorm.D
 	}
 	return s.clearResolvedPendingLinks(ctx, tx, marker.Entity, marker.UUID)
 }
+
+// applySystem merges one hardware monitored system.
+//
+// The samples are not part of the entity: a peer applies the configuration and
+// reads the history from the owner when the operator opens the page
+// (docs/hardware-monitoring.md). Applying a delete removes the local copy of the
+// configuration and the local history it held, because that history belongs to a
+// machine this node does not talk to any more.
+func (s *SyncService) applySystem(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload) (models.ApplyDecision, error) {
+	decision, current, err := s.mergeDecision(ctx, tx, change)
+	if err != nil {
+		return models.ApplySkip, err
+	}
+	if decision == models.ApplySkip {
+		return decision, nil
+	}
+
+	if decision == models.ApplyDelete {
+		if current != nil && current.LocalID != 0 {
+			for _, model := range []any{
+				&models.SystemMetric{}, &models.SystemContainer{},
+				&models.SystemContainerMetric{}, &models.SystemSmart{},
+				&models.SystemLease{},
+			} {
+				if err := tx.WithContext(ctx).Where("system_id = ?", current.LocalID).
+					Delete(model).Error; err != nil {
+					return decision, fmt.Errorf("removing the history of system %d: %w", current.LocalID, err)
+				}
+			}
+			if err := tx.WithContext(ctx).Delete(&models.System{}, current.LocalID).Error; err != nil {
+				return decision, fmt.Errorf("removing system %d: %w", current.LocalID, err)
+			}
+		}
+		return decision, s.trackApplied(ctx, tx, change, 0, true)
+	}
+
+	var payload models.SystemPayload
+	if err := json.Unmarshal(change.Payload, &payload); err != nil {
+		return models.ApplySkip, fmt.Errorf("unreadable system payload for %s: %w", change.UUID, err)
+	}
+	var localID uint
+	if current != nil {
+		localID = current.LocalID
+	}
+	localID, created, err := s.writeSystem(ctx, tx, payload, localID)
+	if err != nil {
+		return models.ApplySkip, err
+	}
+	if err := s.trackApplied(ctx, tx, change, localID, false); err != nil {
+		return decision, err
+	}
+	event := "system.updated"
+	if created {
+		event = "system.created"
+	}
+	s.publish(event, map[string]any{"id": localID, "uuid": change.UUID, "origin": change.OriginNodeID})
+	return decision, nil
+}
+
+// writeSystem inserts or refreshes the local row of a system.
+//
+// A name is unique, so an incoming row whose name is taken gets a suffix instead
+// of failing the apply: the two machines are different (the uuid says so) and only
+// the label collides.
+func (s *SyncService) writeSystem(ctx context.Context, tx *gorm.DB, payload models.SystemPayload, localID uint) (uint, bool, error) {
+	if localID != 0 {
+		columns := map[string]any{
+			"uuid":           payload.UUID,
+			"origin_node_id": payload.OriginNodeID,
+			"revision":       payload.Revision,
+			"name":           payload.Name,
+			"host":           payload.Host,
+			"enabled":        payload.Enabled,
+			"token_hash":     payload.TokenHash,
+			"token_prefix":   payload.TokenPrefix,
+			"fingerprint":    payload.Fingerprint,
+			"agent_version":  payload.AgentVersion,
+			"updated_at":     payload.UpdatedAt,
+		}
+		if err := tx.WithContext(ctx).Model(&models.System{}).Where("id = ?", localID).
+			Updates(columns).Error; err != nil {
+			return 0, false, fmt.Errorf("updating system %s: %w", payload.UUID, err)
+		}
+		return localID, false, nil
+	}
+
+	name, err := s.uniqueName(ctx, tx, &models.System{}, "name", payload.Name, 0, 120)
+	if err != nil {
+		return 0, false, err
+	}
+	row := models.System{
+		UUID:         payload.UUID,
+		OriginNodeID: payload.OriginNodeID,
+		Revision:     payload.Revision,
+		Name:         name,
+		Host:         payload.Host,
+		Enabled:      payload.Enabled,
+		TokenHash:    payload.TokenHash,
+		TokenPrefix:  payload.TokenPrefix,
+		Fingerprint:  payload.Fingerprint,
+		AgentVersion: payload.AgentVersion,
+		UpdatedAt:    payload.UpdatedAt,
+	}
+	if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+		return 0, false, fmt.Errorf("creating system %s: %w", payload.UUID, err)
+	}
+	return row.ID, true, nil
+}

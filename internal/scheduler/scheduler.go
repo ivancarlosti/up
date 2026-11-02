@@ -55,6 +55,9 @@ type Scheduler struct {
 	subscriptionRunMu sync.Mutex
 	// sync drives the federated pull loop (nil unless it is wired).
 	sync *services.SyncService
+	// systems owns the hardware history retention and the agent connections
+	// (optional: nil on a build without the feature).
+	systems *services.SystemService
 }
 
 type commandKind int
@@ -128,6 +131,11 @@ func (s *Scheduler) SetNotificationService(n *services.NotificationService) {
 // SetSyncService injects the federated synchronisation service, which the
 // maintenance loop drives on its own ticker.
 func (s *Scheduler) SetSyncService(sync *services.SyncService) { s.sync = sync }
+
+// SetSystemService injects the hardware monitoring service: the maintenance loop
+// applies the history retention it owns, and the shutdown releases the agent
+// connections so another node picks the agents up immediately.
+func (s *Scheduler) SetSystemService(systems *services.SystemService) { s.systems = systems }
 
 // SetStatusPageSubscriptionService injects the opt-in mailer of the public status
 // pages, driven by its own 30 second ticker.

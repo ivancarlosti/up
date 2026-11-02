@@ -9,6 +9,7 @@ import {
   Gauge,
   Info,
   LayoutDashboard,
+  Server,
   Network,
   ShieldCheck,
   SlidersHorizontal,
@@ -42,6 +43,13 @@ const route = useRoute()
 
 const items = computed<NavItem[]>(() => [
   { name: 'dashboard', to: { name: 'dashboard' }, icon: LayoutDashboard, label: 'nav.dashboard' },
+  {
+    name: 'systems',
+    to: { name: 'systems' },
+    icon: Server,
+    label: 'nav.systems',
+    also: ['system-detail'],
+  },
   { name: 'monitor-groups', to: { name: 'admin-monitor-groups' }, icon: FolderTree, label: 'nav.monitorGroups' },
   { name: 'monitor-tags', to: { name: 'admin-monitor-tags' }, icon: Tags, label: 'nav.monitorTags' },
   { name: 'monitor-templates', to: { name: 'admin-monitor-templates' }, icon: FileCog, label: 'nav.monitorTemplates' },

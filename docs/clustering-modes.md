@@ -359,6 +359,9 @@ Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
 | `monitor_templates` | sync | already has a uuid |
 | `status_pages` (+ `status_page_monitors`, `status_page_groups`) | sync | referenced monitors/groups resolve by uuid; the page carries its `monitor_order` and every selection row its `order_only` flag, so a peer renders the same order inside the same sections |
 | `status_page_subscribers` | sync | one row per page+address, deterministic uuid; the payload carries **PII** (the e-mail) and the token hashes, so the peers must run over TLS like the channel payload. Incidents and notices stay local (derived state) |
+| `systems` (hardware monitoring) | sync | name, host notes, enabled, token **hash**, fingerprint: a peer must be able to accept the agent of a system this node owned until it died |
+| `system_metrics`, `system_containers`, `system_container_metrics`, `system_smart` | local | the samples of one machine at one instant: they are the hardware equivalent of `heartbeats` (**D5**). A node reads them from the owner through `GET /api/cluster/sync/systems/history` |
+| `system_leases` | local | the ownership row is per node database; a peer that has to take an agent over takes its own lease when the connection arrives |
 | `heartbeats` | local | see **D5** |
 | `monitor_states`, `notification_logs`, `monitor_certificates` | local | runtime, derived or node-specific |
 | `monitor_domains`, `whois_parsers` | local | the domain observation is node-specific and the per-TLD rules are operator input, not configuration the peers must agree on (there is no sync entity for either) |
@@ -448,6 +451,7 @@ while a write per request would sit on the hot path of every pull.
 | GET | `/api/cluster/sync/manifest` | per entity `{count, max_revision, checksum}` | implemented |
 | GET | `/api/cluster/sync/snapshot?entity=&page=` | paged full state, uuid order | implemented |
 | GET | `/api/cluster/sync/votes` | latest verdict per monitor uuid (voting input) | implemented |
+| GET | `/api/cluster/sync/systems/history?uuid=&hours=` | the hardware history of a system this node owns (see [hardware-monitoring.md](hardware-monitoring.md)) | implemented |
 | GET | `/api/cluster/sync/settings` | synchronised settings whitelist and session secret (per the opt-in switches) | implemented |
 | POST | `/api/cluster/sync/now` | ask a peer to pull immediately | implemented |
 

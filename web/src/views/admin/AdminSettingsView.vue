@@ -32,6 +32,7 @@ const form = ref({
   timezone: 'UTC',
   app_name: '',
   heartbeat_retention_days: 180,
+  system_retention_days: 30,
   uptime_window_hours: 24,
 })
 const saving = ref(false)
@@ -154,6 +155,12 @@ const retentionDays = computed({
     form.value.heartbeat_retention_days = Number(value)
   },
 })
+const systemRetentionDays = computed({
+  get: () => String(form.value.system_retention_days),
+  set: (value: string) => {
+    form.value.system_retention_days = Number(value)
+  },
+})
 
 async function load(): Promise<void> {
   try {
@@ -174,6 +181,7 @@ async function load(): Promise<void> {
       timezone: adminSettings.timezone ?? 'UTC',
       app_name: adminSettings.app_name,
       heartbeat_retention_days: adminSettings.heartbeat_retention_days,
+      system_retention_days: adminSettings.system_retention_days,
       uptime_window_hours: adminSettings.uptime_window_hours,
     }
   } catch (error) {
@@ -370,6 +378,23 @@ onMounted(load)
             type="number"
             min="0"
             :max="retention?.max_days ?? 3650"
+          />
+        </div>
+        <!-- The hardware history is its own table with its own cadence, so it has
+             its own window: 0 keeps everything. -->
+        <div class="grid gap-1">
+          <Label
+            for="settings-system-retention-days"
+            :help="t('settings.systemRetentionDaysHelp', { days: settings?.default_system_retention_days ?? 30 })"
+          >
+            {{ t('settings.systemRetentionDays') }}
+          </Label>
+          <Input
+            id="settings-system-retention-days"
+            v-model="systemRetentionDays"
+            type="number"
+            min="0"
+            :max="settings?.max_system_retention_days ?? 3650"
           />
         </div>
       </div>

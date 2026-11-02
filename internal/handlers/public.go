@@ -192,7 +192,11 @@ func (h *Container) adminSettings(c *gin.Context) {
 		"default_retention_days":   models.DefaultHeartbeatRetentionDays,
 		"max_retention_days":       models.MaxHeartbeatRetentionDays,
 		"uptime_window_hours":      h.Settings.UptimeWindowHours(),
-		"uptime_windows":           models.UptimeWindowHoursAllowed,
+		// Hardware history retention (the samples the agents report).
+		"system_retention_days":         h.Settings.SystemRetentionDays(),
+		"default_system_retention_days": models.DefaultSystemRetentionDays,
+		"max_system_retention_days":     models.MaxSystemRetentionDays,
+		"uptime_windows":                models.UptimeWindowHoursAllowed,
 	})
 }
 
@@ -212,6 +216,8 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 		// retention: it means "never purge").
 		HeartbeatRetentionDays *int `json:"heartbeat_retention_days"`
 		UptimeWindowHours      *int `json:"uptime_window_hours"`
+		// SystemRetentionDays is the hardware history window (the agent samples).
+		SystemRetentionDays *int `json:"system_retention_days"`
 	}
 	if !bindJSON(c, &payload) {
 		return
@@ -234,6 +240,12 @@ func (h *Container) updateAdminSettings(c *gin.Context) {
 	}
 	if payload.HeartbeatRetentionDays != nil {
 		if err := h.Settings.SetHeartbeatRetentionDays(c.Request.Context(), *payload.HeartbeatRetentionDays); err != nil {
+			api.WriteServiceError(c, err)
+			return
+		}
+	}
+	if payload.SystemRetentionDays != nil {
+		if err := h.Settings.SetSystemRetentionDays(c.Request.Context(), *payload.SystemRetentionDays); err != nil {
 			api.WriteServiceError(c, err)
 			return
 		}

@@ -148,4 +148,3 @@ func BackfillHeartbeatRollups(ctx context.Context, db *gorm.DB, log *slog.Logger
 	}
 	return RebuildRollups(ctx, db, log, plan)
 }
-

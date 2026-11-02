@@ -15,6 +15,10 @@
  *   * one real check per monitor, so the statuses, the latencies and the "last
  *     check" column come from genuine probes of this machine
  *   * two status pages, API tokens and IP rules
+ *   * two hardware monitored machines with 24 h of samples, their containers and
+ *     a cached S.M.A.R.T. report, so the Systems tabs are not empty either. The
+ *     samples are written straight into the history tables (no agent runs here),
+ *     while the rows themselves are created through the API
  *   * one run of the expiry job, so the certificates and the domains of the
  *     https targets are read for real (RDAP/WHOIS)
  *
@@ -433,6 +437,127 @@ function buildBackfill(monitors) {
 }
 
 // ---------------------------------------------------------------------------
+// The machines of the Systems page.
+//
+// A real system is a Beszel agent dialling the hub, and the fixture does not run
+// one (the README set is taken on a laptop, not on a fleet): the rows are created
+// through the API - so the configuration, the token and the identity are the ones
+// the dashboard itself would produce - and the samples are written straight into
+// the four history tables, the same way the heartbeat backfill below does it.
+//
+// What the tables then show is the shape of a real report: one minute per sample
+// for the last 24 h, container rows at the same cadence, and one cached SMART
+// report per machine.
+// ---------------------------------------------------------------------------
+const SYSTEMS = [
+  {
+    name: 'Hypervisor (proxmox-01)',
+    host: 'proxmox-01.lan',
+    identity: {
+      hostname: 'proxmox-01',
+      os_name: 'Debian GNU/Linux 12 (bookworm)',
+      kernel: '6.8.12-4-pve',
+      arch: 'amd64',
+      cpu_model: 'AMD Ryzen 9 7950X 16-Core Processor',
+      cores: 16,
+      threads: 32,
+      memory_total: 137438953472,
+      agent_version: '0.21.1',
+      smart_interval: 600,
+    },
+    shape: { cpu: 22, cpuSwing: 14, mem: 46, memSwing: 6, disk: 61, diskGrowth: 0.4, temp: 44, net: 780000, netSwing: 620000 },
+    containers: [
+      { name: 'up', image: 'ghcr.io/ivancarlosti/up:latest', status: 'Up 3 days', health: '', ports: '0.0.0.0:3000->3000/tcp', cpu: 1.4, mem_mb: 96, net_sent: 28000, net_recv: 41000 },
+      { name: 'traefik', image: 'traefik:v3.1', status: 'Up 3 days', health: 'healthy', ports: '0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp', cpu: 0.6, mem_mb: 74, net_sent: 420000, net_recv: 610000 },
+      { name: 'mariadb', image: 'mariadb:11', status: 'Up 3 days', health: 'healthy', ports: '3306/tcp', cpu: 3.1, mem_mb: 812, net_sent: 94000, net_recv: 122000 },
+      { name: 'grafana', image: 'grafana/grafana:11.2.0', status: 'Up 2 days', health: '', ports: '0.0.0.0:3001->3000/tcp', cpu: 0.9, mem_mb: 148, net_sent: 18000, net_recv: 26000, update_available: true },
+      { name: 'node-exporter', image: 'prom/node-exporter:v1.8.2', status: 'Up 3 days', health: '', ports: '0.0.0.0:9100->9100/tcp', cpu: 0.3, mem_mb: 22, net_sent: 12000, net_recv: 9000 },
+    ],
+    // One disk reads PASSED and one reads FAILED on purpose: the S.M.A.R.T. tab
+    // has to show both badges, and the failing attributes are the reason the
+    // machine is watched at all.
+    smart: {
+      sda: {
+        model_name: 'Samsung SSD 870 EVO 1TB',
+        serial_number: 'S6PTNX0T912345A',
+        firmware_version: 'SVT02B6Q',
+        capacity: 1000204886016,
+        status: 'PASSED',
+        disk_name: 'sda',
+        disk_type: 'sata',
+        temperature: 34,
+        attributes: [
+          { id: 5, name: 'Reallocated_Sector_Ct', value: 100, worst: 100, threshold: 10, raw_value: 0, raw_string: '0' },
+          { id: 9, name: 'Power_On_Hours', value: 97, worst: 97, threshold: 0, raw_value: 18422, raw_string: '18422' },
+          { id: 177, name: 'Wear_Leveling_Count', value: 94, worst: 94, threshold: 0, raw_value: 186, raw_string: '186' },
+          { id: 190, name: 'Airflow_Temperature_Cel', value: 66, worst: 52, threshold: 0, raw_value: 34, raw_string: '34 (Min/Max 28/41)' },
+          { id: 199, name: 'CRC_Error_Count', value: 100, worst: 100, threshold: 0, raw_value: 0, raw_string: '0' },
+          { id: 241, name: 'Total_LBAs_Written', value: 99, worst: 99, threshold: 0, raw_value: 31240849736, raw_string: '31240849736' },
+        ],
+      },
+      sdb: {
+        model_name: 'WDC WD40EFRX-68N32N0',
+        serial_number: 'WD-WCC7K4PN9L2R',
+        firmware_version: '82.00A82',
+        capacity: 4000787030016,
+        status: 'FAILED!',
+        disk_name: 'sdb',
+        disk_type: 'sata',
+        temperature: 41,
+        attributes: [
+          { id: 5, name: 'Reallocated_Sector_Ct', value: 12, worst: 1, threshold: 140, raw_value: 2041, raw_string: '2041', when_failed: 'now' },
+          { id: 9, name: 'Power_On_Hours', value: 61, worst: 61, threshold: 0, raw_value: 34118, raw_string: '34118' },
+          { id: 197, name: 'Current_Pending_Sector', value: 0, worst: 0, threshold: 0, raw_value: 48, raw_string: '48', when_failed: 'now' },
+          { id: 198, name: 'Offline_Uncorrectable', value: 100, worst: 100, threshold: 0, raw_value: 3, raw_string: '3' },
+          { id: 194, name: 'Temperature_Celsius', value: 59, worst: 45, threshold: 0, raw_value: 41, raw_string: '41' },
+        ],
+      },
+      nvme0n1: {
+        model_name: 'Samsung SSD 990 PRO 2TB',
+        serial_number: 'S7KHNJ0W412345T',
+        firmware_version: '4B2QJXD7',
+        capacity: 2000398934016,
+        status: 'PASSED',
+        disk_name: 'nvme0n1',
+        disk_type: 'nvme',
+        temperature: 47,
+        attributes: [
+          { id: 5, name: 'Reallocate_NAND_Blk_Cnt', value: 100, worst: 100, threshold: 10, raw_value: 0, raw_string: '0' },
+          { id: 9, name: 'Power_On_Hours', value: 99, worst: 99, threshold: 0, raw_value: 9145, raw_string: '9145' },
+          { id: 194, name: 'Temperature', value: 53, worst: 41, threshold: 0, raw_value: 47, raw_string: '47 Celsius' },
+          { id: 202, name: 'Percent_Lifetime_Remain', value: 98, worst: 98, threshold: 1, raw_value: 98, raw_string: '98' },
+          { id: 241, name: 'Total_LBAs_Written', value: 99, worst: 99, threshold: 0, raw_value: 88142090112, raw_string: '88142090112' },
+        ],
+      },
+    },
+  },
+  {
+    name: 'Edge VPS (fra1)',
+    host: 'edge-fra1.example.com',
+    identity: {
+      hostname: 'edge-fra1',
+      os_name: 'Ubuntu 24.04.1 LTS',
+      kernel: '6.8.0-45-generic',
+      arch: 'arm64',
+      cpu_model: 'Ampere Altra Q80-30',
+      cores: 4,
+      threads: 4,
+      memory_total: 8589934592,
+      agent_version: '0.21.1',
+      smart_interval: 600,
+    },
+    shape: { cpu: 9, cpuSwing: 7, mem: 63, memSwing: 9, disk: 38, diskGrowth: 0.9, temp: 39, net: 2400000, netSwing: 1800000 },
+    containers: [
+      { name: 'caddy', image: 'caddy:2.8-alpine', status: 'Up 5 days', health: '', ports: '0.0.0.0:443->443/tcp, 0.0.0.0:80->80/tcp', cpu: 0.8, mem_mb: 41, net_sent: 1850000, net_recv: 2300000 },
+      { name: 'watchtower', image: 'containrrr/watchtower:1.7.1', status: 'Up 5 days', health: '', ports: '', cpu: 0.1, mem_mb: 18, net_sent: 4200, net_recv: 3100 },
+    ],
+    // No S.M.A.R.T. at all: a VPS usually has no disk it can read, and the tab
+    // has to show that state for this machine without hiding the other one.
+    smart: {},
+  },
+]
+
+// ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
 
@@ -615,6 +740,91 @@ async function seedIPRules() {
   }
   console.log(`  ip rules: ${IP_RULES.length}`)
 }
+/**
+ * seedSystems creates the machines of the Systems page.
+ *
+ * The POST is the real one: the server mints the token, derives the KEY hint and
+ * stores the row. Nothing is started to answer it, which is why the samples below
+ * are written by hand - a system whose `last_sample_at` is fresh reads `up`, and
+ * `connected` only means "an agent socket is open right now", which the cards do
+ * not show.
+ */
+async function seedSystems() {
+  const created = []
+  for (const system of SYSTEMS) {
+    const row = await api('/api/systems', { method: 'POST', body: { name: system.name, host: system.host } })
+    created.push({ ...system, id: row.id })
+    console.log(`  system #${row.id} ${row.name} (${system.containers.length} containers, ${Object.keys(system.smart).length} disks)`)
+  }
+  return created
+}
+
+/** containerRunning mirrors the badge rule of the containers table. */
+function containerRunning(status) {
+  return /^up/i.test(status ?? '')
+}
+
+/** clamp keeps a generated counter inside the range the charts can draw. */
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+/** round trims a float to the digits the columns keep. */
+function round(value, digits) {
+  const factor = 10 ** digits
+  return Math.round(value * factor) / factor
+}
+
+/** quote escapes a value for a single quoted SQL literal. */
+function quote(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "''")
+}
+
+/**
+ * systemSamples builds the 24 h of one machine.
+ *
+ * The shape is a slow wave plus a little noise, so the charts are curves instead
+ * of flat lines, and a reader notices the traffic peak of the edge box. `rnd`
+ * keeps the whole set reproducible.
+ */
+function systemSamples(system) {
+  const { shape, identity } = system
+  const stepMs = 60 * 1000
+  const count = 24 * 60
+  const lastAt = Math.floor((Date.now() - 60 * 1000) / stepMs) * stepMs
+  const bootedAt = lastAt - 11 * 24 * 60 * 60 * 1000
+  const samples = []
+  for (let index = 0; index < count; index++) {
+    const at = lastAt - (count - 1 - index) * stepMs
+    const phase = (index / count) * Math.PI * 2
+    const cpu = clamp(shape.cpu + Math.sin(phase * 3) * shape.cpuSwing + (rnd() - 0.5) * shape.cpuSwing, 1, 98)
+    const memPct = clamp(shape.mem + Math.sin(phase * 1.5) * shape.memSwing + (rnd() - 0.5) * 1.4, 3, 96)
+    const diskPct = clamp(shape.disk + (index / count) * shape.diskGrowth + (rnd() - 0.5) * 0.05, 1, 99)
+    const memTotal = identity.memory_total
+    samples.push({
+      at,
+      cpu,
+      memPct,
+      memUsed: Math.round((memPct / 100) * memTotal),
+      memTotal,
+      swapPct: cpu > 60 ? round(0.6 + rnd() * 1.2, 2) : round(rnd() * 0.4, 2),
+      diskPct,
+      diskUsed: Math.round((diskPct / 100) * 2000398934016),
+      diskTotal: 2000398934016,
+      netSent: Math.round(shape.net * (0.4 + rnd())) + (cpu > 55 ? between(400000, 2600000) : 0),
+      netRecv: Math.round(shape.netSwing * (0.6 + rnd())) + (cpu > 55 ? between(400000, 3200000) : 0),
+      diskRead: between(0, 180000),
+      diskWrite: between(0, 420000),
+      load: round((cpu / 100) * identity.threads + rnd() * 0.8, 2),
+      // The sensor sits a few degrees above idle and follows the load.
+      temperature: round(shape.temp + (cpu / 100) * 18 + rnd() * 2, 1),
+      uptime: Math.round((at - bootedAt) / 1000),
+      containers: system.containers.filter((container) => containerRunning(container.status)).length,
+    })
+  }
+  return samples
+}
+
 
 /** runChecks probes every active monitor for real, so the statuses and the
  *  "last check" column of the table come from genuine probes. */
@@ -661,6 +871,104 @@ async function fixup() {
 }
 
 /**
+ * buildSystemBackfill returns the SQL that fills the four hardware tables.
+ *
+ * The rows are written the way the ingest writes them: one sample per minute, one
+ * container row every five minutes, the snapshot of the containers as it stands
+ * now, and the SMART report the agent keeps cached. Everything is deleted first
+ * because a previous run would otherwise leave its samples behind.
+ */
+function buildSystemBackfill(systems) {
+  const statements = [
+    'DELETE FROM system_metrics;',
+    'DELETE FROM system_container_metrics;',
+    'DELETE FROM system_containers;',
+    'DELETE FROM system_smart;',
+  ]
+
+  const metricValues = []
+  const containerValues = []
+  const snapshotValues = []
+  for (const system of systems) {
+    for (const sample of systemSamples(system)) {
+      metricValues.push(
+        `(${system.id},${round(sample.cpu, 2)},${round(sample.memPct, 2)},${sample.memUsed},${sample.memTotal},` +
+          `${sample.swapPct},${round(sample.diskPct, 2)},${sample.diskUsed},${sample.diskTotal},` +
+          `${sample.netSent},${sample.netRecv},${sample.diskRead},${sample.diskWrite},` +
+          `${sample.load},${sample.temperature},${sample.uptime},${sample.containers},` +
+          `'{"temperatures":{"coretemp":{"Package id 0":${sample.temperature}}}}','${utcSQLTime(sample.at)}')`,
+      )
+    }
+    const newest = utcSQLTime(Date.now() - 60 * 1000)
+    for (const container of system.containers) {
+      const running = containerRunning(container.status)
+      for (let index = 0; index < 24 * 60; index += 5) {
+        const at = utcSQLTime(Date.now() - 60 * 1000 - (24 * 60 - index) * 60 * 1000)
+        const cpu = running ? round(container.cpu * (0.55 + rnd() * 0.9), 2) : 0
+        const mem = running ? round(container.mem_mb * (0.92 + rnd() * 0.14), 1) : 0
+        containerValues.push(
+          `(${system.id},'${quote(container.name)}',${cpu},${mem},` +
+            `${running ? Math.round(container.net_sent * (0.5 + rnd())) : 0},` +
+            `${running ? Math.round(container.net_recv * (0.5 + rnd())) : 0},'${at}')`,
+        )
+      }
+      snapshotValues.push(
+        `(${system.id},'${quote(container.name)}','${quote(container.image)}','${quote(container.status)}',` +
+          `'${quote(container.health ?? '')}','${quote(container.ports ?? '')}',${container.cpu},${container.mem_mb},` +
+          `${container.net_sent},${container.net_recv},${container.update_available ? 1 : 0},` +
+          `'${newest}',UTC_TIMESTAMP(),UTC_TIMESTAMP())`,
+      )
+    }
+  }
+
+  const METRIC_COLUMNS =
+    'INSERT INTO system_metrics (system_id,cpu,mem_pct,mem_used,mem_total,swap_pct,disk_pct,disk_used,disk_total,' +
+    'net_sent,net_recv,disk_read,disk_write,load_avg,temperature,uptime,containers,extra,created_at) VALUES '
+  for (let index = 0; index < metricValues.length; index += 200) {
+    statements.push(METRIC_COLUMNS + metricValues.slice(index, index + 200).join(',') + ';')
+  }
+  const CONTAINER_COLUMNS = 'INSERT INTO system_container_metrics (system_id,name,cpu,mem_mb,net_sent,net_recv,created_at) VALUES '
+  for (let index = 0; index < containerValues.length; index += 200) {
+    statements.push(CONTAINER_COLUMNS + containerValues.slice(index, index + 200).join(',') + ';')
+  }
+  if (snapshotValues.length > 0) {
+    statements.push(
+      'INSERT INTO system_containers (system_id,name,image,status,health,ports,cpu,mem_mb,net_sent,net_recv,' +
+        'update_available,last_seen_at,created_at,updated_at) VALUES ' +
+        snapshotValues.join(',') +
+        ';',
+    )
+  }
+
+  // The identity the agent reports on its first handshake, and the freshness the
+  // listing derives the badge from (services/system_lease.go).
+  for (const system of systems) {
+    const { identity } = system
+    statements.push(
+      `UPDATE systems SET hostname='${quote(identity.hostname)}', os_name='${quote(identity.os_name)}', ` +
+        `kernel='${quote(identity.kernel)}', arch='${quote(identity.arch)}', cpu_model='${quote(identity.cpu_model)}', ` +
+        `cores=${identity.cores}, threads=${identity.threads}, memory_total=${identity.memory_total}, ` +
+        `agent_version='${quote(identity.agent_version)}', smart_interval=${identity.smart_interval}, ` +
+        `fingerprint=SHA2(CONCAT('fixture-', id), 256), last_error='', ` +
+        `last_seen_at=UTC_TIMESTAMP() - INTERVAL 60 SECOND, ` +
+        `last_sample_at=UTC_TIMESTAMP() - INTERVAL 60 SECOND WHERE id=${system.id};`,
+    )
+    if (Object.keys(system.smart).length > 0) {
+      statements.push(
+        `INSERT INTO system_smart (system_id,disks,complete,collected_at,updated_at) VALUES (` +
+          `${system.id},'${quote(JSON.stringify(system.smart))}',1,` +
+          `UTC_TIMESTAMP() - INTERVAL 4 MINUTE,UTC_TIMESTAMP());`,
+      )
+    }
+  }
+
+  // An agent that is not part of the fixture must not keep a lease: the listing
+  // prints the owner node of every system it finds one for.
+  statements.push('DELETE FROM system_leases;')
+  return statements
+}
+
+/**
  * report prints what the table will show, which is how the fixture is verified.
  *
  * Two rows are not green on purpose (`NON_GREEN`): the Redis probe must read
@@ -702,6 +1010,20 @@ async function report(monitors) {
   const certificates = rows.filter((monitor) => monitor.certificate).length
   const domains = rows.filter((monitor) => monitor.domain).length
   console.log(`  certificates read: ${certificates} | domains read: ${domains}`)
+
+  // The hardware half is verified the same way: the listing must read `up` (the
+  // badge comes from `last_sample_at`), and the two tabs must be populated.
+  const systems = await api('/api/systems')
+  const containers = await api('/api/systems/containers')
+  const smart = await api('/api/systems/smart')
+  const up = systems.filter((system) => system.status === 'up').length
+  console.log(
+    `  systems: ${systems.length} (up ${up}) | containers: ${containers.length} | ` +
+      `smart reports: ${smart.length} (${smart.reduce((sum, report) => sum + Object.keys(report.disks ?? {}).length, 0)} disks)`,
+  )
+  for (const system of systems.filter((row) => row.status !== 'up')) {
+    console.log(`  ! ${system.name} reads ${system.status}: last_sample_at=${system.last_sample_at ?? 'null'}`)
+  }
 }
 
 async function main() {
@@ -730,6 +1052,7 @@ async function main() {
   await seedStatusPages(monitors, groups)
   await seedTokens()
   await seedIPRules()
+  const systems = await seedSystems()
 
   console.log(`  backfilling ${BEAT_COUNT} beats x ${monitors.length} monitors (5 min apart, last 24 h)`)
   sql(buildBackfill(monitors))
@@ -743,8 +1066,15 @@ async function main() {
   console.log('  running the expiry job (certificates and domains)')
   await api('/api/admin/expiry/run', { method: 'POST' })
 
+  // The hardware history is written last on purpose: a system reads `down` three
+  // missed polls (3 min) after its last sample, so the badge of the screenshots
+  // is only `up` while the fixture is fresh. Everything slow (the probes, the
+  // expiry job) therefore runs before this, not after.
+  console.log(`  backfilling 1440 samples x ${systems.length} systems, ${systems.reduce((sum, s) => sum + s.containers.length, 0)} containers (1 min apart)`)
+  sql(buildSystemBackfill(systems))
+
   await report(monitors)
-  console.log('done')
+  console.log('done - take the screenshots now: a system without an agent reads down after 3 minutes')
 }
 
 main().catch((error) => {

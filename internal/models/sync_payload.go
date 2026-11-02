@@ -365,7 +365,34 @@ func OutboxToChange(row SyncOutbox) SyncChangePayload {
 	}
 }
 
+// SystemPayload is the configuration of a hardware monitored machine on the wire.
+//
+// It carries the token HASH and never the token: the plaintext is shown once when
+// the system is created and is not recoverable afterwards, while the hash is what
+// the agent handshake is looked up by. The peer transport therefore carries no
+// usable credential — but it does carry the fingerprint and the token prefix, so
+// it must still only travel over TLS, exactly like the status page subscribers.
+//
+// The identity fields (hostname, cores, memory total) are deliberately absent:
+// they are the owner node's observation of the agent, not configuration the
+// peers must agree on.
+type SystemPayload struct {
+	UUID         string    `json:"uuid"`
+	OriginNodeID string    `json:"origin_node_id"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	Enabled      bool   `json:"enabled"`
+	TokenHash    string `json:"token_hash"`
+	TokenPrefix  string `json:"token_prefix"`
+	Fingerprint  string `json:"fingerprint"`
+	AgentVersion string `json:"agent_version"`
+}
+
 // SyncedEntities lists every entity the protocol carries, in a stable order.
+
 func SyncedEntities() []string {
 	return []string{
 		EntityMonitor,
@@ -376,5 +403,6 @@ func SyncedEntities() []string {
 		EntityStatusPageSubscriber,
 		EntityNotification,
 		EntityMonitorNotification,
+		EntitySystem,
 	}
 }

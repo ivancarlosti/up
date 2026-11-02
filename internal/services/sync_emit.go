@@ -937,3 +937,49 @@ func uuidList(ctx context.Context, tx *gorm.DB, query string, args ...any) ([]st
 	}
 	return uuids, nil
 }
+
+// BuildSystemPayload renders a hardware monitored system for the wire.
+//
+// The token travels as a HASH: it is the lookup key of the agent handshake, so a
+// peer needs it to accept the agent after a takeover, and the plaintext (shown
+// once, never stored) is useless to a peer anyway.
+func BuildSystemPayload(system *models.System) ([]byte, error) {
+	return json.Marshal(models.SystemPayload{
+		UUID:         system.UUID,
+		OriginNodeID: system.OriginNodeID,
+		Revision:     system.Revision,
+		UpdatedAt:    system.UpdatedAt,
+
+		Name:         system.Name,
+		Host:         system.Host,
+		Enabled:      system.Enabled,
+		TokenHash:    system.TokenHash,
+		TokenPrefix:  system.TokenPrefix,
+		Fingerprint:  system.Fingerprint,
+		AgentVersion: system.AgentVersion,
+	})
+}
+
+// EmitSystem publishes the configuration of a hardware monitored system.
+//
+// The samples are not published: they are the hardware equivalent of the
+// heartbeat stream and stay local to the node that owns the agent connection, the
+// same decision D5 documents for heartbeats.
+func (e *SyncEmitter) EmitSystem(ctx context.Context, tx *gorm.DB, id uint) error {
+	if e.skip(ctx) {
+		return nil
+	}
+	var row models.System
+	if err := tx.WithContext(ctx).First(&row, id).Error; err != nil {
+		return fmt.Errorf("reading the system to publish: %w", err)
+	}
+	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.System{}, row.ID)
+	payload, err := BuildSystemPayload(&row)
+	if err != nil {
+		return err
+	}
+	return e.write(ctx, tx, models.EntitySystem, SyncIdentity{
+		LocalID: row.ID, UUID: row.UUID, Revision: row.Revision,
+		OriginNodeID: row.OriginNodeID, UpdatedAt: row.UpdatedAt,
+	}, models.ActionUpsert, payload)
+}

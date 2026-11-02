@@ -19,6 +19,9 @@ const ROUTES = [
   // The dashboard is the one monitors screen since 2026-09-27; /admin/monitors
   // only redirects to it, so there is no second shot to take.
   { path: '/', name: 'dashboard' },
+  // The tabs of /systems share one route and one search box, so the page is
+  // checked once: the tables of the other two tabs are the same component.
+  { path: '/systems', name: 'systems' },
   { path: '/admin/monitor-groups', name: 'admin-monitor-groups' },
   { path: '/admin/notifications', name: 'admin-notifications' },
   { path: '/admin/status-pages', name: 'admin-status-pages' },

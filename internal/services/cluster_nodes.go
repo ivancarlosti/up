@@ -180,3 +180,22 @@ func (s *ClusterService) OnlineNodes(ctx context.Context) (online []models.Node,
 	}
 	return online, offline, nil
 }
+
+// CanOwnAgent reports whether this node may hold an agent connection.
+//
+// In shared mode the answer is always yes: the lease row is authoritative, and
+// whichever node the agent reached takes it. In federated mode there is no shared
+// lease to arbitrate, so a node that just restarted must not steal the connection
+// from a node that has been up for hours - it would take an agent away from the
+// node that is already sampling it, exactly the flapping the settle time exists to
+// prevent. The rule is the same one the notification election uses.
+func (s *ClusterService) CanOwnAgent(ctx context.Context) bool {
+	if !s.Federated() {
+		return true
+	}
+	settle := time.Duration(s.cfg.ClusterLeaderSettleSeconds) * time.Second
+	if settle <= 0 {
+		return true
+	}
+	return time.Since(s.startedAt) >= settle
+}

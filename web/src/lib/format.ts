@@ -209,3 +209,29 @@ export function buildBars(heartbeats: HeartbeatSummary[] | undefined, size = 30)
   }
   return bars
 }
+
+/** formatBytes renders a byte count with the unit the value actually needs. */
+export function formatBytes(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+  let size = Math.max(0, value)
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  const rounded = unit === 0 ? Math.round(size) : Number(size.toFixed(digits))
+  return `${rounded} ${units[unit]}`
+}
+
+/** formatRate renders a per second byte rate ("1.5 MiB/s"). */
+export function formatRate(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  return `${formatBytes(value)}/s`
+}
+
+/** formatPercent renders a percentage with one decimal at most. */
+export function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  return `${Number(value.toFixed(1))}%`
+}

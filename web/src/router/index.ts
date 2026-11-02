@@ -23,6 +23,18 @@ const router = createRouter({
      */
     { path: '/admin/monitors', redirect: { name: 'dashboard' } },
     {
+      path: '/systems',
+      name: 'systems',
+      component: () => import('@/views/SystemsView.vue'),
+      meta: { auth: true, app: true },
+    },
+    {
+      path: '/systems/:id',
+      name: 'system-detail',
+      component: () => import('@/views/SystemDetailView.vue'),
+      meta: { auth: true, app: true },
+    },
+    {
       path: '/admin/monitor-groups',
       name: 'admin-monitor-groups',
       component: () => import('@/views/admin/AdminMonitorGroupsView.vue'),

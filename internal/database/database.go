@@ -168,6 +168,15 @@ func MigrationModels() []any {
 		&models.Notification{},
 		&models.NotificationLog{},
 		&models.NotificationLock{},
+		// Hardware monitoring (docs/hardware-monitoring.md): the machines the
+		// Beszel agents report, who owns the connection to each one, and the
+		// samples the charts read.
+		&models.System{},
+		&models.SystemLease{},
+		&models.SystemMetric{},
+		&models.SystemContainer{},
+		&models.SystemContainerMetric{},
+		&models.SystemSmart{},
 		&models.Node{},
 		&models.ClusterSettings{},
 		&models.SyncPeer{},

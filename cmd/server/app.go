@@ -27,7 +27,10 @@ import (
 // application exists, so the SPA is served while the database is being prepared
 // (see cmd/server/main.go and internal/handlers.NewBootstrapEngine).
 type application struct {
-	cfg       *config.Config
+	cfg *config.Config
+	// systems holds the agent connections; they are closed on shutdown so the
+	// other nodes can take the agents over immediately.
+	systems   *services.SystemService
 	log       *slog.Logger
 	engine    *gin.Engine
 	scheduler *scheduler.Scheduler
@@ -48,6 +51,8 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	domains := services.NewDomainService(db, cfg, log)
 	whoisParsers := services.NewWhoisParserService(db, cfg, log)
 	heartbeats := services.NewHeartbeatService(db, cfg, log)
+	// Hardware monitoring: the hub side of the Beszel agent protocol.
+	systems := services.NewSystemService(db, cfg, log)
 	notificationEngine := notify.NewEngine(log, 15*time.Second)
 	notifications := services.NewNotificationService(db, cfg, log, notificationEngine)
 	cluster := services.NewClusterService(db, cfg, log, settings, stats)
@@ -88,6 +93,9 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	// waiting for the daily job.
 	monitors.SetDomainService(domains)
 	heartbeats.SetPublisher(hub)
+	systems.SetPublisher(hub)
+	systems.SetClusterService(cluster)
+	systems.SetSettingService(settings)
 	notifications.SetPublisher(hub)
 	cluster.SetPublisher(hub)
 	cluster.SetMonitorService(monitors)
@@ -110,6 +118,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	statusPages.SetSyncEmitter(syncEmitter)
 	statusPageSubscriptions.SetSyncEmitter(syncEmitter)
 	notifications.SetSyncEmitter(syncEmitter)
+	systems.SetSyncEmitter(syncEmitter)
 	syncService := services.NewSyncService(db, cfg, log, cluster, syncEmitter)
 	syncService.SetPublisher(hub)
 	// The opt-in settings sync needs the local store, so an applied setting refreshes the
@@ -169,6 +178,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 		Lighthouse:              lighthouses,
 		Analysis:                analysis,
 		Heartbeats:              heartbeats,
+		Systems:                 systems,
 		Stats:                   stats,
 		Notifications:           notifications,
 		Cluster:                 cluster,
@@ -196,6 +206,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	sched.SetSyncService(syncService)
 	sched.SetStatusPageSubscriptionService(statusPageSubscriptions)
 	sched.SetSettingService(settings)
+	sched.SetSystemService(systems)
 	state.SetPhase(boot.PhaseScheduler)
 	if err := sched.Start(ctx); err != nil {
 		return nil, err
@@ -211,6 +222,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 
 	return &application{
 		cfg:       cfg,
+		systems:   systems,
 		log:       log,
 		engine:    engine,
 		scheduler: sched,
@@ -287,6 +299,11 @@ func (s *handlerSwitcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // stop releases the background workers.
 func (a *application) stop() {
+	// The agents are released before anything else: a lease held by a process
+	// that is going away is a system nobody polls until it expires.
+	if a.systems != nil {
+		a.systems.CloseAgents("the node is shutting down")
+	}
 	if a.scheduler != nil {
 		a.scheduler.Stop()
 	}

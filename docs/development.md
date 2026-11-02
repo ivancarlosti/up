@@ -285,18 +285,22 @@ npm run shots -- --url http://localhost:3000 --out /tmp/up-shots
 npm run shots -- --url http://localhost:3000 --only dashboard
 ```
 
-`npm run shots` walks the dashboard, the monitor detail and every admin page at
-three profiles (1600x1000 light, 1440x900 dark, 390x844 phone), writes one PNG
-per combination and prints the real time badge it saw on each of them. It fails
-with a non-zero exit code when a page overflows horizontally (`scrollWidth` >
-`innerWidth`), which is the kind of bug a screenshot alone does not reveal: a
-grid child without `min-w-0`, a table that is too wide, a Card without
-`overflow-hidden`. It only reads, so any running instance works:
+`npm run shots` walks the dashboard, `/systems`, the monitor detail and every
+admin page at three profiles (1600x1000 light, 1440x900 dark, 390x844 phone),
+writes one PNG per combination and prints the real time badge it saw on each of
+them. It fails with a non-zero exit code when a page overflows horizontally
+(`scrollWidth` > `innerWidth`), which is the kind of bug a screenshot alone does
+not reveal: a grid child without `min-w-0`, a table that is too wide, a Card
+without `overflow-hidden`. It only reads, so any running instance works - but it
+does **not** sign in, so on an instance with `AUTH_METHOD=account` every route
+lands on the login page and the run proves nothing (all rows read `cards=1`,
+`badge=""`). Point it at a no-auth instance of the same database instead:
 
 ```bash
 # a throwaway instance with no authentication, next to the dev database
-AUTH_METHOD=none APP_PORT=3000 APP_URL=http://localhost:3000 /tmp/up-ui
-curl -s localhost:3000/api/auth/session   # -> "authenticated": true
+AUTH_METHOD=none APP_PORT=3010 APP_URL=http://localhost:3010 /tmp/up-ui
+curl -s localhost:3010/api/auth/session   # -> "authenticated": true
+npm run shots -- --url http://localhost:3010
 ```
 
 The badge column is also a regression test: it must read `Live` on **every**
@@ -307,15 +311,28 @@ while the badge is global (`App.vue` owns it now).
 #### The README set (`npm run shots:readme`)
 
 `docs/screenshots/` is produced by a second, opinionated runner. It needs a
-*seeded* instance, because two of the eleven paths only exist once the data does
-(the monitor detail and the public status page), so it seeds, waits for the data
-to settle and then shoots:
+*seeded* instance, because three of the thirteen paths only exist once the data
+does (the monitor detail, the public status page and the system detail), so it
+seeds, waits for the data to settle and then shoots:
 
 ```bash
 cd web
-npm run seed:demo      # 16 monitors, 4 groups, 4 templates, 4 channels, 2 status pages
-npm run shots:readme   # -> docs/screenshots/{1-dashboard…11-statuspage}.png
+npm run seed:demo      # 16 monitors, 4 groups, 4 templates, 4 channels, 2 status pages, 2 systems
+npm run shots:readme   # -> docs/screenshots/{1-dashboard…13-systemdetail}.png
 ```
+
+Two things about the hardware half of that fixture:
+
+- **No agent runs.** `seed-demo.mjs` creates the systems through the API (token,
+  KEY hint and identity are real) and writes the samples of the last 24 h, the
+  containers and the SMART report straight into the history tables. A system
+  reads `up` while its last sample is younger than three polls (3 min), so the
+  fixture writes the hardware rows **last** and the screenshots have to be taken
+  right after it: `done - take the screenshots now` is the line that says so. An
+  older run shows two `Down` badges, which is the honest state of a machine whose
+  agent is not running.
+- **`npm run shots` covers `/systems` too**, so a table that overflows on a phone
+  fails the layout check even though only the README set has the seeded rows.
 
 Run `seed:demo` against a **fresh** database: it creates rather than reconciles,
 so it refuses a database that already holds monitors unless you pass `--force`

@@ -573,3 +573,19 @@ func normalizeLocale(locale, fallback string) string {
 	}
 	return fallback
 }
+
+// SystemRetentionDays is how many days of hardware history are kept
+// (Admin > Settings). 0 means "never purge".
+func (s *SettingService) SystemRetentionDays() int {
+	if value, ok := s.Get(models.SettingSystemRetentionDays); ok && strings.TrimSpace(value) != "" {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			return models.NormalizeSystemRetentionDays(parsed)
+		}
+	}
+	return models.DefaultSystemRetentionDays
+}
+
+// SetSystemRetentionDays stores the hardware history retention policy.
+func (s *SettingService) SetSystemRetentionDays(ctx context.Context, days int) error {
+	return s.Set(ctx, models.SettingSystemRetentionDays, strconv.Itoa(models.NormalizeSystemRetentionDays(days)))
+}

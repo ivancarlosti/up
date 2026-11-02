@@ -85,6 +85,12 @@ const (
 	CodeTokenExpired  = "ERR_TOKEN_EXPIRED"
 	CodeTokenScope    = "ERR_TOKEN_SCOPE_INSUFFICIENT"
 
+	// Hardware monitoring (systems and their agents)
+	CodeSystemNotFound  = "ERR_SYSTEM_NOT_FOUND"
+	CodeSystemNameTaken = "ERR_SYSTEM_NAME_TAKEN"
+	CodeSystemAgentAuth = "ERR_SYSTEM_AGENT_AUTH"
+	CodeSystemAgentBusy = "ERR_SYSTEM_AGENT_BUSY"
+
 	// Status pages
 	CodeStatusPageNotFound = "ERR_STATUS_PAGE_NOT_FOUND"
 	CodeStatusPageHidden   = "ERR_STATUS_PAGE_NOT_PUBLIC"
@@ -118,6 +124,7 @@ func AllCodes() []string {
 		CodeClusterStrategy,
 		CodeIPBlocked, CodeIPRuleInvalid, CodeTokenRequired, CodeTokenInvalid, CodeTokenExpired,
 		CodeTokenScope,
+		CodeSystemNotFound, CodeSystemNameTaken, CodeSystemAgentAuth, CodeSystemAgentBusy,
 		CodeStatusPageNotFound, CodeStatusPageHidden, CodeSlugTaken,
 		CodeSubscriptionDisabled, CodeSubscriptionToken, CodeSubscriptionEmail,
 		CodeSubscriptionSendFailed,

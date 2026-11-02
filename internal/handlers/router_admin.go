@@ -78,6 +78,26 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	pages.GET("/:id/subscribers", h.listStatusPageSubscribers)
 	pages.DELETE("/:id/subscribers/:subscriber_id", h.deleteStatusPageSubscriber)
 
+	// Hardware monitoring: the machines reported by the Beszel agents, their
+	// containers and their disks (docs/hardware-monitoring.md).
+	systems := admin.Group("/systems")
+	systems.GET("", h.listSystems)
+	systems.POST("", h.createSystem)
+	systems.GET("/agent-key", h.systemHostKey)
+	systems.GET("/containers", h.allContainers)
+	systems.GET("/overview", h.systemsOverview)
+	systems.GET("/smart", h.allSmart)
+	systems.GET("/:id", h.getSystem)
+	systems.PUT("/:id", h.updateSystem)
+	systems.DELETE("/:id", h.deleteSystem)
+	systems.POST("/:id/token", h.rotateSystemToken)
+	systems.GET("/:id/history", h.getSystemHistory)
+	systems.GET("/:id/metrics", h.systemMetrics)
+	systems.GET("/:id/containers", h.systemContainers)
+	systems.GET("/:id/containers/:name/metrics", h.containerMetrics)
+	systems.GET("/:id/smart", h.systemSmart)
+	systems.POST("/:id/smart/refresh", h.refreshSystemSmart)
+
 	cluster := admin.Group("/cluster")
 	cluster.GET("/status", h.clusterStatus)
 	cluster.GET("/sync/status", h.syncStatus)

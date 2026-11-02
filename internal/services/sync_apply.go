@@ -232,6 +232,8 @@ func (s *SyncService) applyEntity(ctx context.Context, tx *gorm.DB, change model
 		return s.applyStatusPageSubscriber(ctx, tx, change)
 	case models.EntityNotification:
 		return s.applyNotification(ctx, tx, change)
+	case models.EntitySystem:
+		return s.applySystem(ctx, tx, change)
 	case models.EntityMonitorGroupMember, models.EntityMonitorNotification:
 		return s.applyRelation(ctx, tx, change)
 	default:

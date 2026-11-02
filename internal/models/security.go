@@ -74,6 +74,11 @@ const (
 	// heartbeat bars cover. It is the global default (Admin > Settings) and the
 	// fallback of every public status page.
 	SettingUptimeWindowHours = "uptime_window_hours"
+	// SettingSystemRetentionDays is how many days of hardware history (the
+	// samples of the agents, and the per container series) are kept. 0 means
+	// "never purge"; see models.DefaultSystemRetentionDays for the value used
+	// when the setting is absent.
+	SettingSystemRetentionDays = "system_retention_days"
 	// SettingRecaptchaClientID is the public site key of Google reCAPTCHA and
 	// SettingRecaptchaClientSecret the matching server side secret. Both are
 	// edited in Admin > Settings ("Login protection") and stored here only:

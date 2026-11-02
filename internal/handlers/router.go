@@ -43,11 +43,13 @@ type Container struct {
 	StatusPages   *services.StatusPageService
 	// StatusPageSubscriptions owns the opt-in incident mails of the public pages.
 	StatusPageSubscriptions *services.StatusPageSubscriptionService
-	Tokens                  *services.TokenService
-	IPRules                 *services.IPRuleService
-	Sessions                *services.SessionService
-	Scheduler               *scheduler.Scheduler
-	Hub                     *ws.Hub
+	// Systems is the hardware monitoring service (the Beszel agent hub).
+	Systems   *services.SystemService
+	Tokens    *services.TokenService
+	IPRules   *services.IPRuleService
+	Sessions  *services.SessionService
+	Scheduler *scheduler.Scheduler
+	Hub       *ws.Hub
 	// Sync is the federated synchronisation service (nil when it is not wired).
 	Sync *services.SyncService
 	// SPA serves the embedded frontend (assets and index.html fallback).
@@ -125,6 +127,15 @@ func (h *Container) Register(engine *gin.Engine) {
 	// outbound connection, which the documentation spells out.
 	v1.POST("/analyze", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiAnalyze)
 
+	// --- Agent API (Beszel agent, token authenticated) --------------------
+	// The agent dials this endpoint and presents its token in the header, so it
+	// carries no session and no IP filter: an agent is not a dashboard visitor,
+	// and an operator rule that blocks the dashboard must not silence a machine.
+	// The rate limit only bounds a broken agent that reconnects in a loop.
+	engine.GET("/api/beszel/agent-connect",
+		middleware.RateLimit(h.Cfg.SecurityPublicRateLimit, time.Minute),
+		h.agentConnect)
+
 	// --- Cluster join ----------------------------------------------------
 	// The same path serves two flavors (see docs/clustering.md): node to node
 	// registration (authenticated with the cluster private key) and the UI
@@ -146,6 +157,9 @@ func (h *Container) Register(engine *gin.Engine) {
 	peers.GET("/votes", h.syncVotes)
 	peers.GET("/settings", h.syncSettings)
 	peers.POST("/now", h.syncNow)
+	// The hardware history of a system owned by another node: the samples stay
+	// local to the owner, and a peer reads them instead of replicating them.
+	peers.GET("/systems/history", h.syncSystemHistory)
 
 	h.registerAdmin(engine)
 }
