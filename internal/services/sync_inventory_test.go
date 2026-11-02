@@ -24,6 +24,8 @@ var syncedModels = map[string]bool{
 	"StatusPageSubscriber": true,
 	"Notification":         true,
 	"MonitorNotification":  true,
+	"SystemAlert":          true,
+	"SystemNotification":   true,
 }
 
 // writeCalls are the GORM verbs that change a row.
@@ -205,6 +207,19 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		// version with touchStatusPage, and the clone publishes the page it just built
 		// (positions included) with publishStatusPage.
 		"writeStatusPageOrder": "caller publishes the page",
+		// The alert rules of a machine live inside the system payload, so the write
+		// that stores them is published by the caller of the same transaction:
+		// Create/Update/Delete call EmitSystem, and Save calls it too.
+		"EnsureDefaults": "caller publishes the rules inside the system payload",
+		"saveRules":      "caller publishes the rules inside the system payload",
+		"saveChannels":   "caller publishes the link diff (emitLinks)",
+		// The latch is the OBSERVATION of the node that held the agent connection,
+		// not configuration: claiming or releasing it is deliberately not published,
+		// and a peer must never inherit an incident it did not see.
+		"Claim":   "writes the local latch, which never travels",
+		"Release": "writes the local latch, which never travels",
+		// The apply path of the two tables (no echo, like every write* above).
+		"writeSystemAlerts": "apply path (no echo)",
 	}
 
 	checked := 0

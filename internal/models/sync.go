@@ -128,6 +128,11 @@ const (
 	// of the heartbeat stream, and each row is an observation of one machine at
 	// one instant, which no peer has to agree with.
 	EntitySystem = "system"
+	// EntitySystemNotification is the link between a machine and a channel. It
+	// is its own entity for the same reason the monitor links are (see above),
+	// and its payload carries the four per event toggles: an operator who
+	// disables "recovered" on one node must not see it come back on another.
+	EntitySystemNotification = "system_notification"
 )
 
 // linkNamespace is the fixed namespace of the relation identifiers. Every node
@@ -164,6 +169,11 @@ func MonitorGroupMemberUUID(monitorUUID, groupUUID string) string {
 // MonitorNotificationUUID is the identity of one monitor-to-channel link.
 func MonitorNotificationUUID(monitorUUID, notificationUUID string) string {
 	return LinkEntityUUID(EntityMonitorNotification, monitorUUID, notificationUUID)
+}
+
+// SystemNotificationUUID is the identity of one machine-to-channel link.
+func SystemNotificationUUID(systemUUID, notificationUUID string) string {
+	return LinkEntityUUID(EntitySystemNotification, systemUUID, notificationUUID)
 }
 
 // Actions of a sync_outbox row.

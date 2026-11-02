@@ -84,6 +84,21 @@ type MonitorNotificationPayload struct {
 	NotificationUUID string `json:"notification_uuid"`
 }
 
+// SystemNotificationPayload is one machine-to-channel link.
+//
+// Unlike its monitor counterpart it carries the four toggles: a machine has four
+// edges (down, up, threshold, recovered) and each of them is an operator
+// decision. The uuid is derived from the pair, so a change of a toggle is an
+// ordinary new revision of the same relation.
+type SystemNotificationPayload struct {
+	SystemUUID       string `json:"system_uuid"`
+	NotificationUUID string `json:"notification_uuid"`
+	OnDown           bool   `json:"on_down"`
+	OnUp             bool   `json:"on_up"`
+	OnThreshold      bool   `json:"on_threshold"`
+	OnRecovered      bool   `json:"on_recovered"`
+}
+
 // MonitorTemplatePayload is a template plus its default links. The defaults
 // travel WITHOUT the two link id fields: they are local ids (see
 // TemplateDefaults) and the links travel as uuids below.
@@ -389,6 +404,23 @@ type SystemPayload struct {
 	TokenPrefix  string `json:"token_prefix"`
 	Fingerprint  string `json:"fingerprint"`
 	AgentVersion string `json:"agent_version"`
+
+	// Alerts is the threshold configuration of the machine. It travels because
+	// it is configuration an operator edits and expects to find on every node;
+	// the LATCH of those rules (whether an alert is firing right now) does not,
+	// because it is the observation of the node that held the agent connection.
+	// An older peer ignores the field, and an empty list never clears what a
+	// node already holds (see writeSystemAlerts).
+	Alerts []SystemAlertRulePayload `json:"alerts,omitempty"`
+}
+
+// SystemAlertRulePayload is one alert rule of a machine on the wire: the
+// configuration only, never the latch.
+type SystemAlertRulePayload struct {
+	Metric     string  `json:"metric"`
+	Enabled    bool    `json:"enabled"`
+	Threshold  float64 `json:"threshold"`
+	MinMinutes int     `json:"min_minutes"`
 }
 
 // SyncedEntities lists every entity the protocol carries, in a stable order.
@@ -404,5 +436,6 @@ func SyncedEntities() []string {
 		EntityNotification,
 		EntityMonitorNotification,
 		EntitySystem,
+		EntitySystemNotification,
 	}
 }

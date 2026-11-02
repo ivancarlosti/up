@@ -44,6 +44,10 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 	// The subscription mailer runs often: a down mail must leave close to its
 	// configured delay, and a recovery mail is immediate.
 	subscriptionTick := time.NewTicker(30 * time.Second)
+	// The hardware alert sweep: 30 s is twice the smallest window a rule can set,
+	// so the down edge of a machine that stopped reporting leaves close to the
+	// minute the operator configured.
+	alertTick := time.NewTicker(30 * time.Second)
 
 	// The pull loop only exists when this node synchronises with peers. A nil
 	// channel blocks forever, which is exactly what "no loop" means inside a
@@ -77,6 +81,7 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 		defer lighthouseTick.Stop()
 		defer retention.Stop()
 		defer subscriptionTick.Stop()
+		defer alertTick.Stop()
 		if pull != nil {
 			defer pull.Stop()
 		}
@@ -195,6 +200,16 @@ func (s *Scheduler) StartMaintenance(ctx context.Context) {
 				}
 			case <-retention.C:
 				s.purgeRetention(ctx)
+			case <-alertTick.C:
+				// Same pattern as the subscription mailer: a sweep talks to the
+				// database for every machine, so a slow one skips the next tick
+				// instead of piling up.
+				if s.systemAlerts != nil && s.alertRunMu.TryLock() {
+					go func(moment time.Time) {
+						defer s.alertRunMu.Unlock()
+						s.systemAlerts.Sweep(ctx)
+					}(time.Now().UTC())
+				}
 			case <-pullC:
 				s.sync.PullPeers(ctx)
 			case <-votesC:

@@ -55,6 +55,11 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	systems := services.NewSystemService(db, cfg, log)
 	notificationEngine := notify.NewEngine(log, 15*time.Second)
 	notifications := services.NewNotificationService(db, cfg, log, notificationEngine)
+	// Hardware alerts: the rules of every machine, evaluated after each sample and
+	// swept by the scheduler (the down rule has no sample to ride on).
+	systemAlerts := services.NewSystemAlertService(db, cfg, log)
+	systemAlerts.SetSystemService(systems)
+	systemAlerts.SetNotificationService(notifications)
 	cluster := services.NewClusterService(db, cfg, log, settings, stats)
 	statusPages := services.NewStatusPageService(db, cfg, log)
 	statusPageSubscriptions := services.NewStatusPageSubscriptionService(db, cfg, log)
@@ -96,6 +101,8 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	systems.SetPublisher(hub)
 	systems.SetClusterService(cluster)
 	systems.SetSettingService(settings)
+	systems.SetAlertService(systemAlerts)
+	systemAlerts.SetPublisher(hub)
 	notifications.SetPublisher(hub)
 	cluster.SetPublisher(hub)
 	cluster.SetMonitorService(monitors)
@@ -207,6 +214,7 @@ func newApplication(ctx context.Context, cfg *config.Config, log *slog.Logger, d
 	sched.SetStatusPageSubscriptionService(statusPageSubscriptions)
 	sched.SetSettingService(settings)
 	sched.SetSystemService(systems)
+	sched.SetSystemAlertService(systemAlerts)
 	state.SetPhase(boot.PhaseScheduler)
 	if err := sched.Start(ctx); err != nil {
 		return nil, err

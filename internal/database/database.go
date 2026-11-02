@@ -177,6 +177,11 @@ func MigrationModels() []any {
 		&models.SystemContainer{},
 		&models.SystemContainerMetric{},
 		&models.SystemSmart{},
+		// The alert rules of a machine and the channels they notify. The rules
+		// travel to the peers inside the system payload; the latch they carry and
+		// the links stay local (docs/hardware-monitoring.md).
+		&models.SystemAlert{},
+		&models.SystemNotification{},
 		&models.Node{},
 		&models.ClusterSettings{},
 		&models.SyncPeer{},

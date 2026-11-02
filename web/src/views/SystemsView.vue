@@ -6,13 +6,11 @@ import {
   Container as ContainerIcon,
   HardDrive,
   KeyRound,
-  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
   Search,
   Server,
-  Trash2,
 } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
@@ -21,13 +19,16 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Input from '@/components/ui/Input.vue'
+import SystemAlertsDialog from '@/components/systems/SystemAlertsDialog.vue'
 import SystemDialog from '@/components/systems/SystemDialog.vue'
-import { api } from '@/lib/api'
+import SystemTable from '@/components/systems/SystemTable.vue'
 import { translateError } from '@/lib/errors'
 import { formatBytes, formatDateTime, formatPercent } from '@/lib/format'
+import type { SystemSortKey, SystemSortState } from '@/lib/system-sort'
+import { loadSystemSort, sortSystems, systemAlerting, systemOverThreshold, toggleSystemSort } from '@/lib/system-sort'
 import { containerRunning, useSystemStore } from '@/stores/systems'
 import { useToastStore } from '@/stores/toast'
-import type { System, SystemPointOverview } from '@/lib/types-systems'
+import type { System } from '@/lib/types-systems'
 
 /**
  * SystemsView is the hardware monitoring page: the machines reported by the Beszel
@@ -45,10 +46,24 @@ const toasts = useToastStore()
 type Tab = 'systems' | 'containers' | 'smart'
 const tab = ref<Tab>('systems')
 const search = ref('')
-const overview = ref<Map<number, SystemPointOverview>>(new Map())
+
+/**
+ * The summary boxes are filters, and they OVERLAP: a machine can be down and be
+ * over its disk threshold at the same time, so the boxes are not a breakdown of
+ * the same total. Clicking one filters the table to it; clicking it again clears
+ * the filter, which is what makes the same seven boxes usable as the only
+ * navigation of the page.
+ */
+type BoxKey = 'up' | 'pending' | 'down' | 'alerting' | 'cpu' | 'memory' | 'disk'
+const box = ref<BoxKey | null>(null)
+
+/** The sort of the table is remembered per browser (lib/table-sort.ts). */
+const sort = ref<SystemSortState>(loadSystemSort())
 
 const dialogOpen = ref(false)
 const editing = ref<System | null>(null)
+const alertsOpen = ref(false)
+const alertsTarget = ref<System | null>(null)
 const confirmOpen = ref(false)
 const pendingRemoval = ref<System | null>(null)
 const rotateOpen = ref(false)
@@ -61,21 +76,76 @@ const tabs = computed(() => [
   { key: 'smart' as Tab, label: t('systems.tabSmart'), icon: HardDrive, count: store.smart.length },
 ])
 
-/** overviewOf returns the last sample of a machine (empty while none exists). */
-function overviewOf(id: number): SystemPointOverview | undefined {
-  return overview.value.get(id)
-}
-
 /** matches is the search predicate shared by the three tabs. */
 function matches(values: (string | undefined | null)[], term: string): boolean {
   if (!term) return true
   return values.some((value) => (value ?? '').toLowerCase().includes(term))
 }
 
+/** inBox applies the summary box that is selected (all of them when none is). */
+function inBox(system: System): boolean {
+  switch (box.value) {
+    case 'up':
+      return system.status === 'up'
+    case 'pending':
+      return system.status === 'pending'
+    case 'down':
+      return system.status === 'down'
+    case 'alerting':
+      return systemAlerting(system)
+    case 'cpu':
+      return systemOverThreshold(system, 'cpu', store.overview)
+    case 'memory':
+      return systemOverThreshold(system, 'memory', store.overview)
+    case 'disk':
+      return systemOverThreshold(system, 'disk', store.overview)
+    default:
+      return true
+  }
+}
+
+/** filteredSystems is the search and the selected box, before the sort. */
 const filteredSystems = computed(() => {
   const term = search.value.trim().toLowerCase()
-  return store.systems.filter((system) => matches([system.name, system.host, system.hostname, system.os_name], term))
+  return store.systems
+    .filter((system) => matches([system.name, system.host, system.hostname, system.os_name], term))
+    .filter(inBox)
 })
+
+/** sortedSystems is what the table renders. */
+const sortedSystems = computed(() =>
+  sortSystems(filteredSystems.value, sort.value.key, sort.value.direction, {
+    locale: locale.value,
+    overview: store.overview,
+  }),
+)
+
+/** boxes is the summary row: the number of machines each box would show. */
+const boxes = computed(() => [
+  { key: 'up' as BoxKey, label: t('systems.summaryUp'), count: store.upCount, tone: 'text-status-up' },
+  { key: 'pending' as BoxKey, label: t('systems.summaryPending'), count: store.pendingCount, tone: 'text-status-degraded' },
+  { key: 'down' as BoxKey, label: t('systems.summaryDown'), count: store.downCount, tone: 'text-status-down' },
+  { key: 'alerting' as BoxKey, label: t('systems.summaryAlerting'), count: store.alertingCount, tone: 'text-status-down' },
+  { key: 'cpu' as BoxKey, label: t('systems.summaryHighCpu'), count: store.highCpuCount, tone: 'text-status-degraded' },
+  { key: 'memory' as BoxKey, label: t('systems.summaryHighMemory'), count: store.highMemoryCount, tone: 'text-status-degraded' },
+  { key: 'disk' as BoxKey, label: t('systems.summaryHighDisk'), count: store.highDiskCount, tone: 'text-status-degraded' },
+])
+
+/** toggleBox selects a box, or clears it when it is already selected. */
+function toggleBox(key: BoxKey): void {
+  box.value = box.value === key ? null : key
+}
+
+/** clearFilters drops the search and the selected box in one click. */
+function clearFilters(): void {
+  search.value = ''
+  box.value = null
+}
+
+/** sortBy asks the table for a new order (and remembers it). */
+function sortBy(key: SystemSortKey): void {
+  sort.value = toggleSystemSort(sort.value, key)
+}
 
 const filteredContainers = computed(() => {
   const term = search.value.trim().toLowerCase()
@@ -94,13 +164,6 @@ const filteredSmart = computed(() => {
       ),
   )
 })
-
-/** statusVariant maps a system status to the badge colour. */
-function statusVariant(status: System['status']): 'success' | 'danger' | 'warning' {
-  if (status === 'up') return 'success'
-  if (status === 'down') return 'danger'
-  return 'warning'
-}
 
 /** smartVariant colours a disk health verdict. */
 function smartVariant(status?: string): 'success' | 'danger' | 'warning' {
@@ -127,22 +190,13 @@ function healthVariant(health?: string): 'success' | 'danger' | 'warning' {
 async function loadTab(): Promise<void> {
   if (tab.value === 'containers') return store.loadContainers()
   if (tab.value === 'smart') return store.loadSmart()
-  await Promise.all([store.load(), loadOverview()])
-}
-
-/** loadOverview fetches the last sample of every machine. */
-async function loadOverview(): Promise<void> {
-  try {
-    const rows = await api.systemsOverview()
-    overview.value = new Map(rows.map((row) => [row.system_id, row]))
-  } catch {
-    overview.value = new Map()
-  }
+  await Promise.all([store.load(), store.loadOverview()])
 }
 
 function switchTab(next: Tab): void {
   tab.value = next
   search.value = ''
+  box.value = null
   store.stopPolling()
   void loadTab()
   store.startPolling(next)
@@ -181,6 +235,12 @@ function askRotate(system: System): void {
   rotateTarget.value = system
   rotatedToken.value = null
   rotateOpen.value = true
+}
+
+/** openAlerts opens the alert dialog of one machine (rules and channels). */
+function openAlerts(system: System): void {
+  alertsTarget.value = system
+  alertsOpen.value = true
 }
 
 /** confirmRotate replaces the token and shows it once. */
@@ -253,10 +313,21 @@ onBeforeUnmount(() => store.stopPolling())
         {{ item.label }}
         <span class="rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{{ item.count }}</span>
       </button>
-      <div class="relative ms-auto w-full sm:w-64">
+    </div>
+
+    <!-- One search box for the three tabs, in the toolbar of the page rather than
+         inside the tab strip: it filters whatever view is open. -->
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="relative w-full sm:max-w-xs">
         <Search class="pointer-events-none absolute inset-y-0 start-2 my-auto h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
         <Input v-model="search" class="ps-7" :placeholder="t('common.search')" />
       </div>
+      <p v-if="tab === 'systems' && (search || box)" class="text-xs text-muted-foreground">
+        {{ t('systems.filteredCount', { count: sortedSystems.length, total: store.systems.length }) }}
+        <button type="button" class="ms-1 underline hover:text-foreground" @click="clearFilters">
+          {{ t('systems.clearFilters') }}
+        </button>
+      </p>
     </div>
 
     <p v-if="store.lastError" class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -265,96 +336,39 @@ onBeforeUnmount(() => store.stopPolling())
 
     <!-- Machines ------------------------------------------------------- -->
     <section v-if="tab === 'systems'" class="space-y-4">
-      <div class="grid gap-3 sm:grid-cols-3">
-        <Card>
-          <p class="text-xs text-muted-foreground">{{ t('systems.summaryUp') }}</p>
-          <p class="mt-1 text-2xl font-semibold text-status-up">{{ store.upCount }}</p>
-        </Card>
-        <Card>
-          <p class="text-xs text-muted-foreground">{{ t('systems.summaryPending') }}</p>
-          <p class="mt-1 text-2xl font-semibold text-status-degraded">{{ store.pendingCount }}</p>
-        </Card>
-        <Card>
-          <p class="text-xs text-muted-foreground">{{ t('systems.summaryDown') }}</p>
-          <p class="mt-1 text-2xl font-semibold text-status-down">{{ store.downCount }}</p>
-        </Card>
+      <!-- The seven boxes are the filters of the table, and they overlap on
+           purpose: "down" and "high disk" can hold at the same time. -->
+      <div class="grid gap-2 grid-cols-2 sm:grid-cols-4 xl:grid-cols-7">
+        <button
+          v-for="item in boxes"
+          :key="item.key"
+          type="button"
+          :aria-pressed="box === item.key"
+          :class="[
+            'rounded-lg border px-3 py-2 text-start transition-colors',
+            box === item.key
+              ? 'border-primary bg-accent'
+              : 'border-border bg-card hover:bg-accent/60',
+          ]"
+          @click="toggleBox(item.key)"
+        >
+          <span class="block truncate text-[11px] text-muted-foreground">{{ item.label }}</span>
+          <span :class="['mt-0.5 block text-xl font-semibold tabular-nums', item.tone]">{{ item.count }}</span>
+        </button>
       </div>
 
-      <EmptyState
-        v-if="!store.loading && filteredSystems.length === 0"
-        :title="t('systems.emptyTitle')"
-        :description="t('systems.emptyDescription')"
-      >
-        <Button size="sm" @click="openCreate">
-          <Plus class="h-3.5 w-3.5" aria-hidden="true" />
-          {{ t('systems.addSystem') }}
-        </Button>
-      </EmptyState>
-
-      <div v-else class="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-        <Card v-for="system in filteredSystems" :key="system.id" :padded="false">
-          <div class="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-            <div class="min-w-0">
-              <RouterLink
-                :to="{ name: 'system-detail', params: { id: system.id } }"
-                class="truncate text-sm font-semibold hover:underline"
-              >
-                {{ system.name }}
-              </RouterLink>
-              <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
-                {{ system.hostname || system.host || t('systems.noHost') }}
-                <span v-if="system.os_name"> · {{ system.os_name }}</span>
-                <span v-if="system.agent_version"> · agent {{ system.agent_version }}</span>
-              </p>
-            </div>
-            <Badge :variant="statusVariant(system.status)">{{ t(`status.${system.status}`) }}</Badge>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2 px-4 py-3 text-xs sm:grid-cols-4">
-            <div>
-              <p class="text-[11px] text-muted-foreground">CPU</p>
-              <p class="font-medium">{{ formatPercent(overviewOf(system.id)?.cpu) }}</p>
-            </div>
-            <div>
-              <p class="text-[11px] text-muted-foreground">{{ t('systems.memory') }}</p>
-              <p class="font-medium">{{ formatPercent(overviewOf(system.id)?.mem_pct) }}</p>
-            </div>
-            <div>
-              <p class="text-[11px] text-muted-foreground">{{ t('systems.disk') }}</p>
-              <p class="font-medium">{{ formatPercent(overviewOf(system.id)?.disk_pct) }}</p>
-            </div>
-            <div>
-              <p class="text-[11px] text-muted-foreground">{{ t('systems.containersLabel') }}</p>
-              <p class="font-medium">{{ overviewOf(system.id)?.containers ?? 0 }}</p>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
-            <p class="truncate text-[11px] text-muted-foreground">
-              <template v-if="system.last_sample_at">
-                {{ t('systems.lastSample', { time: formatDateTime(system.last_sample_at, locale) }) }}
-              </template>
-              <template v-else>{{ t('systems.noSampleYet') }}</template>
-              <span v-if="system.owner_node_name"> · {{ t('systems.ownerNode', { node: system.owner_node_name }) }}</span>
-            </p>
-            <div class="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="icon" :aria-label="t('common.edit')" @click="openEdit(system)">
-                <Pencil class="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-              <Button variant="ghost" size="icon" :aria-label="t('systems.rotateToken')" @click="askRotate(system)">
-                <KeyRound class="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-              <Button variant="ghost" size="icon" :aria-label="t('common.delete')" @click="askRemoval(system)">
-                <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-
-          <p v-if="system.last_error" class="border-t border-border px-4 py-2 text-[11px] text-destructive">
-            {{ system.last_error }}
-          </p>
-        </Card>
-      </div>
+      <SystemTable
+        :systems="sortedSystems"
+        :sort="sort"
+        :overview="store.overview"
+        :loading="store.loading"
+        @sort="sortBy"
+        @edit="openEdit"
+        @rotate="askRotate"
+        @remove="askRemoval"
+        @alerts="openAlerts"
+        @create="openCreate"
+      />
     </section>
 
     <!-- Containers ----------------------------------------------------- -->
@@ -454,7 +468,9 @@ onBeforeUnmount(() => store.stopPolling())
       </Card>
     </section>
 
-    <SystemDialog v-model="dialogOpen" :system="editing" @saved="loadOverview" />
+    <SystemDialog v-model="dialogOpen" :system="editing" @saved="loadTab" />
+
+    <SystemAlertsDialog v-model="alertsOpen" :system="alertsTarget" />
 
     <ConfirmDialog
       v-model="confirmOpen"

@@ -184,15 +184,18 @@ type UptimeStats struct {
 // NotificationLog records one delivery attempt (success or failure) so the UI
 // can show why a notification was not received.
 type NotificationLog struct {
-	ID             uint              `gorm:"primaryKey" json:"id"`
-	NotificationID uint              `gorm:"not null;index" json:"notification_id"`
-	MonitorID      uint              `gorm:"index" json:"monitor_id"`
-	Event          NotificationEvent `gorm:"size:24;not null" json:"event"`
-	Success        bool              `gorm:"not null;default:false" json:"success"`
-	Error          string            `gorm:"size:1000" json:"error"`
-	DurationMS     int64             `json:"duration_ms"`
-	NodeID         string            `gorm:"size:64" json:"node_id"`
-	CreatedAt      time.Time         `json:"created_at"`
+	ID             uint `gorm:"primaryKey" json:"id"`
+	NotificationID uint `gorm:"not null;index" json:"notification_id"`
+	MonitorID      uint `gorm:"index" json:"monitor_id"`
+	// SystemID is the machine a hardware alert was about (0 for the monitor
+	// events), so the admin log can say which box a delivery belonged to.
+	SystemID   uint              `gorm:"index" json:"system_id,omitempty"`
+	Event      NotificationEvent `gorm:"size:24;not null" json:"event"`
+	Success    bool              `gorm:"not null;default:false" json:"success"`
+	Error      string            `gorm:"size:1000" json:"error"`
+	DurationMS int64             `json:"duration_ms"`
+	NodeID     string            `gorm:"size:64" json:"node_id"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 // NotificationLock is the database lock used by the ANY_WITH_LOCK cluster

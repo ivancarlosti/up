@@ -399,7 +399,12 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-for="entry in logs" :key="entry.id">
-            <td>#{{ entry.notification_id }} / #{{ entry.monitor_id }}</td>
+            <td>
+              <span>#{{ entry.notification_id }}</span>
+              <span class="ms-1 text-muted-foreground">
+                {{ entry.system_id ? `${t('systems.system')} #${entry.system_id}` : `#${entry.monitor_id}` }}
+              </span>
+            </td>
             <td>
               <Badge :variant="entry.success ? 'success' : 'danger'">{{ entry.success ? 'ok' : 'error' }}</Badge>
             </td>

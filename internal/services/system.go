@@ -27,6 +27,8 @@ type SystemService struct {
 	cluster  *ClusterService
 	hub      EventPublisher
 	sync     *SyncEmitter
+	// alerts evaluates the rules of the machines (nil disables the alerts).
+	alerts *SystemAlertService
 	// agents holds the live connections (system_agent.go).
 	agents *agentRegistry
 }
@@ -50,6 +52,13 @@ func (s *SystemService) SetClusterService(c *ClusterService) { s.cluster = c }
 // SetSettingService injects the settings store (retention policy).
 func (s *SystemService) SetSettingService(settings *SettingService) { s.settings = settings }
 
+// SetAlertService injects the alert rules service: it is evaluated after every
+// stored sample and swept by the scheduler.
+func (s *SystemService) SetAlertService(alerts *SystemAlertService) { s.alerts = alerts }
+
+// Alerts returns the alert service (nil when the alerts are not wired).
+func (s *SystemService) Alerts() *SystemAlertService { return s.alerts }
+
 // SystemInput is the editable part of a system.
 type SystemInput struct {
 	Name    string `json:"name"`
@@ -68,6 +77,9 @@ type SystemView struct {
 	InstallCommand string `json:"install_command,omitempty"`
 	// AgentKey is the public key the agent must be started with (KEY).
 	AgentKey string `json:"agent_key,omitempty"`
+	// Alerts are the alert rules of the machine, latch included. They default to
+	// models.DefaultSystemAlerts for a machine that never opened the dialog.
+	Alerts []models.SystemAlertRule `json:"alerts,omitempty"`
 }
 
 // agentTokenLength is the length of the generated token. 32 base64url characters

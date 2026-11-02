@@ -55,6 +55,33 @@ Every message also carries the URL of the page it is about - the monitor detail
 for a status event, the expiry worklist for these reminders - see
 *Where a notification links to* in §2.
 
+### Hardware alerts (`system_*`)
+
+A machine (see `docs/hardware-monitoring.md`) has its own four events, produced by
+the alert rules of that machine rather than by a probe:
+
+| Event | Sent when | Link toggle |
+|---|---|---|
+| `system_down` | the `down` rule fires: the agent stopped reporting for the listing grace plus the configured minutes | `on_down` |
+| `system_up` | that rule recovers (samples resume) and it had fired | `on_up` |
+| `system_threshold` | a numeric rule (`cpu`, `memory`, `disk`) crosses its threshold, sustained over its window | `on_threshold` |
+| `system_recovered` | that rule comes back under and it had fired | `on_recovered` |
+
+They are delivered to the channels linked to the **machine**, which is a separate
+list from the monitor links: a channel may watch the probes, the boxes or both.
+Each link carries the four toggles above, and a channel with the event switched
+off is skipped entirely — no delivery and no `notification_logs` row.
+
+The edges are claimed through the rule's latch (`system_alerts.triggered`), so a
+cluster sends each of them once even when the agent connection moves between nodes,
+and a recovery is only announced when the alert had actually fired.
+
+The payload keeps the shape of a status event (`event`, `monitor`, `type`,
+`target`, `status`, `message`, `node`, `timestamp`, `dashboard_url`) and adds the
+hardware fields for a consumer that wants to route a box apart from a probe:
+`system`, `system_host`, `metric` (`down`, `cpu`, `memory`, `disk`), `value`,
+`threshold` (numeric rules only) and `min_minutes`.
+
 ## 2. Channels
 
 ### SMTP (e-mail)
@@ -222,6 +249,7 @@ instead of landing on the instance root and searching:
 | `down`, `up` (and any other status event) | `<APP_URL>/monitors/<id>` | The monitor detail page holds the statistics, the event log and the heartbeats of the alerting monitor - whatever its type is (`http`, `keyword`, `tcp`, `dns`, `ssl`) |
 | `cert_expiring`, `cert_expired`, `domain_expiring`, `domain_expired` | `<APP_URL>/admin/expiry` | The reminder is about a *target*: the expiry worklist deduplicates the certificates and the domains, and the same entry can back many monitors, so no single monitor page shows the whole story |
 | `test` | `<APP_URL>` | The sample monitor of a test message is not stored, so there is no detail page to open (`/monitors/0` would be a dead link) |
+| `system_down`, `system_up`, `system_threshold`, `system_recovered` | `<APP_URL>/systems/<id>` | The machine detail page holds the charts, the containers and the disks of the box the alert is about |
 
 `APP_URL` is the instance origin (`https://br01.up.icc.gg`). It is trimmed of a
 trailing slash and the path is appended, so `https://br01.up.icc.gg` and
@@ -417,7 +445,8 @@ Every attempt produces one row in `notification_logs`:
 | Column | Meaning |
 |---|---|
 | `notification_id`, `monitor_id` | who/what |
-| `event` | `down`, `up`, `test`, `cert_expiring`, `cert_expired`, `domain_expiring` or `domain_expired` |
+| `system_id` | the machine a hardware alert was about (`0` for every monitor event) |
+| `event` | `down`, `up`, `test`, `cert_expiring`, `cert_expired`, `domain_expiring`, `domain_expired`, `system_down`, `system_up`, `system_threshold` or `system_recovered` |
 | `success` | delivery accepted by the endpoint |
 | `error` | reason when `success=0` (the shoutrrr error message, whatever the channel) |
 | `duration_ms` | time of the attempt |

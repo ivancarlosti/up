@@ -214,7 +214,12 @@ func (s *SyncService) applyChanges(ctx context.Context, tx *gorm.DB, changes []m
 // isRelation reports whether an entity is a relation between two rows (it has no
 // row of its own to write in a first pass).
 func isRelation(entity string) bool {
-	return entity == models.EntityMonitorGroupMember || entity == models.EntityMonitorNotification
+	switch entity {
+	case models.EntityMonitorGroupMember, models.EntityMonitorNotification,
+		models.EntitySystemNotification:
+		return true
+	}
+	return false
 }
 
 // applyEntity dispatches one change to the applier of its entity.
@@ -234,7 +239,8 @@ func (s *SyncService) applyEntity(ctx context.Context, tx *gorm.DB, change model
 		return s.applyNotification(ctx, tx, change)
 	case models.EntitySystem:
 		return s.applySystem(ctx, tx, change)
-	case models.EntityMonitorGroupMember, models.EntityMonitorNotification:
+	case models.EntityMonitorGroupMember, models.EntityMonitorNotification,
+		models.EntitySystemNotification:
 		return s.applyRelation(ctx, tx, change)
 	default:
 		// An entity this build does not know (a newer peer). Skipping it keeps the
@@ -553,7 +559,7 @@ func (s *SyncService) applyRelation(ctx context.Context, tx *gorm.DB, change mod
 	if err != nil {
 		return models.ApplySkip, err
 	}
-	linked, err := s.linkRelation(ctx, tx, change.Entity, monitorUUID, targetUUID)
+	linked, err := s.linkRelation(ctx, tx, change, monitorUUID, targetUUID)
 	if err != nil {
 		return models.ApplySkip, err
 	}
@@ -599,15 +605,26 @@ func (s *SyncService) relationEnds(ctx context.Context, tx *gorm.DB, change mode
 			return "", "", fmt.Errorf("unreadable link payload for %s: %w", change.UUID, err)
 		}
 		return decoded.MonitorUUID, decoded.NotificationUUID, nil
+	case models.EntitySystemNotification:
+		var decoded models.SystemNotificationPayload
+		if err := json.Unmarshal(payload, &decoded); err != nil {
+			return "", "", fmt.Errorf("unreadable system link payload for %s: %w", change.UUID, err)
+		}
+		return decoded.SystemUUID, decoded.NotificationUUID, nil
 	}
 	return "", "", fmt.Errorf("entity %q is not a relation", change.Entity)
 }
 
 // linkRelation materialises a relation whose two ends both exist locally. It
 // reports false when one of them has not arrived yet.
-func (s *SyncService) linkRelation(ctx context.Context, tx *gorm.DB, entity, monitorUUID, targetUUID string) (bool, error) {
-	monitorID, monitorOK, err := s.localID(ctx, tx, models.EntityMonitor, monitorUUID)
-	if err != nil || !monitorOK {
+//
+// The change (not just its entity) is passed because a machine link carries its
+// four per event toggles in the payload: applying the link of a peer must store
+// the switches that peer wrote, not a hard-coded default.
+func (s *SyncService) linkRelation(ctx context.Context, tx *gorm.DB, change models.SyncChangePayload, firstUUID, targetUUID string) (bool, error) {
+	entity := change.Entity
+	firstID, firstOK, err := s.localID(ctx, tx, sourceEntity(entity), firstUUID)
+	if err != nil || !firstOK {
 		return false, err
 	}
 	target, targetOK, err := s.localID(ctx, tx, targetEntity(entity), targetUUID)
@@ -623,15 +640,41 @@ func (s *SyncService) linkRelation(ctx context.Context, tx *gorm.DB, entity, mon
 		// the group the monitor is leaving would hold it in two groups until that
 		// tombstone arrives.
 		if err := tx.WithContext(ctx).
-			Where("monitor_id = ? AND group_id <> ?", monitorID, target).
+			Where("monitor_id = ? AND group_id <> ?", firstID, target).
 			Delete(&models.MonitorGroupMember{}).Error; err != nil {
 			return true, err
 		}
-		link := models.MonitorGroupMember{GroupID: target, MonitorID: monitorID}
+		link := models.MonitorGroupMember{GroupID: target, MonitorID: firstID}
 		return true, tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&link).Error
 	case models.EntityMonitorNotification:
-		link := models.MonitorNotification{MonitorID: monitorID, NotificationID: target, OnDown: true, OnUp: true}
+		link := models.MonitorNotification{MonitorID: firstID, NotificationID: target, OnDown: true, OnUp: true}
 		return true, tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&link).Error
+	case models.EntitySystemNotification:
+		var decoded models.SystemNotificationPayload
+		if len(change.Payload) > 0 {
+			if err := json.Unmarshal(change.Payload, &decoded); err != nil {
+				return false, fmt.Errorf("unreadable system link payload for %s: %w", change.UUID, err)
+			}
+		}
+		link := models.SystemNotification{
+			SystemID:       firstID,
+			NotificationID: target,
+			OnDown:         decoded.OnDown,
+			OnUp:           decoded.OnUp,
+			OnThreshold:    decoded.OnThreshold,
+			OnRecovered:    decoded.OnRecovered,
+		}
+		// The toggles are the payload, so a second revision of the same pair has
+		// to overwrite them: DoNothing would pin the first revision forever.
+		return true, tx.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "system_id"}, {Name: "notification_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"on_down":      link.OnDown,
+				"on_up":        link.OnUp,
+				"on_threshold": link.OnThreshold,
+				"on_recovered": link.OnRecovered,
+			}),
+		}).Create(&link).Error
 	}
 	return false, fmt.Errorf("entity %q is not a relation", entity)
 }
@@ -643,7 +686,7 @@ func (s *SyncService) removeRelation(ctx context.Context, tx *gorm.DB, change mo
 	if err != nil {
 		return err
 	}
-	monitorID, monitorOK, err := s.localID(ctx, tx, models.EntityMonitor, monitorUUID)
+	monitorID, monitorOK, err := s.localID(ctx, tx, sourceEntity(change.Entity), monitorUUID)
 	if err != nil {
 		return err
 	}
@@ -661,8 +704,19 @@ func (s *SyncService) removeRelation(ctx context.Context, tx *gorm.DB, change mo
 	case models.EntityMonitorNotification:
 		return tx.WithContext(ctx).Where("monitor_id = ? AND notification_id = ?", monitorID, target).
 			Delete(&models.MonitorNotification{}).Error
+	case models.EntitySystemNotification:
+		return tx.WithContext(ctx).Where("system_id = ? AND notification_id = ?", monitorID, target).
+			Delete(&models.SystemNotification{}).Error
 	}
 	return fmt.Errorf("entity %q is not a relation", change.Entity)
+}
+
+// sourceEntity maps a relation to the entity of its first end.
+func sourceEntity(entity string) string {
+	if entity == models.EntitySystemNotification {
+		return models.EntitySystem
+	}
+	return models.EntityMonitor
 }
 
 // targetEntity maps a relation to the entity of its second end.

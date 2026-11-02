@@ -58,6 +58,12 @@ type Scheduler struct {
 	// systems owns the hardware history retention and the agent connections
 	// (optional: nil on a build without the feature).
 	systems *services.SystemService
+	// systemAlerts evaluates the alert rules of the machines, the down rule
+	// included (nil when the alerts are not wired).
+	systemAlerts *services.SystemAlertService
+	// alertRunMu keeps a sweep from overlapping the next tick when the database is
+	// slow: a sweep is bounded work, but it is not instant on a large install.
+	alertRunMu sync.Mutex
 }
 
 type commandKind int
@@ -136,6 +142,13 @@ func (s *Scheduler) SetSyncService(sync *services.SyncService) { s.sync = sync }
 // applies the history retention it owns, and the shutdown releases the agent
 // connections so another node picks the agents up immediately.
 func (s *Scheduler) SetSystemService(systems *services.SystemService) { s.systems = systems }
+
+// SetSystemAlertService injects the hardware alert evaluator, driven by its own
+// 30 second ticker (a machine that stops reporting produces no sample, so nothing
+// else would notice it).
+func (s *Scheduler) SetSystemAlertService(alerts *services.SystemAlertService) {
+	s.systemAlerts = alerts
+}
 
 // SetStatusPageSubscriptionService injects the opt-in mailer of the public status
 // pages, driven by its own 30 second ticker.

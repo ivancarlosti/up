@@ -2,13 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
-import { ArrowLeft, HardDrive, RefreshCw } from 'lucide-vue-next'
+import { ArrowLeft, BellRing, HardDrive, RefreshCw } from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import Select from '@/components/ui/Select.vue'
 import MetricChart from '@/components/systems/MetricChart.vue'
+import SystemAlertsDialog from '@/components/systems/SystemAlertsDialog.vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
 import { formatBytes, formatDateTime, formatPercent } from '@/lib/format'
@@ -32,6 +33,8 @@ const hours = ref(24)
 const history = ref<SystemHistory | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+/** alertsOpen shows the alert rules/channels dialog of this machine. */
+const alertsOpen = ref(false)
 
 /** selectedContainer is the container whose history is charted below the table. */
 const selectedContainer = ref<string | null>(null)
@@ -141,6 +144,10 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <div class="flex items-center gap-2">
+        <Button variant="outline" size="sm" :disabled="!history" @click="alertsOpen = true">
+          <BellRing class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ t('systems.alertsButton') }}
+        </Button>
         <Select v-model="hours" :options="windowOptions" class="w-32" />
         <Button variant="outline" size="sm" :loading="loading" @click="load">
           <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
@@ -148,6 +155,8 @@ onBeforeUnmount(() => {
         </Button>
       </div>
     </header>
+
+    <SystemAlertsDialog v-model="alertsOpen" :system="history?.system ?? null" />
 
     <p v-if="error" class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
       {{ error }}

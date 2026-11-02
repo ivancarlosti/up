@@ -102,6 +102,8 @@ be restarted with the new value.
 | `system_containers` | the owner node | the latest state of each container (a mirror of the last sample) |
 | `system_container_metrics` | the owner node | one row per running container per minute |
 | `system_smart` | the owner node | the last SMART report, as the agent sent it (JSON) |
+| `system_alerts` | any node (operator edit) + the owner node (latch) | one row per machine and metric: `enabled`, `threshold`, `min_minutes`, and the local latch `triggered`/`triggered_at` |
+| `system_notifications` | any node (operator edit) | the channels a machine notifies, with one toggle per event (`on_down`, `on_up`, `on_threshold`, `on_recovered`) |
 
 The charts are downsampled **when they are read** (`system_stats.go`): a window is
 split into ~240 buckets and the database returns one averaged row per bucket, so a
@@ -156,7 +158,55 @@ A node that just restarted does not steal an agent from a node that has been up 
 hours: `ClusterService.CanOwnAgent` applies the same settle time the notification
 election uses.
 
-## 5. HTTP API
+## 5. Alerts
+
+Every machine has one rule per metric, at the Beszel defaults:
+
+| Rule | Default | Fires when |
+|---|---|---|
+| `down` | 5 min | `now - last_sample_at - SystemDownAfter >= min` — the listing already waits three missed polls (3 min), so the rule adds its own patience on top of that grace |
+| `cpu` | 80 %, 5 min | the **average** of `[T - min, T]` is at or above the threshold |
+| `memory` | 80 %, 5 min | same, over `mem_pct` |
+| `disk` | 85 %, 5 min | same, over the root filesystem |
+
+The evaluation is **stateless**: nothing but the latch is remembered between two
+ticks. It runs in two places, and both are idempotent because an edge is dispatched
+only by the caller that wins the latch:
+
+- `EvaluateSample`, on the node that just stored a sample (the live path: a crossing
+  is noticed the second it happens);
+- `Sweep`, every 30 s on every node (the silent path: a machine that stopped
+  reporting produces no sample, so nothing else would ever run; it also releases a
+  latch whose samples came back on another node after a failover).
+
+A window the history does not cover is **not** an alert (the oldest sample of the
+window must be at least 90 % of the window old), and a window with no sample at all
+is skipped entirely: a machine that stopped reporting must not "recover" from its CPU
+alert just because the average of nothing is zero. Its down rule is the one that
+speaks for it.
+
+The latch is claimed with `UPDATE system_alerts SET triggered = 1 … WHERE triggered = 0`
+and released the other way, so exactly one node (or one tick) sends the firing edge,
+and the state survives a failover without any coordination. The latch is **local**:
+it is never synchronised.
+
+An event is sent only when the latch changes, and only to the channels that opted
+into it. A channel with the event switched off is skipped entirely — no delivery and
+no `notification_logs` row.
+
+| Edge | Event | Toggle |
+|---|---|---|
+| the down rule fires | `system_down` | `on_down` |
+| the machine reports again | `system_up` | `on_up` |
+| a threshold rule fires | `system_threshold` | `on_threshold` |
+| it comes back under | `system_recovered` | `on_recovered` |
+
+The Systems page reads the same rules back: its summary boxes are filters built on
+them (`High CPU`, `High memory`, `High disk` compare the latest sample with the
+threshold of the **enabled** rule, `Alerting` counts the machines with a firing
+latch), and the rows are the machines themselves.
+
+## 6. HTTP API
 
 The dashboard routes are session authenticated (`registerAdmin`); the agent route
 is not (the agent has no session).
@@ -170,6 +220,8 @@ is not (the agent has no session).
 | GET/PUT/DELETE | `/api/systems/:id` | read, edit, delete (the delete removes the history) |
 | POST | `/api/systems/:id/token` | rotate the agent token (answers with the new one) |
 | GET | `/api/systems/:id/history?hours=` | the detail page: row + charts + containers + SMART |
+| GET | `/api/systems/:id/alerts` | the alert rules of the machine and its channel links |
+| PUT | `/api/systems/:id/alerts` | save the rules and the links (one revision, published to the peers) |
 | GET | `/api/systems/:id/metrics?hours=` | only the charts |
 | GET | `/api/systems/:id/containers` | the containers of the machine |
 | GET | `/api/systems/:id/containers/:name/metrics?hours=` | one container's history |
@@ -180,7 +232,7 @@ is not (the agent has no session).
 | GET | `/api/beszel/agent-connect` | the WebSocket the agent dials (token in `X-Token`) |
 | GET | `/api/cluster/sync/systems/history` | peer API: the history of a system this node owns |
 
-## 6. Limitations worth knowing
+## 7. Limitations worth knowing
 
 - **Poll interval is fixed at 60 s.** The agent's own collector resolves one
   minute, so a shorter interval would re-read a cache. It is
@@ -199,10 +251,15 @@ is not (the agent has no session).
   until the operator rotates the token (which clears the binding).
 - **A regenerated cluster key rotates the agent KEY.** Every agent must then be
   restarted with the new value; Admin > Cluster warns about it.
+- **An alert is evaluated against the history the node holds.** The samples live
+  on the node that owns the agent (decision D5), so the rules of a machine are
+  evaluated there; the latch is shared through the database, the samples are not.
+- **The window must be covered.** A rule needs the history of its whole window
+  before it can fire, so a freshly added machine cannot alert on its first sample.
 - The `systems` UI strings are shipped in English for the locales that have no
   translation yet (the keys exist everywhere, so the parity check stays green).
 
-## 7. Tests
+## 8. Tests
 
 Unit tests run with the normal suite:
 
@@ -237,7 +294,7 @@ opens the WebSocket, authenticates with the token and the host key, answers a
 sample, and the assertions read the stored history, the containers and the SMART
 row back through the API service.
 
-## 8. Protocol attribution
+## 9. Protocol attribution
 
 The CBOR actions, the request envelope, the sample structs and the fingerprint
 handshake are those of [Beszel](https://github.com/henrygd/beszel) by Henry

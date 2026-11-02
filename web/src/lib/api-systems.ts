@@ -4,6 +4,8 @@ import type {
   ContainerPoint,
   SmartReport,
   System,
+  SystemAlerts,
+  SystemAlertsPayload,
   SystemContainer,
   SystemHistory,
   SystemPayload,
@@ -36,6 +38,10 @@ export const systemsApi = {
   deleteSystem: (id: number) => del<void>(`/api/systems/${id}`),
   /** rotateToken replaces the agent token and answers with the new one, once. */
   rotateSystemToken: (id: number) => post<System>(`/api/systems/${id}/token`),
+  /** systemAlerts is the alert dialog payload: the rules and the channel links. */
+  systemAlerts: (id: number) => get<SystemAlerts>(`/api/systems/${id}/alerts`),
+  saveSystemAlerts: (id: number, payload: SystemAlertsPayload) =>
+    put<SystemAlerts>(`/api/systems/${id}/alerts`, payload),
   /** agentKey is the KEY value the agent must be started with. */
   agentKey: () => get<AgentKeyInfo>('/api/systems/agent-key'),
   containers: (id: number) => get<SystemContainer[]>(`/api/systems/${id}/containers`),

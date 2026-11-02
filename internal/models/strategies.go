@@ -127,6 +127,17 @@ const (
 	EventDomainExpiring NotificationEvent = "domain_expiring"
 	// EventDomainExpired is the registration being past its expiry date.
 	EventDomainExpired NotificationEvent = "domain_expired"
+	// The hardware monitoring events. A machine is not a probe: it has its own
+	// vocabulary so a receiver can route "the box is gone" apart from "the site
+	// is down" without inspecting the payload.
+	//
+	// EventSystemDown is the down rule firing, EventSystemUp its recovery;
+	// EventSystemThreshold is a metric crossing its threshold and
+	// EventSystemRecovered its coming back under it.
+	EventSystemDown      NotificationEvent = "system_down"
+	EventSystemUp        NotificationEvent = "system_up"
+	EventSystemThreshold NotificationEvent = "system_threshold"
+	EventSystemRecovered NotificationEvent = "system_recovered"
 )
 
 // ---------------------------------------------------------------------------

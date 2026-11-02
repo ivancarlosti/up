@@ -91,6 +91,8 @@ func (s *SystemService) nodeNames(ctx context.Context) (map[string]string, error
 // ten minutes old has no data to show, and calling it up would be a lie. Three
 // missed polls (models.SystemDownAfter) are tolerated, so one slow collection does
 // not flip the badge.
+// decorate turns a stored row into the API view: the runtime status, the owner
+// and the alert rules of the machine.
 func (s *SystemService) decorate(system *models.System, owner systemOwner) SystemView {
 	view := SystemView{System: *system}
 	view.Connected = s.agents.connected(system.ID)

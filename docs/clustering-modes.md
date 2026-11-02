@@ -359,7 +359,9 @@ Observed on a two node lab (one shared database, `CLUSTER_PEER_API=true`):
 | `monitor_templates` | sync | already has a uuid |
 | `status_pages` (+ `status_page_monitors`, `status_page_groups`) | sync | referenced monitors/groups resolve by uuid; the page carries its `monitor_order` and every selection row its `order_only` flag, so a peer renders the same order inside the same sections |
 | `status_page_subscribers` | sync | one row per page+address, deterministic uuid; the payload carries **PII** (the e-mail) and the token hashes, so the peers must run over TLS like the channel payload. Incidents and notices stay local (derived state) |
-| `systems` (hardware monitoring) | sync | name, host notes, enabled, token **hash**, fingerprint: a peer must be able to accept the agent of a system this node owned until it died |
+| `systems` (hardware monitoring) | sync | name, host notes, enabled, token **hash**, fingerprint: a peer must be able to accept the agent of a system this node owned until it died. The payload also carries the **alert rules** (`alerts`) |
+| `system_alerts` | rules sync / latch local | the threshold, the window and the on/off switch are configuration and travel inside the system payload; the LATCH (`triggered`, `triggered_at`) is the observation of the node that held the agent connection and never leaves it |
+| `system_notifications` | sync | its own entity (`system_notification`), like the monitor↔channel links, and its payload carries the four per event toggles |
 | `system_metrics`, `system_containers`, `system_container_metrics`, `system_smart` | local | the samples of one machine at one instant: they are the hardware equivalent of `heartbeats` (**D5**). A node reads them from the owner through `GET /api/cluster/sync/systems/history` |
 | `system_leases` | local | the ownership row is per node database; a peer that has to take an agent over takes its own lease when the connection arrives |
 | `heartbeats` | local | see **D5** |
@@ -774,7 +776,10 @@ nodes ran with two databases throughout.
    and the group editor both rewrite the same join table — and with lists inside the
    payload that gives two writers of two conflicting versions of one relation. As its
    own entity, a relation has one identity, one revision and one writer per edit, and
-   it can be removed without touching its container.
+   it can be removed without touching its container. The machine↔channel links
+   (`system_notification`) follow the same rule, with one addition: their payload
+   carries the four per event toggles, so the entity is applied with an upsert of
+   those columns (a `DO NOTHING` would pin the first revision for ever).
 2. **Tombstones are kept; only the outbox is pruned (§12).**
    `CLUSTER_SYNC_TOMBSTONE_DAYS` prunes the **outbox**, not `sync_objects`. A
    tombstone in `sync_objects` is what stops a re-delivered old upsert from

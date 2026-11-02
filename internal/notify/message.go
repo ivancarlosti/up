@@ -76,6 +76,18 @@ type Message struct {
 	// every other caller leaves both empty and keeps the default rendering.
 	TextBody string
 	HTMLBody string
+	// The hardware monitoring fields. They are empty for every monitor event, and
+	// they are what makes the bodies say "System" instead of "Monitor".
+	//
+	// SystemMetric is the rule that fired (cpu, memory, disk, down),
+	// SystemValue its measured average and SystemThreshold the configured limit
+	// (0 for the down rule, which has no percentage).
+	SystemName       string
+	SystemHost       string
+	SystemMetric     string
+	SystemValue      float64
+	SystemThreshold  float64
+	SystemMinMinutes int
 }
 
 // SPA routes the notifications link to. They mirror web/src/router/index.ts: the
@@ -83,6 +95,9 @@ type Message struct {
 // certificate/domain target.
 const (
 	monitorsPathPrefix = "/monitors/"
+	// systemsPathPrefix is the hardware detail page: the charts, the containers
+	// and the disks of one machine.
+	systemsPathPrefix = "/systems/"
 	// ExpiryPath is the page that shows the certificates and the domains Up
 	// watches, with the monitors that share each of them.
 	ExpiryPath = "/admin/expiry"
@@ -298,6 +313,20 @@ func (m Message) jsonPayload() map[string]any {
 	if len(m.DomainStatuses) > 0 {
 		payload["domain_statuses"] = m.DomainStatuses
 		payload["domain_statuses_csv"] = m.DomainStatusCSV()
+	}
+	// A hardware alert names the machine and the rule that fired. The monitor
+	// keys above carry the same name and host, so a consumer that only knows
+	// monitor payloads keeps working; these are the extra fields it can read
+	// when it wants to route a box apart from a probe.
+	if m.isSystem() {
+		payload["system"] = m.SystemName
+		payload["system_host"] = m.SystemHost
+		payload["metric"] = m.SystemMetric
+		payload["value"] = m.SystemValue
+		payload["min_minutes"] = m.SystemMinMinutes
+		if m.SystemMetric != string(models.SystemAlertDown) {
+			payload["threshold"] = m.SystemThreshold
+		}
 	}
 	return payload
 }

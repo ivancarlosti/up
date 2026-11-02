@@ -84,6 +84,13 @@ func (s *SystemService) IngestSample(ctx context.Context, system *models.System,
 		"containers": metric.Containers,
 		"first":      system.LastSampleAt == nil,
 	})
+	// The rules are evaluated on the sample that was just stored: the counters
+	// are in the database, so a crossing is noticed immediately instead of on the
+	// next sweep. A failure here never fails the ingest - the sample is the data,
+	// the alert is a consequence of it.
+	if s.alerts != nil {
+		s.alerts.EvaluateSample(ctx, system.ID, now)
+	}
 	return nil
 }
 

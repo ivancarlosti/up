@@ -40,6 +40,8 @@ func TestSystemRoutesRegistered(t *testing.T) {
 		"DELETE /api/systems/:id":                       false,
 		"POST /api/systems/:id/token":                   false,
 		"GET /api/systems/:id/history":                  false,
+		"GET /api/systems/:id/alerts":                   false,
+		"PUT /api/systems/:id/alerts":                   false,
 		"GET /api/systems/:id/metrics":                  false,
 		"GET /api/systems/:id/containers":               false,
 		"GET /api/systems/:id/containers/:name/metrics": false,

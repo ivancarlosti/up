@@ -8,6 +8,50 @@
 /** State of a system in the listing (models.SystemStatus). */
 export type SystemStatus = 'up' | 'down' | 'pending'
 
+/**
+ * The metric an alert rule watches (models.SystemAlertMetric).
+ *
+ * `down` is the silence of the agent; the other three are percentages of the
+ * machine averaged over the rule's window.
+ */
+export type SystemAlertMetric = 'down' | 'cpu' | 'memory' | 'disk'
+
+/** One alert rule of a machine (models.SystemAlertRule). */
+export interface SystemAlertRule {
+  metric: SystemAlertMetric
+  enabled: boolean
+  /** Percentage a numeric rule fires above; ignored by `down`. */
+  threshold: number
+  /** How long the condition must hold before the alert fires. */
+  min_minutes: number
+  /** Whether the rule is firing right now (local to the node that evaluated it). */
+  triggered: boolean
+  triggered_at?: string | null
+}
+
+/** One machine-to-channel link (models.SystemNotification). */
+export interface SystemAlertChannel {
+  system_id: number
+  notification_id: number
+  on_down: boolean
+  on_up: boolean
+  on_threshold: boolean
+  on_recovered: boolean
+}
+
+/** Everything the alert dialog edits (services.SystemAlertsView). */
+export interface SystemAlerts {
+  system_id: number
+  rules: SystemAlertRule[]
+  channels: SystemAlertChannel[]
+}
+
+/** The body of PUT /api/systems/:id/alerts. */
+export interface SystemAlertsPayload {
+  rules: Pick<SystemAlertRule, 'metric' | 'enabled' | 'threshold' | 'min_minutes'>[]
+  channels: Omit<SystemAlertChannel, 'system_id'>[]
+}
+
 export interface System {
   id: number
   uuid: string
@@ -39,6 +83,8 @@ export interface System {
   connected: boolean
   owner_node?: string
   owner_node_name?: string
+  /** The alert rules of the machine (models.SystemAlertRule), latch included. */
+  alerts?: SystemAlertRule[]
   /** Only present in the answer that created the system or rotated its token. */
   token?: string
   install_command?: string

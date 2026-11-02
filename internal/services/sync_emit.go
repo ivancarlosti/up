@@ -943,7 +943,11 @@ func uuidList(ctx context.Context, tx *gorm.DB, query string, args ...any) ([]st
 // The token travels as a HASH: it is the lookup key of the agent handshake, so a
 // peer needs it to accept the agent after a takeover, and the plaintext (shown
 // once, never stored) is useless to a peer anyway.
-func BuildSystemPayload(system *models.System) ([]byte, error) {
+//
+// alerts is the threshold configuration loaded by the caller: it is part of the
+// configuration an operator edits, so it travels with the row (and never the
+// latch, see models.SystemPayload.Alerts).
+func BuildSystemPayload(system *models.System, alerts []models.SystemAlert) ([]byte, error) {
 	return json.Marshal(models.SystemPayload{
 		UUID:         system.UUID,
 		OriginNodeID: system.OriginNodeID,
@@ -957,7 +961,26 @@ func BuildSystemPayload(system *models.System) ([]byte, error) {
 		TokenPrefix:  system.TokenPrefix,
 		Fingerprint:  system.Fingerprint,
 		AgentVersion: system.AgentVersion,
+
+		Alerts: SystemAlertRulePayloads(alerts),
 	})
+}
+
+// SystemAlertRulePayloads converts the stored rules into their wire form.
+func SystemAlertRulePayloads(rows []models.SystemAlert) []models.SystemAlertRulePayload {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]models.SystemAlertRulePayload, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.SystemAlertRulePayload{
+			Metric:     string(row.Metric),
+			Enabled:    row.Enabled,
+			Threshold:  row.Threshold,
+			MinMinutes: row.MinMinutes,
+		})
+	}
+	return out
 }
 
 // EmitSystem publishes the configuration of a hardware monitored system.
@@ -974,7 +997,12 @@ func (e *SyncEmitter) EmitSystem(ctx context.Context, tx *gorm.DB, id uint) erro
 		return fmt.Errorf("reading the system to publish: %w", err)
 	}
 	row.OriginNodeID = e.stampOrigin(ctx, tx, &models.System{}, row.ID)
-	payload, err := BuildSystemPayload(&row)
+	var alerts []models.SystemAlert
+	if err := tx.WithContext(ctx).Where("system_id = ?", row.ID).
+		Order("metric ASC").Find(&alerts).Error; err != nil {
+		return fmt.Errorf("reading the alert rules of system %d: %w", row.ID, err)
+	}
+	payload, err := BuildSystemPayload(&row, alerts)
 	if err != nil {
 		return err
 	}
@@ -982,4 +1010,34 @@ func (e *SyncEmitter) EmitSystem(ctx context.Context, tx *gorm.DB, id uint) erro
 		LocalID: row.ID, UUID: row.UUID, Revision: row.Revision,
 		OriginNodeID: row.OriginNodeID, UpdatedAt: row.UpdatedAt,
 	}, models.ActionUpsert, payload)
+}
+
+// EmitSystemNotification publishes or removes one machine-to-channel link.
+//
+// The payload carries the four toggles, and link is the row as it stands locally
+// (nil for a tombstone, which a receiver resolves from the pair anyway).
+func (e *SyncEmitter) EmitSystemNotification(ctx context.Context, tx *gorm.DB,
+	systemUUID string, notificationID uint, link *models.SystemNotification, linked bool) error {
+
+	if systemUUID == "" || notificationID == 0 {
+		return nil
+	}
+	notificationUUID, err := e.RowUUID(ctx, tx, models.EntityNotification, notificationID)
+	if err != nil || notificationUUID == "" {
+		return err
+	}
+	uuid := models.SystemNotificationUUID(systemUUID, notificationUUID)
+	return e.emitLink(ctx, tx, models.EntitySystemNotification, uuid, linked, func() ([]byte, error) {
+		payload := models.SystemNotificationPayload{
+			SystemUUID:       systemUUID,
+			NotificationUUID: notificationUUID,
+		}
+		if link != nil {
+			payload.OnDown = link.OnDown
+			payload.OnUp = link.OnUp
+			payload.OnThreshold = link.OnThreshold
+			payload.OnRecovered = link.OnRecovered
+		}
+		return json.Marshal(payload)
+	})
 }

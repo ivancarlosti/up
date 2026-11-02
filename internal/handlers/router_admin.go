@@ -92,6 +92,8 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	systems.DELETE("/:id", h.deleteSystem)
 	systems.POST("/:id/token", h.rotateSystemToken)
 	systems.GET("/:id/history", h.getSystemHistory)
+	systems.GET("/:id/alerts", h.getSystemAlerts)
+	systems.PUT("/:id/alerts", h.updateSystemAlerts)
 	systems.GET("/:id/metrics", h.systemMetrics)
 	systems.GET("/:id/containers", h.systemContainers)
 	systems.GET("/:id/containers/:name/metrics", h.containerMetrics)

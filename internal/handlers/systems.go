@@ -248,6 +248,54 @@ func (h *Container) systemSmart(c *gin.Context) {
 	api.OK(c, reports)
 }
 
+// requireSystemAlerts answers 503 when the alert service is not wired.
+func (h *Container) requireSystemAlerts(c *gin.Context) bool {
+	if h.Systems != nil && h.Systems.Alerts() != nil {
+		return true
+	}
+	api.WriteError(c, http.StatusServiceUnavailable, i18n.CodeValidation, "hardware alerts are not enabled")
+	return false
+}
+
+// getSystemAlerts returns the alert rules of one machine and the channels they
+// notify.
+func (h *Container) getSystemAlerts(c *gin.Context) {
+	if !h.requireSystemAlerts(c) {
+		return
+	}
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	view, err := h.Systems.Alerts().View(c.Request.Context(), id)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, view)
+}
+
+// updateSystemAlerts saves the rules and the channel links of one machine.
+func (h *Container) updateSystemAlerts(c *gin.Context) {
+	if !h.requireSystemAlerts(c) {
+		return
+	}
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload services.SystemAlertsInput
+	if !bindJSON(c, &payload) {
+		return
+	}
+	view, err := h.Systems.Alerts().Save(c.Request.Context(), id, payload)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.OK(c, view)
+}
+
 // refreshSystemSmart asks the owner of an agent for a fresh SMART report.
 func (h *Container) refreshSystemSmart(c *gin.Context) {
 	if !h.requireSystems(c) {

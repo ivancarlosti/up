@@ -2,8 +2,18 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/lib/api'
 import { translateError } from '@/lib/errors'
+import { systemAlerting, systemOverThreshold } from '@/lib/system-sort'
 import { useAppStore } from '@/stores/app'
-import type { SmartReport, System, SystemContainer, SystemHistory, SystemPayload } from '@/lib/types-systems'
+import type {
+  SmartReport,
+  System,
+  SystemAlerts,
+  SystemAlertsPayload,
+  SystemContainer,
+  SystemHistory,
+  SystemPayload,
+  SystemPointOverview,
+} from '@/lib/types-systems'
 
 /**
  * useSystemStore keeps the hardware monitored machines, their containers and their
@@ -31,6 +41,14 @@ export const useSystemStore = defineStore('systems', () => {
   const systems = ref<System[]>([])
   const containers = ref<SystemContainer[]>([])
   const smart = ref<SmartReport[]>([])
+  /**
+   * overview is the LAST SAMPLE of every machine, keyed by system id.
+   *
+   * It is what the table shows under each name, and what the "High CPU/memory/
+   * disk" boxes count: a machine row carries no counters of its own, and asking
+   * every row for them would be one request per machine.
+   */
+  const overview = ref<Map<number, SystemPointOverview>>(new Map())
   const loading = ref(false)
   const saving = ref(false)
   const lastError = ref<string | null>(null)
@@ -39,6 +57,24 @@ export const useSystemStore = defineStore('systems', () => {
   const pendingCount = computed(() => systems.value.filter((system) => system.status === 'pending').length)
   const downCount = computed(() => systems.value.filter((system) => system.status === 'down').length)
   const runningContainers = computed(() => containers.value.filter((container) => containerRunning(container.status)).length)
+  /**
+   * The four alert counters of the summary row.
+   *
+   * They are deliberately independent of each other: a machine can be down AND
+   * over its disk threshold, and the boxes are filters, not a breakdown. The
+   * numbers are computed from the same helpers the table uses, so a badge and a
+   * box never disagree.
+   */
+  const alertingCount = computed(() => systems.value.filter(systemAlerting).length)
+  const highCpuCount = computed(
+    () => systems.value.filter((system) => systemOverThreshold(system, 'cpu', overview.value)).length,
+  )
+  const highMemoryCount = computed(
+    () => systems.value.filter((system) => systemOverThreshold(system, 'memory', overview.value)).length,
+  )
+  const highDiskCount = computed(
+    () => systems.value.filter((system) => systemOverThreshold(system, 'disk', overview.value)).length,
+  )
 
   /** load fetches the machine list; silent skips the spinner of a refresh. */
   async function load(options: { silent?: boolean } = {}): Promise<void> {
@@ -99,6 +135,40 @@ export const useSystemStore = defineStore('systems', () => {
       smart.value = reports
     } catch {
       // The badges are decoration: the tab body owns the message when it fails.
+    }
+  }
+
+  /** loadOverview fetches the last sample of every machine. */
+  async function loadOverview(): Promise<void> {
+    try {
+      const rows = await api.systemsOverview()
+      overview.value = new Map(rows.map((row) => [row.system_id, row]))
+    } catch {
+      // The counters are decoration: the table reports its own failure, and an
+      // empty map simply renders a dash instead of a number.
+      overview.value = new Map()
+    }
+  }
+
+  /** overviewOf returns the last sample of a machine (undefined while none exists). */
+  function overviewOf(id: number): SystemPointOverview | undefined {
+    return overview.value.get(id)
+  }
+
+  /** alerts loads the alert configuration of one machine (the dialog payload). */
+  async function alerts(id: number): Promise<SystemAlerts> {
+    return api.systemAlerts(id)
+  }
+
+  /** saveAlerts stores the rules and the channel links of one machine. */
+  async function saveAlerts(id: number, payload: SystemAlertsPayload): Promise<SystemAlerts> {
+    saving.value = true
+    try {
+      const saved = await api.saveSystemAlerts(id, payload)
+      await load({ silent: true })
+      return saved
+    } finally {
+      saving.value = false
     }
   }
 
@@ -172,7 +242,7 @@ export const useSystemStore = defineStore('systems', () => {
   async function refresh(tab: 'systems' | 'containers' | 'smart'): Promise<void> {
     if (tab === 'containers') return loadContainers()
     if (tab === 'smart') return loadSmart()
-    return load({ silent: true })
+    await Promise.all([load({ silent: true }), loadOverview()])
   }
 
   const app = useAppStore()
@@ -182,19 +252,28 @@ export const useSystemStore = defineStore('systems', () => {
     systems,
     containers,
     smart,
+    overview,
     loading,
     saving,
     lastError,
     upCount,
     downCount,
     pendingCount,
+    alertingCount,
+    highCpuCount,
+    highMemoryCount,
+    highDiskCount,
     runningContainers,
     clusterEnabled,
     load,
+    loadOverview,
+    overviewOf,
     loadContainers,
     loadSmart,
     loadCounters,
     history,
+    alerts,
+    saveAlerts,
     create,
     update,
     remove,

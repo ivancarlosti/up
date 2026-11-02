@@ -14,31 +14,45 @@ func (m Message) Text() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n", m.Title)
-	fmt.Fprintf(&b, "Monitor : %s (%s)\n", m.MonitorName, m.MonitorType)
-	fmt.Fprintf(&b, "Target  : %s\n", m.MonitorURL)
-	fmt.Fprintf(&b, "Status  : %s\n", strings.ToUpper(m.Status))
+	// The first block is the subject of the alert: a machine or a monitor.
+	// MetricLine is empty for a monitor, and the Type line is empty for a
+	// machine (a box is not one of the six probe types).
+	fmt.Fprintf(&b, "%-8s: %s\n", m.NameLabel(), m.Subject())
+	if kind := m.KindLabel(); kind != "" {
+		fmt.Fprintf(&b, "%-8s: %s\n", "Type", kind)
+	}
+	if target := m.TargetLabel(); target != "" {
+		fmt.Fprintf(&b, "%-8s: %s\n", "Target", target)
+	}
+	if metric := m.MetricLine(); metric != "" {
+		fmt.Fprintf(&b, "%-8s: %s\n", "Metric", metric)
+	}
+	fmt.Fprintf(&b, "%-8s: %s\n", "Status", strings.ToUpper(m.Status))
 	if m.Message != "" {
-		fmt.Fprintf(&b, "Detail  : %s\n", m.Message)
+		fmt.Fprintf(&b, "%-8s: %s\n", "Detail", m.Message)
 	}
 	if tags := m.TagsCSV(); tags != "" {
-		fmt.Fprintf(&b, "Tags    : %s\n", tags)
+		fmt.Fprintf(&b, "%-8s: %s\n", "Tags", tags)
 	}
 	if group := m.MonitorGroup; group != "" {
-		fmt.Fprintf(&b, "Group   : %s\n", group)
+		fmt.Fprintf(&b, "%-8s: %s\n", "Group", group)
 	}
 	// The registry status of a domain reminder (RDAP only): it explains a lock
 	// or an "inactive" registration next to the date.
 	if statuses := m.DomainStatusCSV(); statuses != "" {
-		fmt.Fprintf(&b, "Registry: %s\n", statuses)
+		fmt.Fprintf(&b, "%-8s: %s\n", "Registry", statuses)
 	}
-	fmt.Fprintf(&b, "Latency : %d ms\n", m.LatencyMS)
+	if m.LatencyMS > 0 {
+		fmt.Fprintf(&b, "%-8s: %d ms\n", "Latency", m.LatencyMS)
+	}
 	if m.NodeID != "" {
-		fmt.Fprintf(&b, "Node    : %s\n", m.NodeID)
+		fmt.Fprintf(&b, "%-8s: %s\n", "Node", m.NodeID)
 	}
-	fmt.Fprintf(&b, "Time    : %s\n", m.Timestamp.Format(time.RFC1123))
+	fmt.Fprintf(&b, "%-8s: %s\n", "Time", m.Timestamp.Format(time.RFC1123))
 	if link := m.Link(); link != "" {
 		// The specific page of the event: the monitor detail for a status alert,
-		// the expiry worklist for a certificate/domain reminder.
+		// the machine charts for a hardware alert, the expiry worklist for a
+		// certificate/domain reminder.
 		fmt.Fprintf(&b, "\nDashboard: %s\n", link)
 	}
 	return b.String()
@@ -54,15 +68,16 @@ func (m Message) HTML() string {
 	fmt.Fprintf(&b, `<h2 style="margin:0 0 12px">%s</h2>`, template.HTMLEscapeString(m.Title))
 	b.WriteString(`<table cellpadding="4" style="border-collapse:collapse">`)
 	rows := [][2]string{
-		{"Monitor", m.MonitorName},
-		{"Type", m.MonitorType},
-		{"Target", m.MonitorURL},
+		{m.NameLabel(), m.Subject()},
+		{"Type", m.KindLabel()},
+		{"Target", m.TargetLabel()},
+		{"Metric", m.MetricLine()},
 		{"Status", strings.ToUpper(m.Status)},
 		{"Detail", m.Message},
 		{"Tags", m.TagsCSV()},
 		{"Group", m.MonitorGroup},
 		{"Registry", m.DomainStatusCSV()},
-		{"Latency", fmt.Sprintf("%d ms", m.LatencyMS)},
+		{"Latency", m.latencyLabel()},
 		{"Node", m.NodeID},
 		{"Time", m.Timestamp.Format(time.RFC1123)},
 	}

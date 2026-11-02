@@ -585,7 +585,20 @@ export interface NotificationLog {
   id: number
   notification_id: number
   monitor_id: number
-  event: 'down' | 'up' | 'test' | 'cert_expiring' | 'cert_expired' | 'domain_expiring' | 'domain_expired'
+  /** The machine a hardware alert was about (0/absent for the monitor events). */
+  system_id?: number
+  event:
+    | 'down'
+    | 'up'
+    | 'test'
+    | 'cert_expiring'
+    | 'cert_expired'
+    | 'domain_expiring'
+    | 'domain_expired'
+    | 'system_down'
+    | 'system_up'
+    | 'system_threshold'
+    | 'system_recovered'
   success: boolean
   error: string
   duration_ms: number

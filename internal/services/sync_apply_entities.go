@@ -893,7 +893,8 @@ func (s *SyncService) resolveContainerReferences(ctx context.Context, tx *gorm.D
 		if _, _, err := s.writeTemplate(ctx, tx, payload, container.LocalID); err != nil {
 			return err
 		}
-	case models.EntityMonitorGroupMember, models.EntityMonitorNotification:
+	case models.EntityMonitorGroupMember, models.EntityMonitorNotification,
+		models.EntitySystemNotification:
 		// A relation carries its two ends in its own stored payload: the uuid is a
 		// hash of them, so the payload is the only way back to the pair.
 		change := models.SyncChangePayload{
@@ -905,7 +906,7 @@ func (s *SyncService) resolveContainerReferences(ctx context.Context, tx *gorm.D
 		if err != nil {
 			return err
 		}
-		if _, err := s.linkRelation(ctx, tx, marker.Entity, monitorUUID, targetUUID); err != nil {
+		if _, err := s.linkRelation(ctx, tx, change, monitorUUID, targetUUID); err != nil {
 			return err
 		}
 	default:
@@ -936,6 +937,7 @@ func (s *SyncService) applySystem(ctx context.Context, tx *gorm.DB, change model
 				&models.SystemMetric{}, &models.SystemContainer{},
 				&models.SystemContainerMetric{}, &models.SystemSmart{},
 				&models.SystemLease{},
+				&models.SystemAlert{}, &models.SystemNotification{},
 			} {
 				if err := tx.WithContext(ctx).Where("system_id = ?", current.LocalID).
 					Delete(model).Error; err != nil {
@@ -996,6 +998,9 @@ func (s *SyncService) writeSystem(ctx context.Context, tx *gorm.DB, payload mode
 			Updates(columns).Error; err != nil {
 			return 0, false, fmt.Errorf("updating system %s: %w", payload.UUID, err)
 		}
+		if err := s.writeSystemAlerts(ctx, tx, localID, payload.Alerts); err != nil {
+			return 0, false, err
+		}
 		return localID, false, nil
 	}
 
@@ -1019,5 +1024,54 @@ func (s *SyncService) writeSystem(ctx context.Context, tx *gorm.DB, payload mode
 	if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
 		return 0, false, fmt.Errorf("creating system %s: %w", payload.UUID, err)
 	}
+	if err := s.writeSystemAlerts(ctx, tx, row.ID, payload.Alerts); err != nil {
+		return 0, false, err
+	}
 	return row.ID, true, nil
+}
+
+// writeSystemAlerts applies the alert rules a peer published.
+//
+// It is an upsert on the configuration columns only: the latch of a rule is the
+// observation of THIS node and must survive a peer's edit. An empty list is not
+// "no rules": it is a peer that predates them (or a payload that only carries the
+// name), so the local rules are left exactly as they are.
+func (s *SyncService) writeSystemAlerts(ctx context.Context, tx *gorm.DB, systemID uint, rules []models.SystemAlertRulePayload) error {
+	if len(rules) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	for _, rule := range rules {
+		normalized, ok := models.NormalizeSystemAlert(models.SystemAlertRule{
+			Metric:     models.SystemAlertMetric(rule.Metric),
+			Enabled:    rule.Enabled,
+			Threshold:  rule.Threshold,
+			MinMinutes: rule.MinMinutes,
+		})
+		if !ok {
+			// A rule of a newer build: storing it would mean keeping a threshold
+			// nothing here evaluates.
+			continue
+		}
+		row := models.SystemAlert{
+			SystemID:   systemID,
+			Metric:     normalized.Metric,
+			Enabled:    normalized.Enabled,
+			Threshold:  normalized.Threshold,
+			MinMinutes: normalized.MinMinutes,
+			UpdatedAt:  now,
+		}
+		if err := tx.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "system_id"}, {Name: "metric"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"enabled":     normalized.Enabled,
+				"threshold":   normalized.Threshold,
+				"min_minutes": normalized.MinMinutes,
+				"updated_at":  now,
+			}),
+		}).Create(&row).Error; err != nil {
+			return fmt.Errorf("applying the %s rule of system %d: %w", normalized.Metric, systemID, err)
+		}
+	}
+	return nil
 }

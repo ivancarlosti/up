@@ -26,9 +26,19 @@ func (s *SystemService) List(ctx context.Context) ([]SystemView, error) {
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uint, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	alerts, err := s.alertIndex(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]SystemView, 0, len(rows))
 	for i := range rows {
-		out = append(out, s.decorate(&rows[i], owners[rows[i].ID]))
+		view := s.decorate(&rows[i], owners[rows[i].ID])
+		view.Alerts = alerts[rows[i].ID]
+		out = append(out, view)
 	}
 	return out, nil
 }
@@ -44,7 +54,21 @@ func (s *SystemService) Get(ctx context.Context, id uint) (*SystemView, error) {
 		return nil, err
 	}
 	view := s.decorate(system, owners[system.ID])
+	alerts, err := s.alertIndex(ctx, []uint{system.ID})
+	if err != nil {
+		return nil, err
+	}
+	view.Alerts = alerts[system.ID]
 	return &view, nil
+}
+
+// alertIndex reads the alert rules of the given machines (one query). A machine
+// with no row yet answers with the defaults, so a GET never writes.
+func (s *SystemService) alertIndex(ctx context.Context, ids []uint) (map[uint][]models.SystemAlertRule, error) {
+	if s.alerts == nil {
+		return nil, nil
+	}
+	return s.alerts.States(ctx, ids)
 }
 
 // find loads a system row or reports the stable not found error.
@@ -96,6 +120,13 @@ func (s *SystemService) Create(ctx context.Context, input SystemInput) (*SystemV
 				return ErrConflict(i18n.CodeSystemNameTaken, "a system with that name already exists")
 			}
 			return fmt.Errorf("creating the system: %w", err)
+		}
+		// Every machine starts with the default alert rules: the evaluator must
+		// have a row to claim, and the dialog opens on something sensible.
+		if s.alerts != nil {
+			if err := s.alerts.EnsureDefaults(ctx, tx, system.ID); err != nil {
+				return err
+			}
 		}
 		return s.emit(ctx, tx, system.ID)
 	}); err != nil {
@@ -163,10 +194,24 @@ func (s *SystemService) Delete(ctx context.Context, id uint) error {
 	}
 	s.Detach(id, "the system was deleted")
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The links are tombstoned before the row: a relation is addressed by its
+		// two ends, so its tombstone has to name a system that still exists.
+		if s.sync != nil {
+			var links []models.SystemNotification
+			if err := tx.WithContext(ctx).Where("system_id = ?", id).Find(&links).Error; err != nil {
+				return fmt.Errorf("reading the alert channels of system %d: %w", id, err)
+			}
+			for i := range links {
+				if err := s.sync.EmitSystemNotification(ctx, tx, system.UUID, links[i].NotificationID, &links[i], false); err != nil {
+					return err
+				}
+			}
+		}
 		for _, model := range []any{
 			&models.SystemMetric{}, &models.SystemContainer{},
 			&models.SystemContainerMetric{}, &models.SystemSmart{},
 			&models.SystemLease{},
+			&models.SystemAlert{}, &models.SystemNotification{},
 		} {
 			if err := tx.Where("system_id = ?", id).Delete(model).Error; err != nil {
 				return fmt.Errorf("removing the history of system %d: %w", id, err)

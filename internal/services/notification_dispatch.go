@@ -42,6 +42,64 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *models.Moni
 	return logs
 }
 
+// DispatchSystem delivers a hardware event to every channel linked to a
+// machine.
+//
+// It mirrors Dispatch, with one difference: the channels are the ones the
+// operator linked to the machine, and each of them carries one toggle per event
+// (down, up, threshold, recovered). A channel that opted out of the event is
+// skipped entirely — no delivery, no log row — so the admin log keeps meaning
+// "this is what was attempted".
+func (s *NotificationService) DispatchSystem(ctx context.Context, system *models.System, event models.NotificationEvent,
+	rule models.SystemAlertRule, value float64, detail string, nodeID string) []models.NotificationLog {
+
+	links, err := s.systemLinks(ctx, system.ID)
+	if err != nil {
+		s.log.Error("could not load the alert channels of a system", "system_id", system.ID, "error", err)
+		return nil
+	}
+	message := notify.NewSystemMessage(event, system, rule, value, detail, nodeID, s.cfg.AppURL)
+	logs := make([]models.NotificationLog, 0, len(links))
+	for _, link := range links {
+		if !systemEventEnabled(link, event) {
+			continue
+		}
+		var notification models.Notification
+		if err := s.db.WithContext(ctx).First(&notification, link.NotificationID).Error; err != nil {
+			continue
+		}
+		if !notification.Active {
+			continue
+		}
+		logs = append(logs, s.deliverSystem(ctx, &notification, system, event, message, nodeID))
+	}
+	return logs
+}
+
+// systemLinks loads the machine -> notification links.
+func (s *NotificationService) systemLinks(ctx context.Context, systemID uint) ([]models.SystemNotification, error) {
+	var links []models.SystemNotification
+	if err := s.db.WithContext(ctx).Where("system_id = ?", systemID).Find(&links).Error; err != nil {
+		return nil, err
+	}
+	return links, nil
+}
+
+// systemEventEnabled tells whether a machine link opted in for this event.
+func systemEventEnabled(link models.SystemNotification, event models.NotificationEvent) bool {
+	switch event {
+	case models.EventSystemDown:
+		return link.OnDown
+	case models.EventSystemUp:
+		return link.OnUp
+	case models.EventSystemThreshold:
+		return link.OnThreshold
+	case models.EventSystemRecovered:
+		return link.OnRecovered
+	}
+	return true
+}
+
 // Test sends a test message through a channel so the operator can validate the
 // configuration from the UI.
 func (s *NotificationService) Test(ctx context.Context, id uint) (*models.NotificationLog, error) {
@@ -67,11 +125,27 @@ func (s *NotificationService) Test(ctx context.Context, id uint) (*models.Notifi
 func (s *NotificationService) deliver(ctx context.Context, notification *models.Notification, monitor *models.Monitor,
 	event models.NotificationEvent, message notify.Message, nodeID string) models.NotificationLog {
 
+	return s.deliverTo(ctx, notification, event, message, monitor.ID, 0, nodeID)
+}
+
+// deliverSystem performs a single hardware delivery and stores the outcome.
+func (s *NotificationService) deliverSystem(ctx context.Context, notification *models.Notification, system *models.System,
+	event models.NotificationEvent, message notify.Message, nodeID string) models.NotificationLog {
+
+	return s.deliverTo(ctx, notification, event, message, 0, system.ID, nodeID)
+}
+
+// deliverTo sends one message and writes the delivery log row. Exactly one of
+// monitorID and systemID is set, which is what the admin log renders.
+func (s *NotificationService) deliverTo(ctx context.Context, notification *models.Notification,
+	event models.NotificationEvent, message notify.Message, monitorID, systemID uint, nodeID string) models.NotificationLog {
+
 	started := time.Now()
 	err := s.engine.Send(notification, message)
 	entry := models.NotificationLog{
 		NotificationID: notification.ID,
-		MonitorID:      monitor.ID,
+		MonitorID:      monitorID,
+		SystemID:       systemID,
 		Event:          event,
 		Success:        err == nil,
 		DurationMS:     time.Since(started).Milliseconds(),
@@ -82,11 +156,11 @@ func (s *NotificationService) deliver(ctx context.Context, notification *models.
 		entry.Error = trimmed(err.Error(), 900)
 		s.log.Warn("notification delivery failed",
 			"notification_id", notification.ID, "notification", notification.Name,
-			"monitor_id", monitor.ID, "event", event, "error", err)
+			"monitor_id", monitorID, "system_id", systemID, "event", event, "error", err)
 	} else {
 		s.log.Info("notification delivered",
 			"notification_id", notification.ID, "notification", notification.Name,
-			"monitor_id", monitor.ID, "event", event, "duration_ms", entry.DurationMS)
+			"monitor_id", monitorID, "system_id", systemID, "event", event, "duration_ms", entry.DurationMS)
 	}
 	if dbErr := s.db.WithContext(ctx).Create(&entry).Error; dbErr != nil {
 		s.log.Error("could not store the notification log", "error", dbErr)
