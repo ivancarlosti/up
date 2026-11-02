@@ -123,24 +123,8 @@ func (s *StatusPageService) SetGroups(ctx context.Context, pageID uint, links []
 	}
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("status_page_id = ?", pageID).Delete(&models.StatusPageGroupLink{}).Error; err != nil {
+		if err := writeStatusPageGroupLinks(tx, pageID, links); err != nil {
 			return err
-		}
-		order := 0
-		for _, link := range links {
-			if link.GroupID == 0 {
-				continue
-			}
-			row := models.StatusPageGroupLink{
-				StatusPageID: pageID,
-				GroupID:      link.GroupID,
-				DisplayName:  link.DisplayName,
-				SortOrder:    order,
-			}
-			if err := tx.Create(&row).Error; err != nil {
-				return err
-			}
-			order++
 		}
 		// The group sections are part of the page payload, so this is a new version
 		// of the page: the revision must advance or a peer would skip the change.
@@ -150,6 +134,39 @@ func (s *StatusPageService) SetGroups(ctx context.Context, pageID uint, links []
 		return ErrInternal(fmt.Errorf("saving the status page groups: %w", err))
 	}
 	s.log.Info("status page groups updated", "status_page_id", pageID, "groups", len(links))
+	return nil
+}
+
+// writeStatusPageGroupLinks replaces the group links of a page with the given rows,
+// keeping their order and their display names.
+//
+// It is shared by the selection endpoint and the clone, so the two write the same
+// columns; the caller is what turns the write into a version of the page
+// (touchStatusPage on the edit, publishStatusPage on the create).
+func writeStatusPageGroupLinks(tx *gorm.DB, pageID uint, links []models.StatusPageGroupLink) error {
+	if err := tx.Where("status_page_id = ?", pageID).Delete(&models.StatusPageGroupLink{}).Error; err != nil {
+		return err
+	}
+	seen := map[uint]bool{}
+	order := 0
+	for _, link := range links {
+		// The unique index (status_page_id, group_id) rejects a second link to the
+		// same group: a duplicate in the payload is dropped, never a 500.
+		if link.GroupID == 0 || seen[link.GroupID] {
+			continue
+		}
+		seen[link.GroupID] = true
+		row := models.StatusPageGroupLink{
+			StatusPageID: pageID,
+			GroupID:      link.GroupID,
+			DisplayName:  link.DisplayName,
+			SortOrder:    order,
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		order++
+	}
 	return nil
 }
 

@@ -69,6 +69,7 @@ func (h *Container) registerAdmin(engine *gin.Engine) {
 	pages.GET("/:id", h.getStatusPage)
 	pages.PUT("/:id", h.updateStatusPage)
 	pages.DELETE("/:id", h.deleteStatusPage)
+	pages.POST("/:id/clone", h.cloneStatusPage)
 	pages.GET("/:id/monitors", h.statusPageMonitors)
 	pages.PUT("/:id/monitors", h.setStatusPageMonitors)
 	pages.GET("/:id/groups", h.statusPageGroups)

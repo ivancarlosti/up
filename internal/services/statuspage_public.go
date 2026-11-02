@@ -32,32 +32,67 @@ func (s *StatusPageService) SetMonitors(ctx context.Context, pageID uint, monito
 	return nil
 }
 
-// writeMonitorSelection replaces the explicit monitor selection of a page.
+// statusPageMonitorRows renders the selection rows of a plain monitor id list: both
+// switches on, order taken from the slice.
 //
-// It is shared by the create and by the selection endpoint so the two cannot write a
-// different set of columns, and so creating a page with monitors is ONE version of it
-// (the create used to be followed by a separate selection edit, which published the
-// page twice).
+// The create and the selection endpoint share it, so an id list always writes the
+// same columns, and so creating a page with monitors is ONE version of it (the create
+// used to be followed by a separate selection edit, which published the page twice).
+func statusPageMonitorRows(monitorIDs []uint) []models.StatusPageMonitor {
+	items := make([]models.StatusPageMonitor, 0, len(monitorIDs))
+	for _, monitorID := range monitorIDs {
+		items = append(items, models.StatusPageMonitor{MonitorID: monitorID, ShowUptime: true, ShowChart: true})
+	}
+	return items
+}
+
+// writeMonitorSelection replaces the explicit monitor selection of a page with a
+// plain id list (both switches on).
 func writeMonitorSelection(tx *gorm.DB, pageID uint, monitorIDs []uint) error {
-	if err := tx.Where("status_page_id = ?", pageID).Delete(&models.StatusPageMonitor{}).Error; err != nil {
+	return writeStatusPageItems(tx, pageID, statusPageMonitorRows(monitorIDs))
+}
+
+// writeStatusPageItems replaces the explicit monitor selection of a page with the
+// given rows, keeping their order, their section, their display name and their two
+// switches.
+//
+// It is shared by the create, the selection endpoint and the clone, so the three
+// cannot write a different set of columns.
+func writeStatusPageItems(tx *gorm.DB, pageID uint, items []models.StatusPageMonitor) error {
+	if err := tx.Where("status_page_id = ?", pageID).
+		Delete(&models.StatusPageMonitor{}).Error; err != nil {
 		return err
 	}
 	seen := map[uint]bool{}
 	order := 0
-	for _, monitorID := range monitorIDs {
-		if monitorID == 0 || seen[monitorID] {
+	for _, item := range items {
+		if item.MonitorID == 0 || seen[item.MonitorID] {
 			continue
 		}
-		seen[monitorID] = true
-		item := models.StatusPageMonitor{
+		seen[item.MonitorID] = true
+		row := models.StatusPageMonitor{
 			StatusPageID: pageID,
-			MonitorID:    monitorID,
+			MonitorID:    item.MonitorID,
+			DisplayName:  item.DisplayName,
+			GroupName:    item.GroupName,
 			SortOrder:    order,
-			ShowUptime:   true,
-			ShowChart:    true,
+			ShowUptime:   item.ShowUptime,
+			ShowChart:    item.ShowChart,
 		}
-		if err := tx.Create(&item).Error; err != nil {
+		showUptime, showChart := row.ShowUptime, row.ShowChart
+		if err := tx.Create(&row).Error; err != nil {
 			return err
+		}
+		// The two switches carry a `default:true` column default, so GORM inserts
+		// true for a false value and rewrites the struct (see createStatusPageRow).
+		// The row is corrected when either switch is off — the only case the create
+		// of a plain id list never reaches.
+		if !showUptime || !showChart {
+			if err := tx.Model(&models.StatusPageMonitor{}).
+				Where("status_page_id = ? AND monitor_id = ?", pageID, row.MonitorID).
+				UpdateColumns(map[string]any{"show_uptime": showUptime, "show_chart": showChart}).Error; err != nil {
+				return err
+			}
 		}
 		order++
 	}
@@ -130,7 +165,6 @@ func (s *StatusPageService) PublicPayload(ctx context.Context, slug string, incl
 			displayNames[item.MonitorID] = trimmed
 		}
 	}
-
 	ordered := make([]*models.Monitor, 0, len(ids))
 	for _, id := range ids {
 		monitor, ok := byID[id]

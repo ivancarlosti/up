@@ -77,6 +77,7 @@ other admin tables — see [monitors.md](monitors.md) §14.
 | Delete | `DELETE /api/status-pages/:id` |
 | Selection/order | `PUT /api/status-pages/:id/monitors` with `{"monitor_ids":[6,7,8]}` |
 | Groups included | `PUT /api/status-pages/:id/groups` with `{"groups":[{"group_id":1}]}` |
+| Clone | `POST /api/status-pages/:id/clone` with `{"name":"…","slug":"…","copy_monitors":true,"copy_groups":true}` (see §3.2) |
 
 ```bash
 curl -b cookies.txt -X POST localhost:3000/api/status-pages \
@@ -108,7 +109,7 @@ Rendering rules (`planStatusPage` in `internal/services/statuspage_groups.go`):
 | A monitor is both selected explicitly and inside a group | rendered **once**, in the explicit list |
 | A monitor belongs to two linked groups | cannot happen: a monitor belongs to one group (the "already seen" guard keeps the page from rendering it twice, whatever the database holds) |
 | A group linked to the page is empty | **no** section (an empty heading looks like a bug) |
-| Monitors selected explicitly but in no group | last section, without a heading |
+| Monitors selected explicitly | the **first** section, without a heading (the explicit list renders before the groups) |
 | `display_name` on the link | replaces the group name **on that page only** |
 
 The public payload keeps `monitors` (the flat union, what the badge and the public
@@ -132,6 +133,46 @@ monitor that later joins a linked group — is kept and marked `also in <group>`
 so nothing disappears silently; the operator can remove the explicit row to let
 the group order win. A page with no groups still shows the group half of the
 picker with a hint pointing at Admin > Monitor groups.
+
+## 3.2 Clone a page
+
+Admin UI: the copy button of a row opens the clone dialog — a title and a slug
+(both optional) and two switches. The API does the same; an empty body is valid and
+copies both selections.
+
+```bash
+curl -b cookies.txt -X POST localhost:3000/api/status-pages/3/clone \
+  -H 'Content-Type: application/json' -d '{"copy_monitors": true, "copy_groups": true}'
+```
+
+What travels with the copy:
+
+| Copied | Detail |
+|---|---|
+| Every setting | the title (unless a new one is given), description, footer, theme, the visibility and badge switches, `uptime_window_hours`, `custom_css` |
+| `copy_monitors` (default `true`) | the explicit monitors: which ones, in which order, with their display name, their section and their two per-monitor switches |
+| `copy_groups` (default `true`) | the linked groups, in page order, with the `display_name` set on the source |
+| Subscription configuration | `subscription_smtp_uuid` and `subscription_delay_minutes` travel **inert** |
+
+What stays behind:
+
+| Not copied | Why |
+|---|---|
+| uuid, revision, origin node, timestamps | the copy is a **new** page: fresh uuid, `revision = 1` and this node as the origin, so the peers treat it as a create and never as an edit of the source |
+| `subscription_enabled` | always `false` on the copy: a duplicate must never mail the subscribers of another page. The channel and the delay are kept, so turning it back on is one click — and a disabled page cannot fail on a channel a peer has not sent yet |
+| subscribers, incidents, notices | other people's addresses, and an outage history nobody lived through |
+
+Defaults: the title becomes `<title> (copy)` and the slug `<slug>-copy`; a slug
+that is taken gets a counter (`-copy-2`, `-copy-3`, …). Titles are not unique, so a
+title is only derived once and then kept as it is. Both names are cut to the width
+of their column (200 and 120 characters, the suffix first), so a page at the limit
+still clones instead of failing on the insert.
+
+The page, the selection and the groups are written in **one transaction** and
+published as **one revision** (`createWithSelection` in
+`internal/services/statuspage.go`, `StatusPageService.Clone` in
+`internal/services/statuspage_clone.go`): a peer never sees a copy without its
+monitors, and the whole action is one row in the sync outbox.
 
 ## 4. Badge
 

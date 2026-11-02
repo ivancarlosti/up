@@ -194,10 +194,13 @@ func TestEverySyncedWritePublishes(t *testing.T) {
 		// Update) publishes every touched sibling through publishDomainSiblings, in
 		// the same transaction, so the write is not invisible to a peer.
 		"resolveDomainExpiresAt": "caller publishes the mirrored monitors",
-		// The selection lives inside the page payload, so the caller is what turns it
-		// into a version: touchStatusPage (the selection endpoint) or publishStatusPage
-		// (the create, which writes the selection and the page as ONE version).
-		"writeMonitorSelection": "caller publishes the page",
+		// The selection lives inside the page payload, so the caller is what turns
+		// it into a version: touchStatusPage (the selection endpoint) or
+		// publishStatusPage (the create AND the clone, which write the page and both
+		// selections as ONE version).
+		"writeMonitorSelection":     "caller publishes the page",
+		"writeStatusPageItems":      "caller publishes the page",
+		"writeStatusPageGroupLinks": "caller publishes the page",
 	}
 
 	checked := 0

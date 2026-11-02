@@ -492,6 +492,7 @@ shows that detail next to the translated sentence.
 | GET | `/api/status-pages/:id` | `{"page": {...}, "monitors": [links], "groups": [links]}` |
 | PUT | `/api/status-pages/:id` | update |
 | DELETE | `/api/status-pages/:id` | delete |
+| POST | `/api/status-pages/:id/clone` | clone (`name`, `slug`, `copy_monitors`, `copy_groups`; the copy always starts with subscriptions off) |
 | GET | `/api/status-pages/:id/monitors` | ordered selection |
 | PUT | `/api/status-pages/:id/monitors` | `{"monitor_ids":[6,7,8]}` (order = display order) |
 | GET | `/api/status-pages/:id/groups` | groups included, in page order |

@@ -699,7 +699,17 @@
     "subscriberConfirmed": "已确认",
     "subscriberPending": "等待确认",
     "subscriberUnsubscribed": "已取消",
-    "subscriberPage": "第 {page} 页，共 {pages} 页"
+    "subscriberPage": "第 {page} 页，共 {pages} 页",
+    "cloneTitle": "克隆状态页",
+    "cloneHelp": "副本保留此页面的设置。它会获得新的标识、没有订阅者，并且订阅处于关闭状态。",
+    "cloneName": "副本标题（留空 = “标题（副本）”）",
+    "cloneSlug": "副本标识（留空 = “slug-copy”）",
+    "cloneSlugHelp": "用于公开地址：/status/标识。冲突时会追加序号（-copy-2）。",
+    "copyMonitors": "复制监控选择",
+    "cloneMonitorsHelp": "相同的监控、相同的顺序，保留显示名称和开关。",
+    "copyGroups": "复制关联的分组",
+    "cloneGroupsHelp": "每个分组在页面上保留其位置和显示名称。",
+    "cloneSubscriptionNote": "订阅默认关闭：会复制 SMTP 通道和延迟，但副本绝不会向其他页面的订阅者发送邮件。"
   },
   "security": {
     "title": "安全",

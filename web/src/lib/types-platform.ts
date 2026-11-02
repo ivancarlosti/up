@@ -242,6 +242,18 @@ export interface StatusPageGroupLink {
   group_name?: string
 }
 
+/** Options of a status page clone (POST /api/status-pages/:id/clone). */
+export interface StatusPageCloneOptions {
+  /** Title of the copy (empty means "<title> (copy)"). */
+  name?: string
+  /** Slug of the copy (empty means "<slug>-copy", with a counter on a collision). */
+  slug?: string
+  /** Keeps the explicit monitor selection, with its order and its overrides. */
+  copy_monitors?: boolean
+  /** Keeps the linked groups, in page order, with their display names. */
+  copy_groups?: boolean
+}
+
 export interface StatusPageMonitorItem {
   id: number
   status_page_id: number

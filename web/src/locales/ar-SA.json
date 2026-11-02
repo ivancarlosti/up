@@ -699,7 +699,17 @@
     "subscriberConfirmed": "مؤكد",
     "subscriberPending": "بانتظار التأكيد",
     "subscriberUnsubscribed": "ملغى",
-    "subscriberPage": "الصفحة {page} من {pages}"
+    "subscriberPage": "الصفحة {page} من {pages}",
+    "cloneTitle": "استنساخ صفحة الحالة",
+    "cloneHelp": "تحتفظ النسخة بإعدادات هذه الصفحة. تحصل على هوية جديدة، وبلا مشتركين، والاشتراكات معطّلة.",
+    "cloneName": "عنوان النسخة (فارغ = \"العنوان (نسخة)\")",
+    "cloneSlug": "معرّف النسخة (فارغ = \"slug-copy\")",
+    "cloneSlugHelp": "يُستخدم في العنوان العام: /status/المعرّف. عند التكرار يُضاف عدّاد (-copy-2).",
+    "copyMonitors": "نسخ اختيار المراقبات",
+    "cloneMonitorsHelp": "نفس المراقبات، بالترتيب نفسه، مع أسمائها المعروضة ومفاتيحها.",
+    "copyGroups": "نسخ المجموعات المرتبطة",
+    "cloneGroupsHelp": "تحتفظ كل مجموعة بموقعها واسمها المعروض على الصفحة.",
+    "cloneSubscriptionNote": "تبدأ الاشتراكات معطّلة: تُنسخ قناة SMTP والمهلة، لكن النسخة لا ترسل بريدًا لمشتركي صفحة أخرى."
   },
   "security": {
     "title": "الأمان",

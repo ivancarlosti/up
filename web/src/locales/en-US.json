@@ -699,7 +699,17 @@
     "subscriberConfirmed": "Confirmed",
     "subscriberPending": "Pending confirmation",
     "subscriberUnsubscribed": "Unsubscribed",
-    "subscriberPage": "Page {page} of {pages}"
+    "subscriberPage": "Page {page} of {pages}",
+    "cloneTitle": "Clone status page",
+    "cloneHelp": "The copy keeps the settings of this page. It gets a new identity, no subscribers and subscriptions switched off.",
+    "cloneName": "Title of the copy (empty = \"title (copy)\")",
+    "cloneSlug": "Identifier of the copy (empty = \"slug-copy\")",
+    "cloneSlugHelp": "Used in the public address: /status/identifier. A collision gets a counter (-copy-2).",
+    "copyMonitors": "Copy the monitor selection",
+    "cloneMonitorsHelp": "The same monitors, in the same order, with their display names and switches.",
+    "copyGroups": "Copy the linked groups",
+    "cloneGroupsHelp": "Each group keeps its position and its display name on the page.",
+    "cloneSubscriptionNote": "Subscriptions start disabled: the SMTP channel and the delay are copied, but a copy never mails the subscribers of another page."
   },
   "security": {
     "title": "Security",

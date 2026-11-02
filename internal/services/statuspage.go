@@ -184,6 +184,22 @@ func (s *StatusPageService) GetBySlug(ctx context.Context, slug string) (*models
 // outbox rows on the wire for one operator action — and made "the page as created" a
 // state no peer ever saw.
 func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage, monitorIDs []uint) error {
+	if err := s.createWithSelection(ctx, page, statusPageMonitorRows(monitorIDs), nil); err != nil {
+		return err
+	}
+	s.log.Info("status page created", "id", page.ID, "slug", page.Slug, "monitors", len(monitorIDs))
+	return nil
+}
+
+// createWithSelection stores a page together with its explicit monitors and its
+// group links, as ONE version of it.
+//
+// It is shared by the create and by the clone so the two cannot disagree on what a
+// new page is (one transaction, one revision, one outbox row), and so a copy lands on
+// the peers complete instead of arriving as a page that is edited twice afterwards.
+func (s *StatusPageService) createWithSelection(ctx context.Context, page *models.StatusPage,
+	items []models.StatusPageMonitor, links []models.StatusPageGroupLink) error {
+
 	if err := s.normalize(page); err != nil {
 		return err
 	}
@@ -201,11 +217,16 @@ func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage,
 	// payload and the response all name the same creator from the start.
 	page.OriginNodeID = s.cfg.NodeID
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(page).Error; err != nil {
+		if err := createStatusPageRow(tx, page); err != nil {
 			return err
 		}
-		if len(monitorIDs) > 0 {
-			if err := writeMonitorSelection(tx, page.ID, monitorIDs); err != nil {
+		if len(items) > 0 {
+			if err := writeStatusPageItems(tx, page.ID, items); err != nil {
+				return err
+			}
+		}
+		if len(links) > 0 {
+			if err := writeStatusPageGroupLinks(tx, page.ID, links); err != nil {
 				return err
 			}
 		}
@@ -213,7 +234,33 @@ func (s *StatusPageService) Create(ctx context.Context, page *models.StatusPage,
 	}); err != nil {
 		return ErrInternal(err)
 	}
-	s.log.Info("status page created", "id", page.ID, "slug", page.Slug, "monitors", len(monitorIDs))
+	return nil
+}
+
+// createStatusPageRow inserts the row and keeps the three booleans that carry a
+// `default:true` column default.
+//
+// GORM replaces the zero value of such a field with its default on insert (and
+// writes the default back into the struct, see schema/field.go): a page created with
+// "public: false" would be stored — and answered — as public. The values the caller
+// asked for are written once more when any of them is false, so the row, the payload
+// and the response always agree.
+func createStatusPageRow(tx *gorm.DB, page *models.StatusPage) error {
+	public, uptime, charts := page.IsPublic, page.ShowUptime, page.ShowCharts
+	if err := tx.Create(page).Error; err != nil {
+		return err
+	}
+	if public && uptime && charts {
+		return nil
+	}
+	if err := tx.Model(&models.StatusPage{}).Where("id = ?", page.ID).UpdateColumns(map[string]any{
+		"is_public":   public,
+		"show_uptime": uptime,
+		"show_charts": charts,
+	}).Error; err != nil {
+		return err
+	}
+	page.IsPublic, page.ShowUptime, page.ShowCharts = public, uptime, charts
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/ivancarlosti/up/internal/api"
 	"github.com/ivancarlosti/up/internal/models"
+	"github.com/ivancarlosti/up/internal/services"
 )
 
 // listStatusPages returns every status page.
@@ -124,6 +125,43 @@ func (h *Container) deleteStatusPage(c *gin.Context) {
 		return
 	}
 	api.NoContent(c)
+}
+
+// cloneStatusPage duplicates a status page (optionally its monitor selection and its
+// groups). The copy carries a fresh identity and starts with subscriptions off.
+func (h *Container) cloneStatusPage(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var payload struct {
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+		// The two switches are pointers so an omitted field keeps the default
+		// (both selections copied), exactly like the template clone body.
+		CopyMonitors *bool `json:"copy_monitors"`
+		CopyGroups   *bool `json:"copy_groups"`
+	}
+	// An empty body is valid: the copy gets "<title> (copy)" and "/<slug>-copy" and
+	// keeps the monitors and the groups of the source.
+	if c.Request.ContentLength > 0 {
+		if !bindJSON(c, &payload) {
+			return
+		}
+	}
+	opts := services.StatusPageCloneOptions{Name: payload.Name, Slug: payload.Slug, CopyMonitors: true, CopyGroups: true}
+	if payload.CopyMonitors != nil {
+		opts.CopyMonitors = *payload.CopyMonitors
+	}
+	if payload.CopyGroups != nil {
+		opts.CopyGroups = *payload.CopyGroups
+	}
+	clone, err := h.StatusPages.Clone(c.Request.Context(), id, opts)
+	if err != nil {
+		api.WriteServiceError(c, err)
+		return
+	}
+	api.Created(c, clone)
 }
 
 // statusPageMonitors lists the monitor selection.

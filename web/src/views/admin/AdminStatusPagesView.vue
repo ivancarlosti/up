@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Boxes, ExternalLink, Pencil, Plus, Tag, Trash2, Users, X } from 'lucide-vue-next'
+import {
+  Boxes,
+  Copy,
+  ExternalLink,
+  Pencil,
+  Plus,
+  Tag,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-vue-next'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -23,7 +33,14 @@ import { loadTableSort, toggleTableSort } from '@/lib/table-sort'
 import { uptimeWindowOptionsWithInherit } from '@/lib/uptime-window'
 import { copyToClipboard } from '@/lib/utils'
 import { useToastStore } from '@/stores/toast'
-import type { Monitor, MonitorGroup, Notification, StatusPage, StatusPageSubscriber } from '@/lib/types'
+import type {
+  Monitor,
+  MonitorGroup,
+  Notification,
+  StatusPage,
+  StatusPageCloneOptions,
+  StatusPageSubscriber,
+} from '@/lib/types'
 
 const { t, locale } = useI18n()
 const toasts = useToastStore()
@@ -127,6 +144,17 @@ const uptimeWindow = computed({
     form.value.uptime_window_hours = Number(value)
   },
 })
+
+// --- clone dialog ---------------------------------------------------------
+// The exact counterpart of the template clone: an empty title and an empty slug let
+// the API derive "<title> (copy)" and "/<slug>-copy", and the two switches decide
+// whether the copy keeps the explicit monitors and the linked groups. Subscriptions
+// are not a switch: the copy always starts with them off (the channel and the delay
+// travel inert), so a copy can never mail the subscribers of another page.
+const cloneOpen = ref(false)
+const cloning = ref(false)
+const cloneSource = ref<StatusPage | null>(null)
+const cloneForm = reactive<StatusPageCloneOptions>({ name: '', slug: '', copy_monitors: true, copy_groups: true })
 
 function blank(): Partial<StatusPage> {
   return {
@@ -376,7 +404,9 @@ async function save(): Promise<void> {
       await api.setStatusPageGroups(editing.value.id, selectedGroups.value)
     } else {
       const created = await api.createStatusPage({ ...form.value, monitor_ids: selectedMonitors.value })
-      if (created?.id) await api.setStatusPageGroups(created.id, selectedGroups.value)
+      if (created?.id) {
+        await api.setStatusPageGroups(created.id, selectedGroups.value)
+      }
     }
     dialogOpen.value = false
     toasts.success(t('common.saved'))
@@ -385,6 +415,36 @@ async function save(): Promise<void> {
     toasts.error(t('common.error'), translateError(error))
   } finally {
     saving.value = false
+  }
+}
+
+/** openClone prepares the clone dialog; empty names let the API decide. */
+function openClone(page: StatusPage): void {
+  cloneSource.value = page
+  cloneForm.name = ''
+  cloneForm.slug = ''
+  cloneForm.copy_monitors = true
+  cloneForm.copy_groups = true
+  cloneOpen.value = true
+}
+
+async function submitClone(): Promise<void> {
+  if (!cloneSource.value) return
+  cloning.value = true
+  try {
+    await api.cloneStatusPage(cloneSource.value.id, {
+      name: cloneForm.name?.trim() || undefined,
+      slug: cloneForm.slug?.trim() || undefined,
+      copy_monitors: cloneForm.copy_monitors,
+      copy_groups: cloneForm.copy_groups,
+    })
+    cloneOpen.value = false
+    toasts.success(t('common.saved'))
+    await load()
+  } catch (error) {
+    toasts.error(t('common.error'), translateError(error))
+  } finally {
+    cloning.value = false
   }
 }
 
@@ -519,6 +579,15 @@ onMounted(load)
                     @click="openSubscribers(page)"
                   >
                     <Users class="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    :title="t('common.clone')"
+                    :aria-label="t('common.clone')"
+                    @click="openClone(page)"
+                  >
+                    <Copy class="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -755,11 +824,51 @@ onMounted(load)
           </div>
           <p v-else class="text-[11px] text-muted-foreground">{{ t('statusPages.pickerNoGroups') }}</p>
         </div>
+
       </div>
 
       <template #footer>
         <Button variant="outline" @click="dialogOpen = false">{{ t('common.cancel') }}</Button>
         <Button :loading="saving" @click="save">{{ t('common.save') }}</Button>
+      </template>
+    </Dialog>
+
+    <Dialog v-model="cloneOpen" :title="t('statusPages.cloneTitle')" :description="t('statusPages.cloneHelp')">
+      <div class="grid gap-4">
+        <div class="grid gap-1">
+          <Label for="status-page-clone-name">{{ t('statusPages.cloneName') }}</Label>
+          <Input
+            id="status-page-clone-name"
+            v-model="cloneForm.name"
+            :placeholder="cloneSource ? `${cloneSource.title} (copy)` : ''"
+          />
+        </div>
+        <div class="grid gap-1">
+          <Label for="status-page-clone-slug" :help="t('statusPages.cloneSlugHelp')">
+            {{ t('statusPages.cloneSlug') }}
+          </Label>
+          <Input
+            id="status-page-clone-slug"
+            v-model="cloneForm.slug"
+            :placeholder="cloneSource ? `${cloneSource.slug}-copy` : ''"
+          />
+        </div>
+        <div class="grid gap-2">
+          <div>
+            <Switch v-model="cloneForm.copy_monitors as boolean">{{ t('statusPages.copyMonitors') }}</Switch>
+            <p class="text-[11px] text-muted-foreground">{{ t('statusPages.cloneMonitorsHelp') }}</p>
+          </div>
+          <div>
+            <Switch v-model="cloneForm.copy_groups as boolean">{{ t('statusPages.copyGroups') }}</Switch>
+            <p class="text-[11px] text-muted-foreground">{{ t('statusPages.cloneGroupsHelp') }}</p>
+          </div>
+        </div>
+        <!-- A copy never mails the subscribers of another page: no switch for it. -->
+        <p class="text-[11px] text-muted-foreground">{{ t('statusPages.cloneSubscriptionNote') }}</p>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="cloneOpen = false">{{ t('common.cancel') }}</Button>
+        <Button :loading="cloning" @click="submitClone">{{ t('common.clone') }}</Button>
       </template>
     </Dialog>
 

@@ -23,6 +23,7 @@ import type {
   PeerStatusReport,
   RecaptchaSettings,
   StatusPage,
+  StatusPageCloneOptions,
   StatusPageMonitorItem,
   StatusPageGroupLink,
   StatusPageSubscriberList,
@@ -40,6 +41,9 @@ export const adminApi = {
     post<StatusPage>('/api/status-pages', payload),
   updateStatusPage: (id: number, payload: Partial<StatusPage>) => put<StatusPage>(`/api/status-pages/${id}`, payload),
   deleteStatusPage: (id: number) => del<void>(`/api/status-pages/${id}`),
+  /** The copy carries a fresh identity and starts with subscriptions off. */
+  cloneStatusPage: (id: number, options: StatusPageCloneOptions) =>
+    post<StatusPage>(`/api/status-pages/${id}/clone`, options),
   statusPageMonitors: (id: number) => get<StatusPageMonitorItem[]>(`/api/status-pages/${id}/monitors`),
   setStatusPageMonitors: (id: number, monitorIds: number[]) =>
     put<StatusPageMonitorItem[]>(`/api/status-pages/${id}/monitors`, { monitor_ids: monitorIds }),

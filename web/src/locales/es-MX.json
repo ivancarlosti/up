@@ -699,7 +699,17 @@
     "subscriberConfirmed": "Confirmado",
     "subscriberPending": "Pendiente de confirmación",
     "subscriberUnsubscribed": "Cancelado",
-    "subscriberPage": "Página {page} de {pages}"
+    "subscriberPage": "Página {page} de {pages}",
+    "cloneTitle": "Clonar página de estado",
+    "cloneHelp": "La copia conserva la configuración de esta página. Recibe una identidad nueva, ningún suscriptor y las suscripciones desactivadas.",
+    "cloneName": "Título de la copia (vacío = \"título (copia)\")",
+    "cloneSlug": "Identificador de la copia (vacío = \"slug-copy\")",
+    "cloneSlugHelp": "Se usa en la dirección pública: /status/identificador. Si hay colisión se añade un contador (-copy-2).",
+    "copyMonitors": "Copiar la selección de monitores",
+    "cloneMonitorsHelp": "Los mismos monitores, en el mismo orden, con sus nombres visibles y sus interruptores.",
+    "copyGroups": "Copiar los grupos vinculados",
+    "cloneGroupsHelp": "Cada grupo conserva su posición y su nombre visible en la página.",
+    "cloneSubscriptionNote": "Las suscripciones empiezan desactivadas: el canal SMTP y el retardo se copian, pero una copia nunca envía correos a los suscriptores de otra página."
   },
   "security": {
     "title": "Seguridad",
