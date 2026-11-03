@@ -594,7 +594,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "Headers",
     "webhookBody": "Body (template)",
-    "webhookBodyHelp": "Go template with the alert variables, for example {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'}, {'{{'}.MonitorTags{'}}'} or {'{{'}.DashboardURL{'}}'}. Leave it empty to use the default JSON body.",
+    "webhookBodyHelp": "Go template with the alert variables, for example {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} or {'{{'}.DomainStatuses{'}}'}. In a JSON body render each value with {'{{'}.json .MonitorName{'}}'}, so a quote or a backslash in a check detail cannot break the payload. Leave it empty to use the default JSON body.",
     "webhookHeadersHelp": "Sent with every request: use it for an Authorization token or a signature header.",
     "headerName": "Header",
     "headerValue": "Value",

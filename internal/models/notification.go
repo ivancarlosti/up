@@ -110,22 +110,31 @@ type WebhookConfig struct {
 
 // DefaultWebhookBodyTemplate is pre-filled in the UI when a webhook channel is
 // created. Every placeholder is documented in docs/notifications.md.
+//
+// Every value goes through the "json" helper instead of sitting raw inside a
+// quoted string: a monitor, group or node name is free text, and a check detail
+// is quoted Go text (a keyword check renders `keyword "hello" matched`), so a
+// raw `"{{.Message}}"` stops being valid JSON as soon as the value carries a
+// double quote, a backslash or a newline. A target that parses the body then
+// rejects the whole alert - n8n answers 422 "Failed to parse request body".
+// For ordinary values the helper renders exactly the same bytes as the raw
+// placeholder ("down" is still "down"), so the payload shape is unchanged.
 const DefaultWebhookBodyTemplate = `{
-  "event": "{{.Event}}",
-  "monitor": "{{.MonitorName}}",
-  "type": "{{.MonitorType}}",
-  "target": "{{.MonitorURL}}",
-  "dashboard_url": "{{.DashboardURL}}",
-  "status": "{{.Status}}",
-  "message": "{{.Message}}",
+  "event": {{json .Event}},
+  "monitor": {{json .MonitorName}},
+  "type": {{json .MonitorType}},
+  "target": {{json .MonitorURL}},
+  "dashboard_url": {{json .DashboardURL}},
+  "status": {{json .Status}},
+  "message": {{json .Message}},
   "domain_statuses": {{json .DomainStatuses}},
-  "domain_statuses_csv": "{{.DomainStatusCSV}}",
+  "domain_statuses_csv": {{json .DomainStatusCSV}},
   "tags": {{json .MonitorTags}},
-  "group": "{{.MonitorGroup}}",
+  "group": {{json .MonitorGroup}},
   "group_id": {{.MonitorGroupID}},
   "latency_ms": {{.LatencyMS}},
-  "node": "{{.NodeID}}",
-  "timestamp": "{{.Timestamp}}"
+  "node": {{json .NodeID}},
+  "timestamp": {{json .Timestamp}}
 }`
 
 // SlackConfig describes the Slack delivery settings. The token is either a bot

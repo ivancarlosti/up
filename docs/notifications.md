@@ -120,30 +120,42 @@ the delivery history).
 | `method` | GET, POST, PUT, PATCH, DELETE (default POST) |
 | `content_type` | default `application/json` |
 | `headers[]` | extra headers (`@Header` query parameters internally); the dialog has a name/value editor for them |
-| `body_template` | Go `text/template` rendered by Up before the request; empty means "use the default below", which is what the dialog sends |
+| `body_template` | Go `text/template` rendered by Up before the request; empty means "use the default below", which is what the dialog sends. A value that can carry a quote, a backslash or a newline (`message`, `monitor`, `group`, `node`, ...) has to be rendered with `{{json .Field}}` instead of sitting raw inside a quoted string: see *Escaping* below |
 
 Default body template (applied by the API when `body_template` is empty, so it is
 what a channel created from the UI uses):
 
 ```json
 {
-  "event": "{{.Event}}",
-  "monitor": "{{.MonitorName}}",
-  "type": "{{.MonitorType}}",
-  "target": "{{.MonitorURL}}",
-  "dashboard_url": "{{.DashboardURL}}",
-  "status": "{{.Status}}",
-  "message": "{{.Message}}",
+  "event": {{json .Event}},
+  "monitor": {{json .MonitorName}},
+  "type": {{json .MonitorType}},
+  "target": {{json .MonitorURL}},
+  "dashboard_url": {{json .DashboardURL}},
+  "status": {{json .Status}},
+  "message": {{json .Message}},
   "domain_statuses": {{json .DomainStatuses}},
-  "domain_statuses_csv": "{{.DomainStatusCSV}}",
+  "domain_statuses_csv": {{json .DomainStatusCSV}},
   "tags": {{json .MonitorTags}},
-  "group": "{{.MonitorGroup}}",
+  "group": {{json .MonitorGroup}},
   "group_id": {{.MonitorGroupID}},
   "latency_ms": {{.LatencyMS}},
-  "node": "{{.NodeID}}",
-  "timestamp": "{{.Timestamp}}"
+  "node": {{json .NodeID}},
+  "timestamp": {{json .Timestamp}}
 }
 ```
+
+**Escaping.** Every value of the block goes through the `json` helper instead of
+standing raw inside a quoted string. A check detail is quoted Go text
+(`keyword "hello" matched (200 - OK)`, `Get "https://x/health": dial tcp ...`) and
+a monitor, group or node name is free text, so a raw `"message": "{{.Message}}"`
+stops being valid JSON the moment the value holds a double quote, a backslash, a
+tab or a newline. The target then refuses the request - the payload never reaches
+the workflow, and n8n answers `422 Unprocessable Entity` with `Failed to parse
+request body` (§6). A template written by hand has to do the same:
+`"message": {{json .Message}}`. For ordinary values the helper renders exactly
+the bytes the raw placeholder rendered (`"down"` is still `"down"`), so only the
+values that used to break the payload change.
 
 The API fills `body_template` with the block above whenever it is left empty
 (`Notification.Normalize`), so this is what a channel created or saved from the
@@ -160,7 +172,15 @@ textarea has no *reset* button), so an existing channel picks the new field up
 only when the line is added by hand or the field is emptied before saving.
 `domain_statuses` and `domain_statuses_csv` follow the same rule: they are
 `[]`/`""` for every event that is not a domain reminder, and a channel whose
-template predates them simply never renders them.
+template predates them simply never renders them. The `json` helper follows the
+same rule as well: a channel that already stored the old
+`"message": "{{.Message}}"` block keeps it verbatim, so it keeps breaking on a
+quoted detail until the line is edited (or the field emptied and saved, which
+restores the block above). Up validates the rendered body before sending it
+(`checkWebhookBody` in `internal/notify/engine.go`): an `application/json` body
+that is not valid JSON is refused locally, so the failure reaches the delivery
+log as *the rendered webhook body is not valid JSON* instead of an opaque 422
+from the target.
 
 ### Slack
 
@@ -234,7 +254,7 @@ Available template data (the `notify.Message` struct):
 | `{{.Message}}` | check result detail (`200 OK`, `connection refused`, ...) |
 | `{{.LatencyMS}}` | latency in milliseconds (number) |
 | `{{.NodeID}}` | node that produced the heartbeat |
-| `{{.Timestamp}}` | event time (UTC, RFC3339 with `Format`) |
+| `{{.Timestamp}}` | event time (UTC); `{{json .Timestamp}}` renders it as RFC3339 (`2026-11-03T12:30:45.123Z`), the same instant as the `timestamp` of the default payload |
 | `{{.InstanceURL}}` | `APP_URL`, the root of the instance (useful to build your own link) |
 | `{{.DashboardURL}}` | the page of the instance the alert is about (see *Where a notification links to* below): the monitor detail for a status event, the expiry worklist for a certificate/domain reminder. Empty when `APP_URL` is not set |
 
@@ -262,7 +282,14 @@ when it is not empty; `{{.InstanceURL}}` stays available for a template that
 wants the instance root itself.
 
 Template helpers: `json`, `urlquery`, `upper`, `lower`, `trim`,
-`default "fallback" .Value`.
+`default "fallback" .Value`, plus the builtins of `text/template` (the Slack
+example below uses `printf` to build one string out of several fields).
+
+`{{json .Field}}` is the helper a JSON body needs: it marshals the value with
+Go's `encoding/json`, so a quoted check detail or a name with a backslash stays
+inside one string instead of ending it. Everything the default block renders as a
+string uses it (`{{json .Message}}`, `{{json .MonitorName}}`, ...), while the
+numeric `group_id` and `latency_ms` stay bare.
 
 `{{.MonitorTags}}` is a slice, so use `{{json .MonitorTags}}` to embed it in a
 JSON body or `{{range .MonitorTags}}…{{end}}` to walk it. The group is a plain
@@ -285,10 +312,11 @@ with a `(status: …)` suffix after the registrar, and the plain text/HTML body 
 by SMTP, Slack, Discord and Telegram prints a `Registry:` line when the list is
 not empty.
 
-Example: Slack-compatible payload
+Example: Slack-compatible payload (the `json` helper escapes the whole text, so a
+quote or a newline in the title or in the detail cannot break it)
 
 ```json
-{"text": "{{.Title}}\nTarget: {{.MonitorURL}}\nDetail: {{.Message}}"}
+{"text": {{json (printf "%s\nTarget: %s\nDetail: %s" .Title .MonitorURL .Message)}}}
 ```
 
 Example: adding a shared secret header
@@ -297,11 +325,13 @@ Example: adding a shared secret header
 {"key":"Authorization","value":"Bearer my-token"}
 ```
 
-Plus, for example, a dynamic value inside the body:
+Plus, for example, a dynamic value inside the body (a value that is a constant
+per branch can stay inside the quotes; anything that comes from a monitor, a group
+or a check detail has to go through `json`):
 
 ```json
 {
-  "event": "{{.Event}}",
+  "event": {{json .Event}},
   "severity": "{{if eq .Event \"down\"}}critical{{else}}info{{end}}"
 }
 ```
@@ -353,7 +383,7 @@ curl -b cookies.txt -X POST http://localhost:3000/api/notifications \
         "method": "POST",
         "content_type": "application/json",
         "headers": [{"key": "X-Source", "value": "up"}],
-        "body_template": "{\"alert\":\"{{.Event}}\",\"monitor\":\"{{.MonitorName}}\"}"
+        "body_template": "{\"alert\":{{json .Event}},\"monitor\":{{json .MonitorName}}}"
       }
     }
   }'
@@ -484,6 +514,38 @@ external service; `docs/development.md` documents both commands. Remember that a
 container must use `host.docker.internal` instead of `127.0.0.1` to reach
 services running on the Docker host.
 
+A rejected webhook body is reproducible without waiting for a monitor to fail.
+Point a throwaway channel at the webhook sink of `docs/development.md` §8, capture
+the exact bytes it receives and replay them against the real target:
+
+```bash
+# 1. a one-shot receiver on the sink port writes the body it receives
+python3 - <<'PY' &
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_POST(self):
+        n = int(self.headers.get('content-length') or 0)
+        open('/tmp/body.json', 'wb').write(self.rfile.read(n))
+        self.send_response(200); self.end_headers()
+HTTPServer(('127.0.0.1', 1080), H).handle_request()
+PY
+# 2. fire the channel (URL http://127.0.0.1:1080/hook, or
+#    http://host.docker.internal:1080/hook when Up runs in a container)
+curl -s -b cookies.txt -X POST localhost:3000/api/notifications/1/test
+# 3. does a JSON parser accept the captured bytes?
+jq . /tmp/body.json
+# 4. replay them against the target (n8n answers 422 "Failed to parse request
+#    body" for a body that does not parse, and 200 for one that does)
+curl -si -X POST 'https://n8n.example.com/webhook/up' \
+  -H 'Content-Type: application/json' --data-binary @/tmp/body.json | head -30
+```
+
+If step 3 prints `parse error`, the template interpolates a value raw: render it
+with `{{json .Field}}` (§2, *Escaping*). If step 3 parses but step 4 still
+answers 4xx, the body is fine and the problem is on the target side (inactive
+workflow, wrong path, auth).
+
 The chat channels have no local sink: the *Test* button (and the endpoint above)
 talks to the real Slack/Discord/Telegram API, which is exactly what validates a
 bot token, a webhook id or a chat id. The delivery log row keeps the API error
@@ -497,7 +559,9 @@ failing configuration can be diagnosed without reading the application log.
 | `smtp: error connecting to server: dial tcp ... connection refused` | wrong host/port, or `127.0.0.1` from inside a container (use `host.docker.internal`) |
 | `smtp: ... x509: certificate signed by unknown authority` | self-signed relay: enable `skip_tls_verify` |
 | `smtp: error applying params ...` | unknown parameter sent to the smtp service (a bug: only `title` is forwarded) |
-| `generic: failed to send notification ... server returned unexpected response status code` | the webhook answered 4xx/5xx (the status is in the error); with a credential in the URL, check that it is in the query the target expects (`?token=…`) - the whole query is forwarded |
+| `the rendered webhook body is not valid JSON (content_type "application/json") ...` | Up refused to send it: the template interpolates a value raw and that value carries a quote, a backslash or a newline (a keyword check renders `keyword "hello" matched`). Render the value with `{{json .Field}}` (§2, *Escaping*), or empty the field and save to restore the default block |
+| `generic: failed to send notification ... server returned unexpected response status code: 422` | the target parsed the body and refused it. With `Content-Type: application/json` this is a body that does not parse: n8n answers `422 Unprocessable Entity` + `Failed to parse request body` (§5 shows how to replay the captured body). A 422 has nothing to do with the token or the URL - an inactive workflow or a wrong path answers 404, an unknown credential 401/403 |
+| `generic: failed to send notification ... server returned unexpected response status code` | the webhook answered 4xx/5xx (the status is in the error); with a credential in the URL, check that it is in the query the target expects (`?token=…`) - the whole query is forwarded. Up keeps only the status line: run with `LOG_LEVEL=debug` and shoutrrr logs the `Server response: ...` body the target returned |
 | `slack: failed to send slack notification: invalid_auth` | wrong/revoked bot token, or the app was removed from the channel |
 | `slack: ... channel_not_found` | `channel` is not the id of a channel the bot can post to (invite the app first) |
 | `discord: 404 Not Found` | `webhook_id` or `token` truncated (copy both halves of the webhook URL) |

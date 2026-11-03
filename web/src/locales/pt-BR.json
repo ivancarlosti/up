@@ -594,7 +594,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "Cabeçalhos",
     "webhookBody": "Corpo (template)",
-    "webhookBodyHelp": "Template Go com as variáveis do alerta, por exemplo {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'}, {'{{'}.MonitorTags{'}}'} ou {'{{'}.DashboardURL{'}}'}. Deixe vazio para usar o corpo JSON padrão.",
+    "webhookBodyHelp": "Template Go com as variáveis do alerta, por exemplo {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} ou {'{{'}.DomainStatuses{'}}'}. Em um corpo JSON, escreva cada valor com {'{{'}.json .MonitorName{'}}'}, para que uma aspa ou uma barra invertida do detalhe da checagem não quebre o corpo. Deixe vazio para usar o corpo JSON padrão.",
     "webhookHeadersHelp": "Enviados em toda requisição: use para um token Authorization ou um cabeçalho de assinatura.",
     "headerName": "Cabeçalho",
     "headerValue": "Valor",

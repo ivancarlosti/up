@@ -594,7 +594,7 @@
     "webhookContentType": "Content-Type",
     "webhookHeaders": "En-têtes",
     "webhookBody": "Corps (modèle)",
-    "webhookBodyHelp": "Modèle Go avec les variables d'alerte, par exemple {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'}, {'{{'}.MonitorTags{'}}'} ou {'{{'}.DashboardURL{'}}'}. Laissez vide pour utiliser le corps JSON par défaut.",
+    "webhookBodyHelp": "Modèle Go avec les variables d'alerte, par exemple {'{{'}.Event{'}}'}, {'{{'}.MonitorName{'}}'} ou {'{{'}.DomainStatuses{'}}'}. Dans un corps JSON, écrivez chaque valeur avec {'{{'}.json .MonitorName{'}}'}, pour qu'un guillemet ou une barre oblique inverse du détail du contrôle ne casse pas le corps. Laissez vide pour utiliser le corps JSON par défaut.",
     "webhookHeadersHelp": "Envoyé à chaque requête : utilisez-le pour un jeton Authorization ou un en-tête de signature.",
     "headerName": "En-tête",
     "headerValue": "Valeur",

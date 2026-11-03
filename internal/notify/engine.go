@@ -1,9 +1,11 @@
 package notify
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -99,6 +101,9 @@ func (e *Engine) SendWebhook(notification *models.Notification, msg Message) err
 	if err != nil {
 		return err
 	}
+	if err := checkWebhookBody(cfg.ContentType, body); err != nil {
+		return err
+	}
 	serviceURL, err := buildWebhookURL(cfg)
 	if err != nil {
 		return err
@@ -113,6 +118,36 @@ func (e *Engine) SendWebhook(notification *models.Notification, msg Message) err
 	// as the request body; the Content-Type is forced through a custom header.
 	params := types.Params{"message": body, "title": msg.Title}
 	return joinSendErrors(serviceRouter.Send(body, &params))
+}
+
+// checkWebhookBody refuses a body the target cannot parse. A webhook that
+// declares a JSON content type is answered with a 4xx by the receiving end when
+// the payload is not valid JSON (n8n answers 422 "Failed to parse request
+// body"), while shoutrrr only reports "server returned unexpected response
+// status code" - the status line, not the cause. Validating the rendered body
+// here turns that into an error the delivery log can explain.
+//
+// An empty content type means application/json: that is the default of
+// shoutrrr's generic service. A blank body is always accepted, because a GET or
+// HEAD request carries none and a target that never parses the body is free to
+// receive anything.
+func checkWebhookBody(contentType, body string) error {
+	if strings.TrimSpace(body) == "" {
+		return nil
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/json"
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
+		return nil
+	}
+	if json.Valid([]byte(body)) {
+		return nil
+	}
+	return fmt.Errorf("the rendered webhook body is not valid JSON (content_type %q): "+
+		"a value probably carries a quote, a backslash or a newline - render it with "+
+		"{{json .Field}} instead of \"{{.Field}}\"", contentType)
 }
 
 // SendSlack delivers a message through shoutrrr's slack service.

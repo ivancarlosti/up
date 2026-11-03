@@ -485,6 +485,149 @@ func TestWebhookPayloadCarriesTagsAndGroups(t *testing.T) {
 	}
 }
 
+// TestDefaultWebhookTemplateEscapesValues is the regression test of the reported
+// "422 Unprocessable Entity": the dialog template renders a check detail and a
+// monitor/group/node name, and those values are quoted Go text and free text
+// (`keyword "hello" matched`), so interpolating them raw inside a quoted string
+// makes the payload invalid JSON and a target that parses the body (n8n answers
+// 422 "Failed to parse request body") drops the alert.
+func TestDefaultWebhookTemplateEscapesValues(t *testing.T) {
+	monitor := &models.Monitor{
+		Name:   `My "prod" \ API`,
+		Type:   models.MonitorTypeKeyword,
+		Tags:   "web,api",
+		Config: models.MonitorConfig{URL: "https://api.example.com/health", Keyword: "hello"},
+	}
+	message := NewMessage(models.EventDown, monitor, models.AggregateDown,
+		"keyword \"hello\" matched\n(200 - OK)", 12, `node "eu"`,
+		"https://up.example.com", &models.MonitorGroupRef{ID: 3, Name: `Ops "eu"`})
+
+	body, err := message.RenderBody(models.DefaultWebhookBodyTemplate)
+	if err != nil {
+		t.Fatalf("render the default template: %v", err)
+	}
+	var payload struct {
+		Monitor   string    `json:"monitor"`
+		Message   string    `json:"message"`
+		Group     string    `json:"group"`
+		Node      string    `json:"node"`
+		Timestamp time.Time `json:"timestamp"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("the default template must stay valid JSON: %v (%s)", err, body)
+	}
+	if payload.Monitor != monitor.Name {
+		t.Errorf("monitor = %q, want %q (%s)", payload.Monitor, monitor.Name, body)
+	}
+	if payload.Message != message.Message {
+		t.Errorf("message = %q, want %q (%s)", payload.Message, message.Message, body)
+	}
+	if payload.Group != `Ops "eu"` {
+		t.Errorf("group = %q, want %q (%s)", payload.Group, `Ops "eu"`, body)
+	}
+	if payload.Node != `node "eu"` {
+		t.Errorf("node = %q, want %q (%s)", payload.Node, `node "eu"`, body)
+	}
+	if payload.Timestamp.IsZero() {
+		t.Errorf("the timestamp must be rendered as RFC3339: %s", body)
+	}
+
+	// The interpolation the template used to rely on is exactly what broke the
+	// payload, so this test fails if a future edit drops the json helper.
+	legacy, err := message.RenderBody(`{"message":"{{.Message}}"}`)
+	if err != nil {
+		t.Fatalf("render the raw interpolation: %v", err)
+	}
+	if json.Valid([]byte(legacy)) {
+		t.Errorf("a raw {{.Message}} is expected to produce invalid JSON: %s", legacy)
+	}
+}
+
+// TestSendWebhookBodyValidation pins the local guard: a body the target cannot
+// parse is refused before the request leaves Up, because shoutrrr reports only
+// "server returned unexpected response status code" and the delivery log would
+// keep an opaque 422 (n8n: "Failed to parse request body"). A body that is not
+// declared as JSON is still sent verbatim, and the escaped form always goes out.
+func TestSendWebhookBodyValidation(t *testing.T) {
+	received := make(chan string, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+		}
+		received <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	engine := NewEngine(slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second)
+	message := sampleMessage()
+	message.Message = `keyword "hello" matched` // only valid JSON when escaped
+
+	newChannel := func(contentType, bodyTemplate string) *models.Notification {
+		return &models.Notification{
+			Name: "n8n",
+			Type: models.NotificationWebhook,
+			Config: models.NotificationConfig{Webhook: &models.WebhookConfig{
+				URL:          server.URL + "/hook",
+				Method:       "POST",
+				ContentType:  contentType,
+				BodyTemplate: bodyTemplate,
+			}},
+		}
+	}
+
+	const (
+		rawBody     = `{"message":"{{.Message}}"}`
+		escapedBody = `{"message":{{json .Message}}}`
+	)
+
+	for _, tc := range []struct {
+		name        string
+		contentType string
+	}{
+		{"application/json", "application/json"},
+		{"application/json with parameters", "application/json; charset=utf-8"},
+		{"vendor json suffix", "application/vnd.n8n+json"},
+		{"empty content type uses the shoutrrr default", ""},
+	} {
+		err := engine.SendWebhook(newChannel(tc.contentType, rawBody), message)
+		if err == nil || !strings.Contains(err.Error(), "not valid JSON") {
+			t.Errorf("%s: error = %v, want a local invalid JSON error", tc.name, err)
+		}
+		select {
+		case body := <-received:
+			t.Errorf("%s: an unparseable body must not be sent, the target received %q", tc.name, body)
+		default:
+		}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		body        string
+	}{
+		{"escaped values", "application/json", escapedBody},
+		{"a target that declares plain text", "text/plain", rawBody},
+	} {
+		if err := engine.SendWebhook(newChannel(tc.contentType, tc.body), message); err != nil {
+			t.Fatalf("%s: send the webhook: %v", tc.name, err)
+		}
+		want, err := message.RenderBody(tc.body)
+		if err != nil {
+			t.Fatalf("%s: render the body: %v", tc.name, err)
+		}
+		select {
+		case got := <-received:
+			if got != want {
+				t.Errorf("%s: the body must be sent verbatim:\ngot  %s\nwant %s", tc.name, got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the target received no request", tc.name)
+		}
+	}
+}
+
 func TestMonitorTarget(t *testing.T) {
 	cases := []struct {
 		monitor models.Monitor
