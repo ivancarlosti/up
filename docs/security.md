@@ -266,3 +266,36 @@ cd web && npm audit
 The final image runs as the non-root user `up` (uid 1000) on Alpine, contains a
 single statically linked binary and ships its own `HEALTHCHECK`. There is no
 shell requirement and no package manager at runtime.
+
+## 11. Outbound probe URLs (SSRF)
+
+Every probe dials a URL (or a `host:port`) that the operator typed, so the probe
+itself is a server-side request primitive. The one place that decides what may
+be dialed is `internal/checkers/urlguard.go`: the URL has to match
+`^(https?|wss?)://<host>[:port][/path][?query]` before the request exists and
+before the socket is opened, and the value that is dialed is the validated one.
+
+| Refused by the guard | Why |
+|---|---|
+| Another scheme (`file:`, `gopher:`, `ftp:`, `data:`, `javascript:`) | a probe is an HTTP/WebSocket client, not a URL opener for every protocol |
+| A relative or protocol-relative target (`/admin`, `//169.254.169.254/`) | no host of its own: the request would be aimed at the instance |
+| Embedded credentials (`https://user:pass@host`) | `auth_type` / `basic_user` / `basic_pass` / `bearer_token` are the supported path, and the URL is the string that lands in logs and error messages |
+| Whitespace or control characters | the WebSocket upgrade would turn them into a header injection |
+| An empty host (`http:///path`) | nothing to dial |
+
+Properties worth knowing:
+
+- The guard is a **shape** check, not an allow list: a monitor may still target a
+  private address (that is the point of monitoring a LAN device), so the trust
+  boundary stays where it already is - creating or editing a monitor requires an
+  authenticated dashboard session or a write-scoped API token
+  (`docs/api.md` §2).
+- A refused URL is a **down** heartbeat with `invalid url ...` in the message, not
+  a silent skip: the monitor shows the misconfiguration instead of pretending to
+  be healthy.
+- Redirects stay bounded by `max_redirects` and the URL of every hop is parsed by
+  `net/http` from the `Location` the target returned; the guard covers the
+  operator-supplied URL, which is the value the CodeQL `go/request-forgery`
+  query tracks.
+- The same treatment is applied to the cluster join URL
+  (`services.clusterPrimaryURL`, §9) and to webhook URLs of the notifiers.

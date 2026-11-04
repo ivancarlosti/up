@@ -113,6 +113,15 @@ Behaviour:
   every check. A query string already present in the URL is preserved next to
   it. HTTP and Keyword monitors share the option, the `ssl`, TCP, DNS and
   WebSocket types do not have it.
+- The URL is matched against the shape of a dialable URL before anything is
+  dialed (`internal/checkers/urlguard.go`): `http(s)://host[:port][/path][?query]`,
+  a host name or an IP literal (IPv6 between brackets). A refused URL makes the
+  monitor **down** with `invalid url ...` and never reaches a socket - another
+  scheme (`file:`, `gopher:`), a relative target, embedded credentials
+  (`https://user:pass@host`), a request with an empty host or a whitespace/control
+  character in it. Credentials belong in `auth_type`, `basic_user`/`basic_pass`
+  or `bearer_token`. The same guard covers the `websocket` type; see
+  `docs/security.md` §11.
 
 ## 3. TCP
 

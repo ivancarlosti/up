@@ -63,7 +63,16 @@ func httpRequest(ctx context.Context, monitor *models.Monitor, plan probePlan) (
 		return Result{Status: models.StatusDown, Message: err.Error()}, ""
 	}
 
-	req, err := http.NewRequestWithContext(ctx, cfg.Method, cfg.URL, body)
+	// The URL is the untrusted value of the probe: it is matched against the
+	// shape of a dialable URL before the request exists (see probeURLPattern),
+	// and the trimmed value is the one that is dialed, so the guard and the
+	// request cannot disagree about what is being fetched.
+	rawURL := strings.TrimSpace(cfg.URL)
+	if !probeURLPattern.MatchString(rawURL) {
+		return Result{Status: models.StatusDown, Message: invalidProbeURLMessage(rawURL, "http:// or https://")}, ""
+	}
+
+	req, err := http.NewRequestWithContext(ctx, cfg.Method, rawURL, body)
 	if err != nil {
 		return Result{Status: models.StatusDown, Message: "invalid request: " + err.Error()}, ""
 	}

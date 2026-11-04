@@ -34,6 +34,12 @@ func checkWebSocket(ctx context.Context, monitor *models.Monitor, plan probePlan
 	if rawURL == "" {
 		return Result{Status: models.StatusDown, Message: "the url is required"}
 	}
+	// The guard runs before the parse and before the dial: only the shape of a
+	// dialable URL reaches the handshake (see probeURLPattern). A refused URL is
+	// down, like any other configuration the probe cannot honor.
+	if !probeURLPattern.MatchString(rawURL) {
+		return Result{Status: models.StatusDown, Message: invalidProbeURLMessage(rawURL, "ws:// or wss://")}
+	}
 	target, err := url.Parse(rawURL)
 	if err != nil {
 		return Result{Status: models.StatusDown, Message: "invalid url: " + err.Error()}
