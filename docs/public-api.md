@@ -26,7 +26,7 @@ Scopes:
 
 | Scope | Allows |
 |---|---|
-| `read` | status, monitors, heartbeats, statistics, status pages, on-demand analysis |
+| `read` | status, monitors, heartbeats, statistics, status pages, hardware systems, on-demand analysis |
 | `write` | additionally pause/resume monitors |
 
 ## 2. Using the token
@@ -111,6 +111,62 @@ Same payload as the public status page (useful to render your own frontend).
 The `certificate`/`domain` badges of the monitors are only included when the
 page has the matching switch on, `show_cert_expiry` for the certificate and
 `show_domain_expiry` for the domain (see [status-pages.md](status-pages.md)).
+
+### `GET /api/v1/systems` and the rest of the hardware monitoring
+
+The machines the Beszel agents report (see [hardware-monitoring.md](hardware-monitoring.md)).
+All of them are `read`: creating, editing or deleting a machine, rotating its
+agent token, tuning its alert rules and refreshing its SMART report stay in the
+dashboard, where the operator is.
+
+| Method | Path | Answers |
+|---|---|---|
+| GET | `/api/v1/systems` | every machine, sorted by `name` |
+| GET | `/api/v1/systems/overview` | the last sample of every machine (the cards of the listing) |
+| GET | `/api/v1/systems/:id` | one machine |
+| GET | `/api/v1/systems/:id/history?hours=24` | row + charts + containers + SMART in one payload |
+| GET | `/api/v1/systems/:id/metrics?hours=24` | only the charts |
+| GET | `/api/v1/systems/:id/containers` | the containers running on the machine |
+| GET | `/api/v1/systems/:id/smart` | the stored SMART report |
+
+```json
+[{"id":3,"uuid":"0f8c1f7a-...","name":"docker-01","host":"10.0.0.14","enabled":true,
+  "status":"up","uptime":864000,"connected":true,"owner_node":"up-node-1",
+  "token_prefix":"ab12cd","fingerprint":"9f2e0c...","agent_version":"0.9.2",
+  "hostname":"docker-01","os_name":"Debian 13","kernel":"6.12.9","arch":"amd64",
+  "cpu_model":"AMD Ryzen 7 5700G","cores":8,"threads":16,"memory_total":33518837760,
+  "last_sample_at":"2026-11-05T18:59:00Z","last_seen_at":"2026-11-05T18:59:00Z",
+  "created_at":"2026-10-01T09:12:44Z","updated_at":"2026-11-05T18:59:00Z"}]
+```
+
+`status`, `uptime`, `connected` and `owner_node` are the decoration the dashboard
+renders next to the row; the identity block (`hostname`, `os_name`, `kernel`,
+`cpu_model`, `cores`, `memory_total`, ...) is what the agent reported on its
+handshake. `last_error`, when present, is why the connection or the agent failed
+last - a machine that is `down` usually explains itself there.
+
+Three fields are **not** in the payload: `alerts` (the threshold rules and their
+latch, which are operator tuning), `token`/`install_command` (shown once, in the
+answer that creates the machine) and `agent_key` (the `KEY` the agent is started
+with).
+
+`?hours=` accepts `1`, `6`, `24`, `168` or `720` and snaps to the closest one (a
+value outside the set lands on the nearest window: `30` becomes `24` and `99999`
+becomes `720`); the charts are downsampled to at most 240 points whatever the
+window, so the answer never depends on how much history exists. `/metrics`,
+`/containers` and `/smart` are read from the same payload as `/history` (they are
+three views of it), which is what keeps the four consistent with each other.
+
+In a cluster the samples live on the node that owns the agent: `/history` and its
+three projections fetch them from that owner over the peer API and say so with
+`"remote": true`, while `/systems` and `/systems/overview` answer from this
+node's tables, like the dashboard cards.
+
+| Error | Meaning |
+|---|---|
+| `400 ERR_VALIDATION` | `:id` is not a number |
+| `404 ERR_SYSTEM_NOT_FOUND` | unknown id |
+| `503 ERR_VALIDATION` | the hardware monitoring is not wired in this process |
 
 ### `POST /api/v1/analyze`
 
@@ -201,6 +257,15 @@ out=$(curl -s -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/st
 # uptime of one monitor over 7 days
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://up.example.com/api/v1/monitors/6/uptime?hours=168" | jq .uptime
+
+# machines that are not up, with the reason the agent gave
+curl -s -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/systems \
+  | jq -r '.[] | select(.status != "up") | "\(.name)\t\(.last_error // "no reason reported")"'
+
+# memory used over the last 30 days on one machine (at most 240 points)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://up.example.com/api/v1/systems/3/metrics?hours=720" \
+  | jq -r '.[] | "\(.created_at)\t\(.mem_pct)"'
 
 # pause a monitor during a maintenance window, then resume
 curl -s -X POST -H "Authorization: Bearer $TOKEN" https://up.example.com/api/v1/monitors/6/pause

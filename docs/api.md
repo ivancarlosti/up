@@ -686,6 +686,20 @@ Requires a bearer token and is documented in full in `docs/public-api.md`:
 | POST | `/api/v1/monitors/:id/pause` / `resume` | write |
 | GET | `/api/v1/status-pages/:slug` | read |
 | POST | `/api/v1/analyze` | read (runs the probes against a target, stores nothing) |
+| GET | `/api/v1/systems` | read (hardware monitoring, alerts and one time secrets stripped) |
+| GET | `/api/v1/systems/overview` | read |
+| GET | `/api/v1/systems/:id` | read |
+| GET | `/api/v1/systems/:id/history` | read |
+| GET | `/api/v1/systems/:id/metrics` | read |
+| GET | `/api/v1/systems/:id/containers` | read |
+| GET | `/api/v1/systems/:id/smart` | read |
+
+The hardware monitoring is the one surface that exists twice: the dashboard tree
+of section 6 (`/api/systems*`, session authenticated, read **and** write) and the
+read only mirror above (`/api/v1/systems*`, bearer token). The two answer the same
+payloads; the mirror drops the alert rules and the one time credentials, and the
+write half (create, edit, delete, token rotation, alert rules, SMART refresh) is
+only in the dashboard tree.
 
 ## 11. Error codes
 
@@ -733,6 +747,10 @@ The complete, stable catalogue (also present in `web/src/locales/*.json` under
 | `ERR_STATUS_PAGE_NOT_FOUND` | 404 | unknown slug |
 | `ERR_STATUS_PAGE_NOT_PUBLIC` | 403 | page hidden from anonymous visitors |
 | `ERR_STATUS_PAGE_SLUG_TAKEN` | 409 | duplicate slug |
+| `ERR_SYSTEM_NOT_FOUND` | 404 | unknown system |
+| `ERR_SYSTEM_NAME_TAKEN` | 409 | a system with that name already exists |
+| `ERR_SYSTEM_AGENT_AUTH` | 403 | the agent presented an unknown token, a token of another machine or a different fingerprint |
+| `ERR_SYSTEM_AGENT_BUSY` | 409 | the action needs the agent connection, which another node holds |
 | `ERR_BOOT_STARTING` | 503 | the API is up but the boot has not finished (phase in `/api/boot`) |
 | `ERR_BOOT_FAILED` | 503 | a boot step failed for another reason (the log names it) |
 | `ERR_DB_UNREACHABLE` | 503 | the server never answered: `DB_HOST`, `DB_PORT`, the server or the network |

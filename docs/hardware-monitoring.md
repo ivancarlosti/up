@@ -299,6 +299,19 @@ is not (the agent has no session).
 | GET | `/api/beszel/agent-connect` | the WebSocket the agent dials (token in `X-Token`) |
 | GET | `/api/cluster/sync/systems/history` | peer API: the history of a system this node owns |
 
+### The read only mirror on the public API
+
+Seven of those routes exist a second time on the bearer token API, so a script
+does not need a session (`docs/public-api.md`): `GET /api/v1/systems`,
+`/api/v1/systems/overview`, `/api/v1/systems/:id`, `/api/v1/systems/:id/history`,
+`/api/v1/systems/:id/metrics`, `/api/v1/systems/:id/containers` and
+`/api/v1/systems/:id/smart`. They answer the same payloads as the dashboard, minus
+`alerts` (the threshold rules and their latch) and the one time
+`token`/`install_command`/`agent_key`. Everything that changes something - create,
+edit, delete, the token rotation, the alert rules, the SMART refresh and the
+`/api/systems/containers` + `/api/systems/smart` listings of every machine - is
+only here, where a session and its CSRF defences are.
+
 ## 7. Limitations worth knowing
 
 - **Poll interval is fixed at 60 s.** The agent's own collector resolves one

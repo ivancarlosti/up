@@ -121,6 +121,19 @@ func (h *Container) Register(engine *gin.Engine) {
 	v1.POST("/monitors/:id/pause", middleware.RequireToken(h.Tokens, models.ScopeWrite), h.apiPauseMonitor)
 	v1.POST("/monitors/:id/resume", middleware.RequireToken(h.Tokens, models.ScopeWrite), h.apiResumeMonitor)
 	v1.GET("/status-pages/:slug", middleware.RequireToken(h.Tokens, models.ScopeRead), h.publicStatusPage)
+	// Hardware monitoring, read only: the machines the Beszel agents report
+	// (docs/hardware-monitoring.md). The write half - create, edit, delete, the
+	// token rotation, the alert rules and the SMART refresh - stays on the
+	// dashboard, where the operator is. The static segments are registered next
+	// to the parameter on purpose: gin serves both in one pass, and the route
+	// test pins the tree because a clash panics at registration time.
+	v1.GET("/systems", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiListSystems)
+	v1.GET("/systems/overview", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiSystemsOverview)
+	v1.GET("/systems/:id", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiGetSystem)
+	v1.GET("/systems/:id/history", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiSystemHistory)
+	v1.GET("/systems/:id/metrics", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiSystemMetrics)
+	v1.GET("/systems/:id/containers", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiSystemContainers)
+	v1.GET("/systems/:id/smart", middleware.RequireToken(h.Tokens, models.ScopeRead), h.apiSystemSmart)
 	// On-demand analysis: the probes of a monitor against a target the caller
 	// types in, without storing anything (docs/public-api.md). It is a read
 	// scope on purpose - it changes no state - even though the node does open an
