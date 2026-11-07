@@ -1099,3 +1099,89 @@ func TestMessageWithoutDomainStatusesStaysUnchanged(t *testing.T) {
 		t.Errorf("the HTML body must omit the registry row when there is nothing to show:\n%s", html)
 	}
 }
+
+// legacyRawBodyTemplate is the shape a channel stored before the json helper
+// reached the default: the values sit raw inside a quoted string, so a check
+// detail that carries a quote or a newline renders a body the target cannot
+// parse.
+const legacyRawBodyTemplate = `{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "message": "{{.Message}}"
+}`
+
+// TestBodyTemplateProblem pins the save-time guard: a template that cannot render
+// a parseable payload is refused before it is stored, with the reason and the
+// offending byte, so it can never fail every delivery afterwards. A body that is
+// not declared as JSON is the operator's business and is accepted.
+func TestBodyTemplateProblem(t *testing.T) {
+	cases := []struct {
+		name        string
+		contentType string
+		template    string
+		want        string
+	}{
+		{name: "the default block", contentType: "application/json", template: models.DefaultWebhookBodyTemplate},
+		{name: "an escaped custom block", contentType: "application/json", template: `{"message": {{json .Message}}}`},
+		{name: "a custom block with a safe helper", contentType: "application/json",
+			template: `{"message": {{json .Message}}, "node": "{{.NodeID | urlquery}}"}`},
+		{name: "a text helper on a free text value", contentType: "application/json",
+			template: `{"monitor": "{{.MonitorName | upper}}", "message": {{json .Message}}}`, want: "not valid JSON"},
+		{name: "an empty template", contentType: "application/json", template: ""},
+		{name: "a body that is not JSON", contentType: "text/plain", template: legacyRawBodyTemplate},
+		{name: "the legacy raw block", contentType: "application/json", template: legacyRawBodyTemplate, want: "not valid JSON"},
+		{name: "a single raw value", contentType: "application/json", template: `{"message": "{{.Message}}"}`, want: "not valid JSON"},
+		{name: "an unknown placeholder", contentType: "application/json", template: `{"message": {{json .Nope}}}`, want: "is refused"},
+		{name: "a syntax error", contentType: "application/json", template: `{"message": {{json .Message}}`, want: "is refused"},
+	}
+	for _, tc := range cases {
+		problem := BodyTemplateProblem(tc.contentType, tc.template)
+		if tc.want == "" {
+			if problem != "" {
+				t.Errorf("%s must be accepted, got: %s", tc.name, problem)
+			}
+			continue
+		}
+		if !strings.Contains(problem, tc.want) {
+			t.Errorf("%s: problem = %q, want it to name %q", tc.name, problem, tc.want)
+		}
+	}
+}
+
+// TestCheckWebhookBodyNamesTheOffendingValue pins the actionable half of the
+// refusal: the delivery log has to say WHERE the body stops parsing, because a
+// rendered body is one long line with a dozen values in it and "it is not valid
+// JSON" alone leaves the operator to bisect the template by hand.
+func TestCheckWebhookBodyNamesTheOffendingValue(t *testing.T) {
+	body := `{"monitor":"API health","message":"keyword "hello" matched"}`
+	err := checkWebhookBody("application/json", body)
+	if err == nil {
+		t.Fatal("an unescaped quote in a JSON body has to be refused")
+	}
+	for _, want := range []string{"not valid JSON", "{{json .Field}}", "invalid character", "at byte", "keyword"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error has to mention %q: %s", want, err)
+		}
+	}
+
+	// One log row: the excerpt of the body must not carry the newline that broke
+	// it, and the message itself stays on a single line.
+	multiline := "{\"message\":\"keyword \"hello\"\nmatched\"}"
+	err = checkWebhookBody("application/json", multiline)
+	if err == nil {
+		t.Fatal("a raw newline in a JSON body has to be refused")
+	}
+	if strings.Contains(err.Error(), "\n") {
+		t.Errorf("the error must stay on one line: %q", err)
+	}
+	if !strings.Contains(err.Error(), `\n`) {
+		t.Errorf("the error has to show the escaped newline of the excerpt: %q", err)
+	}
+
+	if err := checkWebhookBody("application/json", `{"monitor":"API health"}`); err != nil {
+		t.Errorf("a parseable body must be accepted: %v", err)
+	}
+	if err := checkWebhookBody("application/x-www-form-urlencoded", body); err != nil {
+		t.Errorf("a body that is not declared as JSON is sent verbatim: %v", err)
+	}
+}

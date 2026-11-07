@@ -74,6 +74,22 @@ func (n *Notification) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+// AfterFind makes the webhook body invariant hold on the READ path too: a row
+// written by an older release (or pushed by a peer running one) still carries
+// the block that release shipped, and that block interpolates its values raw.
+// Upgrading it here - not only on save - is what makes an existing channel stop
+// breaking on a quoted check detail before the backfill has rewritten the row:
+// the UI, the test button, the dispatch and the sync payload all read through
+// this hook. A template the operator wrote is returned untouched (see
+// UpgradeWebhookBodyTemplate).
+func (n *Notification) AfterFind(tx *gorm.DB) error {
+	if n.Type != NotificationWebhook || n.Config.Webhook == nil {
+		return nil
+	}
+	n.Config.Webhook.BodyTemplate = UpgradeWebhookBodyTemplate(n.Config.Webhook.BodyTemplate)
+	return nil
+}
+
 // NotificationConfig groups the per-type settings. Only the block matching the
 // notification type is used.
 type NotificationConfig struct {
@@ -136,6 +152,153 @@ const DefaultWebhookBodyTemplate = `{
   "node": {{json .NodeID}},
   "timestamp": {{json .Timestamp}}
 }`
+
+// legacyWebhookBodyTemplates are the blocks older releases shipped as
+// DefaultWebhookBodyTemplate, newest first. They are kept only so a channel saved
+// by one of those releases can be recognised and healed: every one of them
+// interpolates its values raw inside a quoted string ("{{.Message}}"), so a check
+// detail that carries a quote, a backslash or a newline - which a keyword check
+// always does (`keyword "hello" matched`) - renders a body that is not JSON, and
+// the target drops the alert (n8n answers 422 "Failed to parse request body").
+// The oldest entries still name fields that no longer exist on notify.Message
+// (MonitorGroups), so a channel that stored one of them did not merely break on a
+// quoted value: it failed to render at all.
+//
+// They are compared after canonicalisation (see canonicalBodyTemplate) and are
+// never matched against a template the operator wrote by hand, so a custom body
+// keeps working verbatim - only a shipped default is replaced by the current one.
+var legacyWebhookBodyTemplates = []string{
+	// Up to 3fa6062: the block that the reported failure was saved with. It is
+	// also the last release before the json helper reached the default.
+	`{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "type": "{{.MonitorType}}",
+  "target": "{{.MonitorURL}}",
+  "dashboard_url": "{{.DashboardURL}}",
+  "status": "{{.Status}}",
+  "message": "{{.Message}}",
+  "domain_statuses": {{json .DomainStatuses}},
+  "domain_statuses_csv": "{{.DomainStatusCSV}}",
+  "tags": {{json .MonitorTags}},
+  "group": "{{.MonitorGroup}}",
+  "group_id": {{.MonitorGroupID}},
+  "latency_ms": {{.LatencyMS}},
+  "node": "{{.NodeID}}",
+  "timestamp": "{{.Timestamp}}"
+}`,
+	// Up to fce28ae: the same block before the registry statuses of a domain
+	// reminder were rendered.
+	`{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "type": "{{.MonitorType}}",
+  "target": "{{.MonitorURL}}",
+  "dashboard_url": "{{.DashboardURL}}",
+  "status": "{{.Status}}",
+  "message": "{{.Message}}",
+  "tags": {{json .MonitorTags}},
+  "group": "{{.MonitorGroup}}",
+  "group_id": {{.MonitorGroupID}},
+  "latency_ms": {{.LatencyMS}},
+  "node": "{{.NodeID}}",
+  "timestamp": "{{.Timestamp}}"
+}`,
+	// Up to 3dad42a: the last block that carried a list of groups.
+	`{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "type": "{{.MonitorType}}",
+  "target": "{{.MonitorURL}}",
+  "dashboard_url": "{{.DashboardURL}}",
+  "status": "{{.Status}}",
+  "message": "{{.Message}}",
+  "tags": {{json .MonitorTags}},
+  "group": "{{.MonitorGroup}}",
+  "group_id": {{.MonitorGroupID}},
+  "groups": {{json .MonitorGroups}},
+  "latency_ms": {{.LatencyMS}},
+  "node": "{{.NodeID}}",
+  "timestamp": "{{.Timestamp}}"
+}`,
+	// Up to 14bbc30: the same block before dashboard_url existed.
+	`{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "type": "{{.MonitorType}}",
+  "target": "{{.MonitorURL}}",
+  "status": "{{.Status}}",
+  "message": "{{.Message}}",
+  "tags": {{json .MonitorTags}},
+  "groups": {{json .MonitorGroups}},
+  "latency_ms": {{.LatencyMS}},
+  "node": "{{.NodeID}}",
+  "timestamp": "{{.Timestamp}}"
+}`,
+	// Up to 0ed0ca7: before dashboard_url, the group fields and the tags.
+	`{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "type": "{{.MonitorType}}",
+  "target": "{{.MonitorURL}}",
+  "status": "{{.Status}}",
+  "message": "{{.Message}}",
+  "tags": {{json .MonitorTags}},
+  "groups": {{json .MonitorGroups}},
+  "latency_ms": {{.LatencyMS}},
+  "node": "{{.NodeID}}",
+  "timestamp": "{{.Timestamp}}"
+}`,
+	// Up to 4383ece / b2784e1 / f2a7b85: the first block the dialog shipped.
+	`{
+  "event": "{{.Event}}",
+  "monitor": "{{.MonitorName}}",
+  "type": "{{.MonitorType}}",
+  "target": "{{.MonitorURL}}",
+  "status": "{{.Status}}",
+  "message": "{{.Message}}",
+  "latency_ms": {{.LatencyMS}},
+  "node": "{{.NodeID}}",
+  "timestamp": "{{.Timestamp}}"
+}`,
+}
+
+// UpgradeWebhookBodyTemplate replaces a body template that is a byte-for-byte
+// copy of a block an older release shipped with the current
+// DefaultWebhookBodyTemplate, and returns anything else verbatim.
+//
+// It is deliberately narrow: a channel whose template the operator edited (even
+// one that only broke one line, or that merely resembles the default) is left
+// alone, because Up cannot tell which of its lines were meant as JSON. Such a
+// channel is refused on save instead (see notify.BodyTemplateProblem) and named
+// in the delivery log on send, so the fix is spelled out rather than guessed.
+func UpgradeWebhookBodyTemplate(bodyTemplate string) string {
+	if strings.TrimSpace(bodyTemplate) == "" {
+		return bodyTemplate
+	}
+	canonical := canonicalBodyTemplate(bodyTemplate)
+	for _, legacy := range legacyWebhookBodyTemplates {
+		if canonical == canonicalBodyTemplate(legacy) {
+			return DefaultWebhookBodyTemplate
+		}
+	}
+	return bodyTemplate
+}
+
+// canonicalBodyTemplate strips what does not change the meaning of a body block
+// (CRLF line endings, indentation, blank lines and trailing spaces) so a template
+// that went through a textarea, a JSON round trip or a peer's client still
+// compares equal to the block it was copied from.
+func canonicalBodyTemplate(bodyTemplate string) string {
+	bodyTemplate = strings.ReplaceAll(bodyTemplate, "\r\n", "\n")
+	lines := make([]string, 0, strings.Count(bodyTemplate, "\n")+1)
+	for _, line := range strings.Split(bodyTemplate, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 // SlackConfig describes the Slack delivery settings. The token is either a bot
 // token (xoxb-…) or an incoming webhook token (hook:T…-B…-X…).
@@ -222,6 +385,11 @@ func (n *Notification) Normalize() {
 		if strings.TrimSpace(w.ContentType) == "" {
 			w.ContentType = "application/json"
 		}
+		// A save is where a channel written by an older release (or by a client
+		// that still ships its dialog block) is healed: the stored default is
+		// replaced by the current one before the empty check fills it in. A
+		// template the operator wrote is left alone.
+		w.BodyTemplate = UpgradeWebhookBodyTemplate(w.BodyTemplate)
 		if strings.TrimSpace(w.BodyTemplate) == "" {
 			w.BodyTemplate = DefaultWebhookBodyTemplate
 		}

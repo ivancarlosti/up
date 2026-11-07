@@ -164,23 +164,38 @@ dialog renders. A row with no template at all falls back to
 `tags_csv`, which a template can reach through `{{.InstanceURL}}`,
 `{{.DashboardURL}}` and `{{.TagsCSV}}`. The group is a single value: `group` and
 `group_id` are the group of the monitor (`""` and `0` when it belongs to none).
-Adding `group` and `group_id` to the block only affects the channels saved after
-the change, for the same reason as the fields below.
-Adding `dashboard_url` to the block only affects the channels saved after it
-appeared: a row that already stored a template keeps it verbatim (the dialog
-textarea has no *reset* button), so an existing channel picks the new field up
-only when the line is added by hand or the field is emptied before saving.
-`domain_statuses` and `domain_statuses_csv` follow the same rule: they are
-`[]`/`""` for every event that is not a domain reminder, and a channel whose
-template predates them simply never renders them. The `json` helper follows the
-same rule as well: a channel that already stored the old
-`"message": "{{.Message}}"` block keeps it verbatim, so it keeps breaking on a
-quoted detail until the line is edited (or the field emptied and saved, which
-restores the block above). Up validates the rendered body before sending it
-(`checkWebhookBody` in `internal/notify/engine.go`): an `application/json` body
-that is not valid JSON is refused locally, so the failure reaches the delivery
-log as *the rendered webhook body is not valid JSON* instead of an opaque 422
-from the target.
+Adding `group`, `group_id`, `dashboard_url`, `domain_statuses` or
+`domain_statuses_csv` to the block only affects the channels created or saved
+after the change, with one exception: a channel that still carries a *shipped*
+default is upgraded in place (the next two paragraphs), so it picks the new fields
+up as soon as the release is running. A template you wrote by hand keeps its lines
+verbatim - a channel written before `dashboard_url` existed never renders it until
+the line is added by hand - and `domain_statuses` / `domain_statuses_csv` are
+`[]`/`""` for every event that is not a domain reminder. The `json` helper changed
+what the *shipped* block itself looks like, so a channel that stored an older
+default would have kept the raw interpolation forever (the dialog textarea has no
+*reset* button and `Normalize` only fills an EMPTY template). That one is repaired
+instead of left to the operator: a stored template that is a copy of a default an
+older release shipped - the `"message": "{{.Message}}"` block in any of its
+historical spellings, whatever its line endings or indentation - is replaced by
+the block above when the channel is **read**, when it is **saved** and by a boot
+pass (`database.BackfillWebhookBodyTemplates`), so a channel that was created
+before the change delivers again right after the upgrade without editing
+anything. A template *you* wrote is never rewritten: Up cannot tell which of its
+lines were meant as JSON.
+
+Such a hand written template is refused when it is saved: `POST`/`PUT` of a
+webhook channel renders it with a check detail that carries a quote, a backslash
+and a newline (`notify.BodyTemplateProblem`), and answers
+`400 config.webhook.body_template is refused: ...` naming the reason - the byte
+that does not parse, or the placeholder that does not exist. A template that
+reaches the send path anyway (a channel applied from a peer, a row edited straight
+in the database) is refused there as well: `checkWebhookBody`
+(`internal/notify/engine.go`) will not send an `application/json` body that is not
+valid JSON, and the delivery log carries *the rendered webhook body is not valid
+JSON* together with the offset and a short excerpt of the body - the value at
+fault is visible without bisecting sixteen placeholders. A body whose
+`content_type` is not JSON is never checked: it is the target's business.
 
 ### Slack
 
@@ -559,7 +574,7 @@ failing configuration can be diagnosed without reading the application log.
 | `smtp: error connecting to server: dial tcp ... connection refused` | wrong host/port, or `127.0.0.1` from inside a container (use `host.docker.internal`) |
 | `smtp: ... x509: certificate signed by unknown authority` | self-signed relay: enable `skip_tls_verify` |
 | `smtp: error applying params ...` | unknown parameter sent to the smtp service (a bug: only `title` is forwarded) |
-| `the rendered webhook body is not valid JSON (content_type "application/json") ...` | Up refused to send it: the template interpolates a value raw and that value carries a quote, a backslash or a newline (a keyword check renders `keyword "hello" matched`). Render the value with `{{json .Field}}` (§2, *Escaping*), or empty the field and save to restore the default block |
+| `the rendered webhook body is not valid JSON (content_type "application/json"): invalid character '…' at byte N, near "…" ...` | Up refused to send it: the template interpolates a value raw and that value carries a quote, a backslash or a newline (a keyword check renders `keyword "hello" matched`). The byte and the excerpt name the value at fault. Render it with `{{json .Field}}` (§2, *Escaping*). A row that stored the default of an older release heals itself (the block is upgraded on read, on save and at boot); a template you wrote by hand is never rewritten and has to be fixed in the dialog |
 | `generic: failed to send notification ... server returned unexpected response status code: 422` | the target parsed the body and refused it. With `Content-Type: application/json` this is a body that does not parse: n8n answers `422 Unprocessable Entity` + `Failed to parse request body` (§5 shows how to replay the captured body). A 422 has nothing to do with the token or the URL - an inactive workflow or a wrong path answers 404, an unknown credential 401/403 |
 | `generic: failed to send notification ... server returned unexpected response status code` | the webhook answered 4xx/5xx (the status is in the error); with a credential in the URL, check that it is in the query the target expects (`?token=…`) - the whole query is forwarded. Up keeps only the status line: run with `LOG_LEVEL=debug` and shoutrrr logs the `Server response: ...` body the target returned |
 | `slack: failed to send slack notification: invalid_auth` | wrong/revoked bot token, or the app was removed from the channel |
@@ -571,3 +586,4 @@ failing configuration can be diagnosed without reading the application log.
 | `telegram: ... can't parse entities` | a Markdown parse mode with unescaped characters in the check detail: use `None` |
 | `no notification channel accepted the event` (warning, logged with `channels=0`) | the incident was evaluated with no eligible channel: no link, the channel is disabled, or the link has `on_down` off. Nothing is recorded as reported, so the alert is sent as soon as a channel becomes eligible |
 | Notification sent but not received and no log row | the monitor was never linked to the channel (`notification_ids`) |
+| `400 config.webhook.body_template is refused: ...` when saving a channel | the template cannot render a parseable body: a value interpolated raw (`"{{.Field}}"`) or a placeholder that does not exist. The message names the byte (§2, *Escaping*); the save is refused instead of storing a channel that would fail every delivery |

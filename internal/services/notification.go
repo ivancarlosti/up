@@ -122,10 +122,34 @@ func (s *NotificationService) Get(ctx context.Context, id uint) (*models.Notific
 	return &notification, nil
 }
 
+// validateChannel runs every check a locally saved channel has to pass: the model
+// validation, plus the render probe of a webhook body template. The probe is here
+// rather than in models.Notification.Validate because rendering needs the
+// template helpers of the notify package, and notify already imports models - the
+// dependency only points one way.
+//
+// The probe is what stops the reported failure at the source: a template that
+// interpolates a value raw (`"message": "{{.Message}}"`) is refused with a 400
+// that names the offending byte, so it can never be stored and fail every
+// delivery afterwards. A row that already holds such a template is repaired by
+// models.UpgradeWebhookBodyTemplate when it is a shipped default, and is refused
+// here as soon as it is saved again. The apply path of the sync never comes
+// through here on purpose: a peer's channel is stored as it is sent.
+func validateChannel(notification *models.Notification) string {
+	if problem := notification.Validate(); problem != "" {
+		return problem
+	}
+	if notification.Type != models.NotificationWebhook || notification.Config.Webhook == nil {
+		return ""
+	}
+	return notify.BodyTemplateProblem(notification.Config.Webhook.ContentType,
+		notification.Config.Webhook.BodyTemplate)
+}
+
 // Create stores a new channel.
 func (s *NotificationService) Create(ctx context.Context, notification *models.Notification) error {
 	notification.Normalize()
-	if problem := notification.Validate(); problem != "" {
+	if problem := validateChannel(notification); problem != "" {
 		return ErrBadRequest(i18n.CodeNotificationConfig, problem)
 	}
 	// The identity is stamped here rather than by a later update, so the row, the
@@ -147,7 +171,7 @@ func (s *NotificationService) Create(ctx context.Context, notification *models.N
 // Update saves an existing channel.
 func (s *NotificationService) Update(ctx context.Context, notification *models.Notification) error {
 	notification.Normalize()
-	if problem := notification.Validate(); problem != "" {
+	if problem := validateChannel(notification); problem != "" {
 		return ErrBadRequest(i18n.CodeNotificationConfig, problem)
 	}
 	// The Config column is written as a marshalled JSON string (GORM only

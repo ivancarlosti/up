@@ -260,6 +260,21 @@ func prepareDatabase(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 		return nil, err
 	}
 
+	// A webhook channel saved by an older release still stores the block that
+	// release shipped, and that block interpolates its values raw (a keyword check
+	// renders `keyword "hello" matched`, which is not valid JSON inside a quoted
+	// string). AfterFind already heals it on every read, so no alert is lost while
+	// this runs; the pass is what puts the escaped block on disk. It only replaces
+	// a stored default, never a template the operator wrote, and it is idempotent.
+	// The phase is the backfill one for the same reason as monitor_groups: this IS
+	// a data backfill, so reusing the phase keeps the progress the UI reports
+	// honest without adding a sentence to every locale.
+	if err := step("webhook_body", boot.PhaseBackfilling, i18n.CodeDatabaseMigration, func() error {
+		return database.BackfillWebhookBodyTemplates(ctx, db, log)
+	}); err != nil {
+		return nil, err
+	}
+
 	// The per node state table is a derived one: it holds the newest verdict of
 	// every node about every monitor, and it is what the cluster voting reads
 	// instead of grouping the whole heartbeat history (see

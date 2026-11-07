@@ -142,12 +142,49 @@ func checkWebhookBody(contentType, body string) error {
 	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
 		return nil
 	}
-	if json.Valid([]byte(body)) {
+	var probe any
+	err = json.Unmarshal([]byte(body), &probe)
+	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("the rendered webhook body is not valid JSON (content_type %q): "+
+	return fmt.Errorf("the rendered webhook body is not valid JSON (content_type %q): %s - "+
 		"a value probably carries a quote, a backslash or a newline - render it with "+
-		"{{json .Field}} instead of \"{{.Field}}\"", contentType)
+		"{{json .Field}} instead of \"{{.Field}}\"", contentType, describeBodyError(body, err))
+}
+
+// describeBodyError names where a body stops parsing: the offending byte and a
+// short excerpt around it. A template has sixteen placeholders on average and the
+// rendered body is one long line, so "it is not valid JSON" alone leaves the
+// operator to find the value that broke it by hand - while the delivery log has
+// room for the answer. The excerpt is single line (Go's %q escapes the control
+// characters) and bounded, so one runaway value cannot fill the log.
+func describeBodyError(body string, err error) string {
+	var syntax *json.SyntaxError
+	if !errors.As(err, &syntax) || syntax.Offset <= 0 || int(syntax.Offset) > len(body) {
+		return err.Error()
+	}
+	// Offset points just past the byte that could not be parsed, so the excerpt
+	// is centred on it with a little more context behind than ahead.
+	return fmt.Sprintf("%s at byte %d, near %q", syntax.Error(), syntax.Offset,
+		bodyExcerpt(body, int(syntax.Offset)))
+}
+
+// bodyExcerpt is a window of at most bodyExcerptWidth bytes around offset, cut on
+// a rune boundary so a multi-byte character renders instead of a broken byte.
+func bodyExcerpt(body string, offset int) string {
+	const bodyExcerptWidth = 64
+	start := offset - bodyExcerptWidth/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + bodyExcerptWidth
+	if end > len(body) {
+		end = len(body)
+		if start = end - bodyExcerptWidth; start < 0 {
+			start = 0
+		}
+	}
+	return string([]rune(body[start:end]))
 }
 
 // SendSlack delivers a message through shoutrrr's slack service.
